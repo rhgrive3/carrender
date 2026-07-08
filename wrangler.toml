@@ -10,4 +10,4 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "studycommander-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "538b1c61-6c42-4a89-aafe-41282c7ab5e5"
