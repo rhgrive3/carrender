@@ -1,13 +1,14 @@
 // ダークモード確認 + タイマー→記録フロー検証
+// 事前に別ターミナルで `npm run pages:dev` を起動しておくこと(/api がないと動きません)
 import { chromium } from 'playwright';
+import { registerTestUser } from './_dev-auth-helper.mjs';
 
 const OUT = process.env.SHOT_DIR ?? '/tmp/shots';
-const BASE = 'http://localhost:4173/carrender/';
+const BASE = 'http://localhost:8788/';
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, colorScheme: 'dark' });
-await page.goto(BASE);
-await page.waitForTimeout(1000);
+await registerTestUser(page, BASE);
 await page.getByText('まずはデモデータで試す').click();
 await page.waitForTimeout(900);
 await page.screenshot({ path: `${OUT}/dark-today.png` });

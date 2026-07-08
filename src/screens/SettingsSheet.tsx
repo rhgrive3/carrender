@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useApp } from '../state/AppContext';
+import { useAuth } from '../state/AuthContext';
 import { Sheet } from '../components/ui/Sheet';
 import { Segmented, Rating, NumericInput } from '../components/ui/bits';
 import { useToast } from '../components/ui/Toast';
@@ -7,10 +8,19 @@ import { exportJSON, importJSON, saveStateNow } from '../lib/storage';
 import { formatDateShort, genId, hmToMinutes, minutesToHM, today, WEEKDAY_LABELS } from '../lib/date';
 import type { DayLoad, DayPlanOverride, FixedEvent, TimeRange, Weekday } from '../types';
 
+const SYNC_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
+  syncing: { label: '同期中…', cls: 'status-accent' },
+  synced: { label: 'クラウドに保存済み', cls: 'status-ok' },
+  offline: { label: 'オフライン(端末に一時保存中)', cls: 'status-warn' },
+  error: { label: '同期エラー(端末には保存済み)', cls: 'status-danger' },
+};
+
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, syncStatus } = useApp();
+  const { user, logout, busy: authBusy } = useAuth();
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
+  const syncInfo = SYNC_STATUS_LABEL[syncStatus] ?? SYNC_STATUS_LABEL.synced;
 
   const [goalName, setGoalName] = useState(state.goal?.name ?? '');
   const [examDate, setExamDate] = useState(state.goal?.examDate ?? '');
@@ -138,6 +148,29 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
 
   return (
     <Sheet open={open} onClose={onClose} title="設定">
+      {/* アカウント */}
+      <div className="section-label">🔑 アカウント</div>
+      <div className="card" style={{ padding: 14, marginBottom: 18 }}>
+        <div className="row spread">
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>{user?.username ?? '-'}</div>
+            <span className={`status-badge ${syncInfo.cls}`} style={{ marginTop: 6 }}>
+              {syncInfo.label}
+            </span>
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            disabled={authBusy}
+            onClick={() => {
+              logout();
+              onClose();
+            }}
+          >
+            ログアウト
+          </button>
+        </div>
+      </div>
+
       {/* テーマ */}
       <div className="field">
         <label>テーマ</label>
@@ -428,7 +461,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       </button>
 
       <p className="faint" style={{ textAlign: 'center', marginTop: 18 }}>
-        StudyCommander v1.0 ・ データは端末内にのみ保存されます
+        StudyCommander v1.0 ・ データはアカウントに紐づけてクラウドに保存されます
       </p>
     </Sheet>
   );

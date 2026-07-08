@@ -1,0 +1,13 @@
+name = "studycommander"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "dist"
+
+# Cloudflare D1 バインディング。
+# 1) `wrangler d1 create studycommander-db` を実行し、出力された database_id を下に貼り付ける
+# 2) `wrangler d1 execute studycommander-db --remote --file=./schema/schema.sql` でテーブルを作成
+# 3) Cloudflare Pages ダッシュボード側でも Settings → Functions → D1 database bindings で
+#    変数名 "DB" として同じデータベースを紐付ける(ダッシュボードからのデプロイに必要)
+[[d1_databases]]
+binding = "DB"
+database_name = "studycommander-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"

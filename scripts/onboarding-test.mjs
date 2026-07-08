@@ -1,11 +1,13 @@
 // オンボーディング完走テスト
+// 事前に別ターミナルで `npm run pages:dev` を起動しておくこと(/api がないと動きません)
 import { chromium } from 'playwright';
+import { registerTestUser } from './_dev-auth-helper.mjs';
 
 const OUT = process.env.SHOT_DIR ?? '/tmp/shots';
+const BASE = 'http://localhost:8788/';
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, colorScheme: 'dark' });
-await page.goto('http://localhost:4173/carrender/');
-await page.waitForTimeout(1000);
+await registerTestUser(page, BASE);
 
 // Step1: 目標
 await page.fill('#ob-goal', '共通テスト本番');

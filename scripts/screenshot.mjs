@@ -1,8 +1,10 @@
 // UI確認用スクリーンショット (iPhone幅390px + iPad幅820px)
+// 事前に別ターミナルで `npm run pages:dev` を起動しておくこと(/api がないと動きません)
 import { chromium } from 'playwright';
+import { registerTestUser } from './_dev-auth-helper.mjs';
 
 const OUT = process.env.SHOT_DIR ?? '/tmp/shots';
-const BASE = 'http://localhost:4173/carrender/';
+const BASE = 'http://localhost:8788/';
 
 const browser = await chromium.launch();
 
@@ -10,6 +12,8 @@ async function shoot(width, height, suffix) {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
   await page.goto(BASE);
   await page.waitForTimeout(1200);
+  await page.screenshot({ path: `${OUT}/login-${suffix}.png` });
+  await registerTestUser(page, BASE);
   await page.screenshot({ path: `${OUT}/onboarding-${suffix}.png` });
 
   // デモデータ開始

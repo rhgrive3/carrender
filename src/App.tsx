@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './state/AppContext';
+import { AuthProvider, useAuth } from './state/AuthContext';
 import { TimerProvider } from './components/timer/TimerContext';
 import { ToastProvider } from './components/ui/Toast';
 import { TodayScreen } from './screens/TodayScreen';
@@ -9,6 +10,7 @@ import { RecordsScreen } from './screens/RecordsScreen';
 import { AnalyticsScreen } from './screens/AnalyticsScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsSheet } from './screens/SettingsSheet';
+import { LoginScreen } from './screens/LoginScreen';
 import { TimerOverlay } from './components/timer/TimerOverlay';
 
 import { IconHome, IconPlan, IconBook, IconTimer, IconChart } from './components/navigation/NavIcons';
@@ -82,14 +84,38 @@ function Shell() {
   );
 }
 
+function AuthGate({ children }: { children: JSX.Element }) {
+  const { status } = useAuth();
+
+  if (status === 'checking') {
+    return (
+      <div className="auth-shell" aria-hidden="true">
+        <div className="auth-logo-block">
+          <div className="auth-logo boot-pulse">🎯</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'anonymous') {
+    return <LoginScreen />;
+  }
+
+  return children;
+}
+
 export default function App() {
   return (
-    <AppProvider>
-      <TimerProvider>
-        <ToastProvider>
-          <Shell />
-        </ToastProvider>
-      </TimerProvider>
-    </AppProvider>
+    <AuthProvider>
+      <AuthGate>
+        <AppProvider>
+          <TimerProvider>
+            <ToastProvider>
+              <Shell />
+            </ToastProvider>
+          </TimerProvider>
+        </AppProvider>
+      </AuthGate>
+    </AuthProvider>
   );
 }

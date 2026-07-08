@@ -3,7 +3,26 @@ import { defaultAvailability, defaultSettings } from '../data/defaults';
 import { toISODate } from './date';
 
 const KEY = 'studycommander_state_v1';
+const OWNER_KEY = 'studycommander_owner_v1';
 export const STATE_VERSION = 2;
+
+/** どのアカウントのデータがlocalStorageにキャッシュされているかを記録する(別ユーザーへの誤流用を防止) */
+export function getStateOwner(): string | null {
+  try {
+    return localStorage.getItem(OWNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStateOwner(owner: string | null): void {
+  try {
+    if (owner) localStorage.setItem(OWNER_KEY, owner);
+    else localStorage.removeItem(OWNER_KEY);
+  } catch {
+    // localStorageが使えなくても致命的ではない
+  }
+}
 
 export function loadState(): AppState | null {
   try {
@@ -42,6 +61,12 @@ export function saveStateNow(state: AppState): void {
 
 export function clearState(): void {
   localStorage.removeItem(KEY);
+}
+
+/** ログアウト時: 端末に残る学習データキャッシュと持ち主情報を消す(共用端末での漏えい防止) */
+export function clearOwnedState(): void {
+  localStorage.removeItem(KEY);
+  localStorage.removeItem(OWNER_KEY);
 }
 
 export function exportJSON(state: AppState): string {

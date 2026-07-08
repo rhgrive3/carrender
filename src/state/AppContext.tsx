@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useReducer } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type {
   AppState,
@@ -13,12 +13,15 @@ import type {
   Subject,
   UserGoal,
 } from '../types';
-import { loadState, saveState, saveStateNow, clearState } from '../lib/storage';
+import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, normalizeState } from '../lib/storage';
 import { generatePlan } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
 import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
 import { buildDemoState } from '../data/demo';
 import { defaultSettings, defaultAvailability } from '../data/defaults';
+import { useAuth } from './AuthContext';
+import { apiGetData, apiPutData } from '../lib/api';
+import type { ApiError } from '../lib/api';
 
 // ============================================================
 // アクション定義
@@ -387,19 +390,46 @@ export function emptyState(): AppState {
 // Context
 // ============================================================
 
+export type SyncStatus = 'syncing' | 'synced' | 'offline' | 'error';
+
 interface AppContextValue {
   state: AppState;
   dispatch: (action: Action) => void;
+  syncStatus: SyncStatus;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+const DATA_PUSH_DEBOUNCE_MS = 900;
+
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, undefined, () => loadState() ?? emptyState());
+  const { user } = useAuth();
+  const owner = user?.username ?? null;
+
+  // ログインユーザーとlocalStorageのキャッシュ持ち主が一致する(または、まだ誰の持ち物か
+  // タグ付けされていない=アカウント制導入前からの既存データ)時だけローカルキャッシュを使う。
+  // ログアウト時にキャッシュとタグは必ず一緒に消えるため、別ユーザーのデータが
+  // 新しいユーザーに混ざることはない(共用端末でも安全)。
+  const [state, dispatch] = useReducer(reducer, undefined, () => {
+    const savedOwner = getStateOwner();
+    if (owner && (savedOwner === null || savedOwner === owner)) {
+      return loadState() ?? emptyState();
+    }
+    return emptyState();
+  });
+
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const [syncReady, setSyncReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPush = useRef(false);
 
   useEffect(() => {
     saveState(state);
-  }, [state]);
+    setStateOwner(owner);
+  }, [state, owner]);
 
   // タブ非表示・終了時に即保存(iOS PWA対策)
   useEffect(() => {
@@ -414,7 +444,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [state]);
 
-  const value = useMemo(() => ({ state, dispatch }), [state]);
+  // 初回ログイン時: D1に既存データがあればそれを正として読み込み、
+  // なければ端末内の既存データをD1へ移行する
+  useEffect(() => {
+    if (!owner) return;
+    let cancelled = false;
+    setSyncReady(false);
+    setSyncStatus('syncing');
+    (async () => {
+      try {
+        const res = await apiGetData();
+        if (cancelled) return;
+        if (res.appState) {
+          dispatch({ type: 'IMPORT_STATE', state: normalizeState(res.appState as AppState) });
+        } else if (stateRef.current.onboarded) {
+          await apiPutData(stateRef.current);
+        }
+        if (!cancelled) setSyncStatus('synced');
+      } catch (e) {
+        if (cancelled) return;
+        const err = e as ApiError;
+        setSyncStatus(err.isNetworkError ? 'offline' : 'error');
+      } finally {
+        if (!cancelled) setSyncReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owner]);
+
+  const pushToD1 = useCallback(async (nextState: AppState) => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      pendingPush.current = true;
+      setSyncStatus('offline');
+      return;
+    }
+    try {
+      await apiPutData(nextState);
+      pendingPush.current = false;
+      setSyncStatus('synced');
+    } catch (e) {
+      pendingPush.current = true;
+      const err = e as ApiError;
+      setSyncStatus(err.isNetworkError ? 'offline' : 'error');
+    }
+  }, []);
+
+  // 状態変化をD1へデバウンス反映(オフライン時はlocalStorageのみに保存し、オンライン復帰後に再送)
+  useEffect(() => {
+    if (!syncReady || !owner) return;
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      pushToD1(stateRef.current);
+    }, DATA_PUSH_DEBOUNCE_MS);
+    return () => {
+      if (pushTimer.current) clearTimeout(pushTimer.current);
+    };
+  }, [state, syncReady, owner, pushToD1]);
+
+  useEffect(() => {
+    const onOnline = () => {
+      if (pendingPush.current) pushToD1(stateRef.current);
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [pushToD1]);
+
+  const value = useMemo(() => ({ state, dispatch, syncStatus }), [state, syncStatus]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
