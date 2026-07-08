@@ -1,4 +1,4 @@
-import type { AppSettings, AvailabilitySlot, Weekday } from '../types';
+import type { AppSettings, AvailabilitySlot, TimeRange, Weekday } from '../types';
 
 export function defaultSettings(): AppSettings {
   return {
@@ -20,7 +20,13 @@ export function defaultAvailability(): AvailabilitySlot[] {
   const slots: AvailabilitySlot[] = [];
   for (let wd = 0 as Weekday; wd <= 6; wd = (wd + 1) as Weekday) {
     const isWeekend = wd === 0 || wd === 6;
-    slots.push({ weekday: wd, minutes: isWeekend ? 300 : 150 });
+    const windows: TimeRange[] = isWeekend
+      ? [
+          { start: '09:00', end: '12:00' },
+          { start: '14:00', end: '16:00' },
+        ]
+      : [{ start: '18:00', end: '20:30' }];
+    slots.push({ weekday: wd, minutes: isWeekend ? 300 : 150, windows });
   }
   return slots;
 }

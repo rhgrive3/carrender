@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Sheet } from '../ui/Sheet';
-import { Rating, Segmented, Stepper } from '../ui/bits';
+import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
 import { useApp } from '../../state/AppContext';
 import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
@@ -147,7 +147,14 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
             どこまで進んだ?{material ? `(${material.unit}数)` : ''}
             {quota > 0 && <span style={{ fontWeight: 500 }}> ・今日の目安 {quota}{material?.unit}</span>}
           </label>
-          <Stepper value={amountDone} onChange={setAmountDone} min={0} max={material ? material.totalAmount : 9999} suffix={material?.unit ?? ''} />
+          <NumericInput
+            value={amountDone}
+            min={0}
+            max={material ? material.totalAmount : 9999}
+            placeholder={`例: ${quota || task?.amount || 10}`}
+            onChange={setAmountDone}
+            ariaLabel="完了量"
+          />
         </div>
       )}
 

@@ -23,12 +23,13 @@ export function generateReviewTasks(
 
   // 対象外: 過去問演習・模試復習は自動連鎖しない
   if (completedTask.type === 'pastExam' || completedTask.type === 'mockReview') return created;
+  if (material && !material.reviewEnabled) return created;
 
   const nextStage = completedTask.type === 'review' ? (completedTask.reviewStage ?? 0) + 1 : 0;
   // 「復習N回目」「間違い直し」の接頭辞を除いた元の範囲名
   const baseRange = completedTask.rangeLabel.replace(/^(復習\d+回目|間違い直し)\s*/, '');
 
-  let intervals = [...rule.intervals];
+  let intervals = material?.reviewIntervals?.length ? [...material.reviewIntervals] : [...rule.intervals];
   // 難易度が高い教材は復習回数を増やす(最終間隔をもう一度)
   if (material && material.difficulty >= 4 && intervals.length > 0) {
     intervals = [...intervals, intervals[intervals.length - 1]];

@@ -4,6 +4,7 @@ import type {
   AppState,
   AppSettings,
   AvailabilitySlot,
+  DayPlanOverride,
   FixedEvent,
   ISODate,
   Material,
@@ -15,7 +16,7 @@ import type {
 import { loadState, saveState, saveStateNow, clearState } from '../lib/storage';
 import { generatePlan } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
-import { addDays, genId, today } from '../lib/date';
+import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
 import { buildDemoState } from '../data/demo';
 import { defaultSettings, defaultAvailability } from '../data/defaults';
 
@@ -65,14 +66,19 @@ type Action =
   | { type: 'ADD_SUBJECT'; subject: Subject }
   | { type: 'UPDATE_SUBJECT'; subject: Subject }
   | { type: 'ADD_MANUAL_TASK'; task: StudyTask }
+  | { type: 'UPDATE_TASK'; task: StudyTask }
+  | { type: 'DELETE_TASK'; taskId: string }
+  | { type: 'REORDER_TASK'; taskId: string; direction: 'up' | 'down' }
   | { type: 'RECORD_SESSION'; input: SessionInput }
   | { type: 'SET_TASK_STATUS'; taskId: string; status: StudyTask['status'] }
   | { type: 'POSTPONE_TASK'; taskId: string }
   | { type: 'MOVE_TASK'; taskId: string; date: ISODate }
   | { type: 'RESCHEDULE'; reason: string }
+  | { type: 'RESCHEDULE_FROM'; fromDate: ISODate; reason: string }
   | { type: 'TODAY_IMPOSSIBLE' }
   | { type: 'UPDATE_GOAL'; goal: UserGoal }
   | { type: 'UPDATE_AVAILABILITY'; availability: AvailabilitySlot[] }
+  | { type: 'UPDATE_DAY_PLAN'; dayPlan: DayPlanOverride }
   | { type: 'UPDATE_FIXED_EVENTS'; fixedEvents: FixedEvent[] }
   | { type: 'UPDATE_SETTINGS'; settings: AppSettings }
   | { type: 'DISMISS_RESCHEDULE_BANNER' };
@@ -109,20 +115,33 @@ function reducer(state: AppState, action: Action): AppState {
         unit: m.unit,
         totalAmount: m.totalAmount,
         doneAmount: 0,
+        startDate: t,
         targetDate: m.targetDate,
         priority: 3,
         difficulty: 3,
         minutesPerUnit: m.minutesPerUnit,
+        dailyTarget: null,
+        weeklyTarget: null,
+        phase: 'first',
+        deadlinePolicy: 'normal',
+        examRelevance: 3,
+        reviewEnabled: true,
+        reviewIntervals: defaultSettings().reviewRule.intervals,
+        paused: false,
         round: 1,
         lastStudiedAt: null,
         nextReviewAt: null,
         archived: false,
         createdAt: new Date().toISOString(),
       }));
-      const availability: AvailabilitySlot[] = ([0, 1, 2, 3, 4, 5, 6] as const).map((wd) => ({
-        weekday: wd,
-        minutes: wd === 0 || wd === 6 ? inp.weekendMinutes : inp.weekdayMinutes,
-      }));
+      const defaultSlots = defaultAvailability();
+      const availability: AvailabilitySlot[] = ([0, 1, 2, 3, 4, 5, 6] as const).map((wd) => {
+        const minutes = wd === 0 || wd === 6 ? inp.weekendMinutes : inp.weekdayMinutes;
+        const fallback = defaultSlots.find((slot) => slot.weekday === wd)!;
+        const start = wd === 0 || wd === 6 ? '09:00' : '18:00';
+        const startMin = hmToMinutes(start);
+        return { ...fallback, minutes, windows: minutes > 0 ? [{ start, end: minutesToHM(startMin + minutes) }] : [] };
+      });
       const base: AppState = {
         ...emptyState(),
         onboarded: true,
@@ -173,6 +192,46 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'ADD_MANUAL_TASK':
       return { ...state, tasks: [...state.tasks, action.task] };
+
+    case 'UPDATE_TASK':
+      return {
+        ...state,
+        tasks: state.tasks.map((x) => (x.id === action.task.id ? action.task : x)),
+      };
+
+    case 'DELETE_TASK': {
+      return { ...state, tasks: state.tasks.filter((x) => x.id !== action.taskId) };
+    }
+
+    case 'REORDER_TASK': {
+      const task = state.tasks.find((x) => x.id === action.taskId);
+      if (!task) return state;
+      const list = state.tasks
+        .filter((x) => x.scheduledDate === task.scheduledDate && x.status !== 'skipped' && x.status !== 'done')
+        .sort((a, b) => (a.scheduledStart ?? '99:99').localeCompare(b.scheduledStart ?? '99:99') || b.priority - a.priority);
+      const index = list.findIndex((x) => x.id === action.taskId);
+      const target = action.direction === 'up' ? index - 1 : index + 1;
+      if (index < 0 || target < 0 || target >= list.length) return state;
+      const reordered = [...list];
+      const [picked] = reordered.splice(index, 1);
+      reordered.splice(target, 0, picked);
+      let cursor = Math.min(...reordered.map((x) => (x.scheduledStart ? hmToMinutes(x.scheduledStart) : 18 * 60)));
+      if (!Number.isFinite(cursor)) cursor = 18 * 60;
+      const times = new Map<string, { start: string; end: string }>();
+      for (const item of reordered) {
+        const start = cursor;
+        const end = start + item.estimatedMinutes;
+        times.set(item.id, { start: minutesToHM(start), end: minutesToHM(end) });
+        cursor = end + 5;
+      }
+      return {
+        ...state,
+        tasks: state.tasks.map((x) => {
+          const time = times.get(x.id);
+          return time ? { ...x, scheduledStart: time.start, scheduledEnd: time.end, generatedBy: 'manual' as const } : x;
+        }),
+      };
+    }
 
     case 'RECORD_SESSION': {
       const inp = action.input;
@@ -266,6 +325,9 @@ function reducer(state: AppState, action: Action): AppState {
     case 'RESCHEDULE':
       return generatePlan(state, t, action.reason).state;
 
+    case 'RESCHEDULE_FROM':
+      return generatePlan(state, action.fromDate, action.reason).state;
+
     case 'TODAY_IMPOSSIBLE': {
       // 今日の未着手タスクを全て外し、明日以降で全体再計算
       const tasks = state.tasks.map((x) =>
@@ -282,11 +344,17 @@ function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_AVAILABILITY':
       return generatePlan({ ...state, availability: action.availability }, t, '勉強可能時間の変更').state;
 
+    case 'UPDATE_DAY_PLAN': {
+      const rest = state.dayPlans.filter((p) => p.date !== action.dayPlan.date);
+      const dayPlans = [...rest, action.dayPlan].sort((a, b) => a.date.localeCompare(b.date));
+      return { ...state, dayPlans };
+    }
+
     case 'UPDATE_FIXED_EVENTS':
       return generatePlan({ ...state, fixedEvents: action.fixedEvents }, t, '固定予定の変更').state;
 
     case 'UPDATE_SETTINGS':
-      return { ...state, settings: action.settings };
+      return generatePlan({ ...state, settings: action.settings }, t, '設定の変更').state;
 
     case 'DISMISS_RESCHEDULE_BANNER':
       return { ...state, lastReschedule: null };
@@ -298,7 +366,7 @@ function reducer(state: AppState, action: Action): AppState {
 
 export function emptyState(): AppState {
   return {
-    version: 1,
+    version: 2,
     isDemo: false,
     onboarded: false,
     goal: null,
@@ -307,6 +375,7 @@ export function emptyState(): AppState {
     tasks: [],
     sessions: [],
     availability: defaultAvailability(),
+    dayPlans: [],
     fixedEvents: [],
     settings: defaultSettings(),
     lastReschedule: null,

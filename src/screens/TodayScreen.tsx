@@ -67,6 +67,8 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
         </button>
       </div>
 
+      <div className="today-layout">
+        <div className="today-main">
       {/* ヒーロー */}
       <div className="hero-card">
         <div className="hero-topline">
@@ -184,6 +186,9 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
           <p className="muted mt-8">おつかれさま。明日の計画はもう準備できています。</p>
         </div>
       )}
+        </div>
+
+        <div className="today-side">
 
       {/* 未達成(過去分) */}
       {overdue.length > 0 && (
@@ -243,6 +248,8 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
           </div>
         </>
       )}
+        </div>
+      </div>
     </div>
   );
 }

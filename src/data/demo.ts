@@ -41,10 +41,19 @@ export function buildDemoState(): AppState {
     unit,
     totalAmount: total,
     doneAmount: done,
+    startDate: addDays(t, -30),
     targetDate: addDays(t, targetOffsetDays),
     priority,
     difficulty,
     minutesPerUnit,
+    dailyTarget: null,
+    weeklyTarget: null,
+    phase: 'first',
+    deadlinePolicy: targetOffsetDays <= 95 && priority >= 4 ? 'strict' : 'normal',
+    examRelevance: priority,
+    reviewEnabled: true,
+    reviewIntervals: defaultSettings().reviewRule.intervals,
+    paused: false,
     round: 1,
     lastStudiedAt: null,
     nextReviewAt: null,
@@ -209,7 +218,7 @@ export function buildDemoState(): AppState {
   });
 
   const base: AppState = {
-    version: 1,
+    version: 2,
     isDemo: true,
     onboarded: true,
     goal: {
@@ -223,6 +232,7 @@ export function buildDemoState(): AppState {
     tasks: [...doneTasks, ...reviewTasks],
     sessions,
     availability: defaultAvailability(),
+    dayPlans: [],
     fixedEvents: [
       { id: genId('ev'), title: '学校', weekday: 1, date: null, start: '08:00', end: '16:00' },
       { id: genId('ev'), title: '学校', weekday: 2, date: null, start: '08:00', end: '16:00' },

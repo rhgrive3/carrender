@@ -8,6 +8,7 @@ import type {
   RescheduleResult,
   StudyTask,
   Subject,
+  TimeRange,
 } from '../types';
 import { addDays, diffDays, genId, hmToMinutes, minutesToHM, today, weekdayOf, formatMinutes } from './date';
 
@@ -48,6 +49,9 @@ export function scoreMaterialChunk(
 
   const daysToExam = state.goal ? Math.max(1, diffDays(date, state.goal.examDate)) : 90;
   const daysToTarget = Math.max(1, diffDays(date, material.targetDate));
+  const overdueDays = Math.max(0, diffDays(material.targetDate, date));
+  const deadlineMultiplier =
+    material.deadlinePolicy === 'strict' ? 1.25 : material.deadlinePolicy === 'flexible' ? 0.75 : 1;
 
   // 試験が近いほど全体的に切迫
   const examUrgency = Math.min(1, 30 / daysToExam);
@@ -55,7 +59,7 @@ export function scoreMaterialChunk(
   // 目標完了日への切迫度: 残り量を残り日数でこなせるか
   const requiredPerDay = remainingAmount / daysToTarget;
   const comfortablePerDay = remainingAmount / Math.max(daysToTarget, 30);
-  const targetUrgency = Math.min(1, requiredPerDay / Math.max(comfortablePerDay * 3, 0.01));
+  const targetUrgency = Math.min(1.35, requiredPerDay / Math.max(comfortablePerDay * 3, 0.01) + overdueDays / 14);
 
   // 遅れ具合: 経過時間に対して進捗が足りない度合い
   const totalSpan = Math.max(1, diffDays(toCreatedDate(material), material.targetDate));
@@ -69,16 +73,24 @@ export function scoreMaterialChunk(
 
   const achievement = ctx.subjectAchievement.get(material.subjectId) ?? 1;
   const lowAchievementBoost = Math.max(0, 0.8 - achievement);
+  const customPaceBoost =
+    material.dailyTarget && material.dailyTarget > requiredPerDay
+      ? Math.min(0.35, (material.dailyTarget - requiredPerDay) / Math.max(material.dailyTarget, 1))
+      : material.weeklyTarget && material.weeklyTarget / 7 > requiredPerDay
+        ? Math.min(0.25, (material.weeklyTarget / 7 - requiredPerDay) / Math.max(material.weeklyTarget / 7, 1))
+        : 0;
 
-  return (
+  return deadlineMultiplier * (
     WEIGHTS.examUrgency * examUrgency +
     WEIGHTS.targetUrgency * targetUrgency +
     WEIGHTS.importance * (subject.importance / 5) +
     WEIGHTS.weakness * (subject.weakness / 5) +
     WEIGHTS.materialPriority * (material.priority / 5) +
+    WEIGHTS.materialPriority * (material.examRelevance / 5) +
     WEIGHTS.behind * behind +
     WEIGHTS.lowAccuracy * lowAccuracyBoost +
-    WEIGHTS.lowAchievement * lowAchievementBoost
+    WEIGHTS.lowAchievement * lowAchievementBoost +
+    WEIGHTS.targetUrgency * customPaceBoost
   );
 }
 
@@ -108,7 +120,7 @@ export function scoreExistingTask(task: StudyTask, ctx: ScoreContext): number {
 }
 
 function toCreatedDate(material: Material): ISODate {
-  return material.createdAt.slice(0, 10);
+  return material.startDate ?? material.createdAt.slice(0, 10);
 }
 
 // ============================================================
@@ -128,35 +140,68 @@ export function fixedEventsOn(state: AppState, date: ISODate): FixedEvent[] {
   return state.fixedEvents.filter((e) => (e.date ? e.date === date : e.weekday === wd));
 }
 
+export function dayPlanOn(state: AppState, date: ISODate) {
+  return state.dayPlans.find((p) => p.date === date) ?? null;
+}
+
+export function availabilityWindowsOn(state: AppState, date: ISODate): TimeRange[] {
+  const override = dayPlanOn(state, date);
+  if (override?.load === 'rest') return [];
+  if (override?.availabilityWindows) return override.availabilityWindows;
+  const wd = weekdayOf(date);
+  const slot = state.availability.find((a) => a.weekday === wd);
+  if (slot?.windows && slot.windows.length > 0) return slot.windows;
+  if (slot && slot.minutes > 0) {
+    const start = wd === 0 || wd === 6 ? hmToMinutes('09:00') : hmToMinutes('18:00');
+    return [{ start: minutesToHM(start), end: minutesToHM(start + slot.minutes) }];
+  }
+  return [];
+}
+
 /** 固定予定を除いた自由時間帯(分単位の区間リスト) */
 export function freeSlotsOn(state: AppState, date: ISODate): FreeSlot[] {
   const events = fixedEventsOn(state, date)
     .map((e) => ({ start: hmToMinutes(e.start), end: hmToMinutes(e.end) }))
     .sort((a, b) => a.start - b.start);
   const slots: FreeSlot[] = [];
-  let cursor = hmToMinutes(DAY_START);
-  const dayEnd = hmToMinutes(DAY_END);
-  for (const ev of events) {
-    if (ev.start > cursor) slots.push({ start: cursor, end: Math.min(ev.start, dayEnd) });
-    cursor = Math.max(cursor, ev.end);
+  const baseWindows = availabilityWindowsOn(state, date)
+    .map((w) => ({
+      start: Math.max(hmToMinutes(DAY_START), hmToMinutes(w.start)),
+      end: Math.min(hmToMinutes(DAY_END), hmToMinutes(w.end)),
+    }))
+    .filter((w) => w.end - w.start >= 15)
+    .sort((a, b) => a.start - b.start);
+  for (const base of baseWindows) {
+    let cursor = base.start;
+    for (const ev of events) {
+      if (ev.end <= base.start || ev.start >= base.end) continue;
+      if (ev.start > cursor) slots.push({ start: cursor, end: Math.min(ev.start, base.end) });
+      cursor = Math.max(cursor, ev.end);
+    }
+    if (cursor < base.end) slots.push({ start: cursor, end: base.end });
   }
-  if (cursor < dayEnd) slots.push({ start: cursor, end: dayEnd });
   return slots.filter((s) => s.end - s.start >= 15);
 }
 
 /** その日の勉強可能分数(曜日設定と上限でクリップ) */
 export function availableMinutesOn(state: AppState, date: ISODate): number {
+  const override = dayPlanOn(state, date);
+  if (override?.load === 'rest') return 0;
   const wd = weekdayOf(date);
   const slot = state.availability.find((a) => a.weekday === wd);
-  const declared = slot ? slot.minutes : 0;
-  return Math.min(declared, state.settings.maxDailyMinutes);
+  const windows = freeSlotsOn(state, date);
+  const windowMinutes = windows.reduce((sum, s) => sum + Math.max(0, s.end - s.start), 0);
+  const declared = slot ? slot.minutes : windowMinutes;
+  const base = Math.min(declared, windowMinutes, state.settings.maxDailyMinutes);
+  const factor = override?.load === 'light' ? 0.6 : override?.load === 'heavy' ? 1.2 : 1;
+  return Math.max(0, Math.round(Math.min(windowMinutes, base * factor)));
 }
 
 // ============================================================
 // プラン生成 (核となるアルゴリズム)
 // ============================================================
 
-const HORIZON_DAYS = 14;
+const HORIZON_DAYS = 120;
 const MAX_SAME_SUBJECT_STREAK = 2; // 同一科目の連続ブロック数上限
 
 /**
@@ -212,7 +257,7 @@ export function generatePlan(
   // --- 3. 教材ごとの残量シミュレーション ---
   const remaining = new Map<string, number>();
   for (const m of state.materials) {
-    if (m.archived) continue;
+    if (m.archived || m.paused) continue;
     remaining.set(m.id, Math.max(0, m.totalAmount - m.doneAmount));
   }
   // 維持・再配置される既存の「新規」タスクが担当する量は差し引く(同じ範囲の二重配置を防ぐ)
@@ -281,6 +326,8 @@ export function generatePlan(
       const candidates: Candidate[] = [];
 
       for (const t of toPlace) {
+        const material = t.materialId ? state.materials.find((m) => m.id === t.materialId) : null;
+        if (material?.paused || material?.archived) continue;
         const due = t.dueDate ?? day;
         if (due > day && t.type !== 'new') {
           // 期限がまだ先の復習は期限日以降に配置
@@ -291,7 +338,7 @@ export function generatePlan(
       }
 
       for (const m of state.materials) {
-        if (m.archived) continue;
+        if (m.archived || m.paused) continue;
         const rem = remaining.get(m.id) ?? 0;
         if (rem <= 0) continue;
         const score = scoreMaterialChunk(m, rem, { ...ctx, date: day });
@@ -380,6 +427,20 @@ export function generatePlan(
     });
   }
 
+  for (const m of state.materials) {
+    if (m.archived || m.paused) continue;
+    const rem = remaining.get(m.id) ?? 0;
+    if (rem > 0 && m.targetDate <= horizonEnd) {
+      const days = Math.max(1, diffDays(fromDate, m.targetDate));
+      postponedChanges.push({
+        kind: 'grown',
+        taskTitle: m.name,
+        subjectId: m.subjectId,
+        detail: `期限に間に合わせるには1日あたり約${Math.ceil(rem / days)}${m.unit}の追加が必要`,
+      });
+    }
+  }
+
   const allTasks = [...kept, ...newTasks];
   const capacity = computeCapacity({ ...state, tasks: allTasks }, fromDate);
 
@@ -428,7 +489,8 @@ function makeChunkTask(
     amount: endUnit - startUnit + 1,
     estimatedMinutes: window.end - window.start,
     priority: score,
-    dueDate: null,
+    dueDate: m.targetDate,
+    memo: '',
     type: 'new',
     status: 'planned',
     scheduledDate: day,
@@ -499,7 +561,7 @@ export function computeCapacity(state: AppState, ref: ISODate): CapacityWarning 
   // 残り学習量(分): 教材残量 + 未完了の復習/手動タスク
   let remainingMinutes = 0;
   for (const m of state.materials) {
-    if (m.archived) continue;
+    if (m.archived || m.paused) continue;
     remainingMinutes += Math.max(0, m.totalAmount - m.doneAmount) * m.minutesPerUnit;
   }
   for (const t of state.tasks) {
@@ -578,8 +640,8 @@ export function computeDayStatus(state: AppState, date: ISODate): DayStatus {
   ).length;
   const behindMaterials = state.materials.filter((m) => {
     if (m.archived || m.totalAmount === 0) return false;
-    const total = Math.max(1, diffDays(m.createdAt.slice(0, 10), m.targetDate));
-    const elapsed = Math.max(0, diffDays(m.createdAt.slice(0, 10), date));
+    const total = Math.max(1, diffDays(m.startDate ?? m.createdAt.slice(0, 10), m.targetDate));
+    const elapsed = Math.max(0, diffDays(m.startDate ?? m.createdAt.slice(0, 10), date));
     return m.doneAmount / m.totalAmount < Math.min(1, elapsed / total) - 0.1;
   }).length;
 

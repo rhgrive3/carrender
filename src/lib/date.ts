@@ -1,10 +1,37 @@
 import type { ISODate, Weekday } from '../types';
 
-/** ローカルタイムでの "YYYY-MM-DD" */
+export const APP_TIME_ZONE = 'Asia/Tokyo';
+
+const DAY_MS = 86400000;
+
+function partsOf(date: ISODate): { y: number; m: number; d: number } {
+  const [y, m, d] = date.split('-').map(Number);
+  return { y, m, d };
+}
+
+function utcMs(date: ISODate): number {
+  const { y, m, d } = partsOf(date);
+  return Date.UTC(y, m - 1, d);
+}
+
+function isoFromUTCDate(d: Date): ISODate {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** 日本時間(Asia/Tokyo)での "YYYY-MM-DD" */
 export function toISODate(d: Date): ISODate {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === 'year')?.value ?? '1970';
+  const m = parts.find((p) => p.type === 'month')?.value ?? '01';
+  const day = parts.find((p) => p.type === 'day')?.value ?? '01';
   return `${y}-${m}-${day}`;
 }
 
@@ -13,36 +40,32 @@ export function today(): ISODate {
 }
 
 export function parseISO(date: ISODate): Date {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(y, m - 1, d);
+  return new Date(utcMs(date));
 }
 
 export function addDays(date: ISODate, days: number): ISODate {
-  const d = parseISO(date);
-  d.setDate(d.getDate() + days);
-  return toISODate(d);
+  return isoFromUTCDate(new Date(utcMs(date) + days * DAY_MS));
 }
 
 /** b - a の日数 */
 export function diffDays(a: ISODate, b: ISODate): number {
-  const ms = parseISO(b).getTime() - parseISO(a).getTime();
-  return Math.round(ms / 86400000);
+  return Math.round((utcMs(b) - utcMs(a)) / DAY_MS);
 }
 
 export function weekdayOf(date: ISODate): Weekday {
-  return parseISO(date).getDay() as Weekday;
+  return new Date(utcMs(date)).getUTCDay() as Weekday;
 }
 
 export const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'] as const;
 
 export function formatDateJa(date: ISODate): string {
-  const d = parseISO(date);
-  return `${d.getMonth() + 1}月${d.getDate()}日(${WEEKDAY_LABELS[d.getDay()]})`;
+  const { m, d } = partsOf(date);
+  return `${m}月${d}日(${WEEKDAY_LABELS[weekdayOf(date)]})`;
 }
 
 export function formatDateShort(date: ISODate): string {
-  const d = parseISO(date);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  const { m, d } = partsOf(date);
+  return `${m}/${d}`;
 }
 
 export function formatMinutes(min: number): string {

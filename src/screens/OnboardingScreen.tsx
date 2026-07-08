@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useApp, type OnboardingInput } from '../state/AppContext';
 import { addDays, today } from '../lib/date';
 import { SUBJECT_COLOR_PALETTE, SUBJECT_PRESETS, UNIT_OPTIONS } from '../data/defaults';
-import { Stepper } from '../components/ui/bits';
+import { NumericInput, Stepper } from '../components/ui/bits';
 import type { Material } from '../types';
 
 type DraftMaterial = {
@@ -246,23 +246,24 @@ export function OnboardingScreen() {
               <div className="field-row mt-12">
                 <div className="field" style={{ marginBottom: 0 }}>
                   <label htmlFor={`ob-mtotal-${i}`}>総量</label>
-                  <input
+                  <NumericInput
                     id={`ob-mtotal-${i}`}
-                    type="number"
-                    inputMode="numeric"
                     value={m.totalAmount}
-                    onChange={(e) => setMaterials((p) => p.map((x, j) => (j === i ? { ...x, totalAmount: Number(e.target.value) } : x)))}
+                    min={1}
+                    placeholder="例: 300"
+                    onChange={(v) => setMaterials((p) => p.map((x, j) => (j === i ? { ...x, totalAmount: v } : x)))}
                   />
                 </div>
                 <div className="field" style={{ marginBottom: 0 }}>
                   <label htmlFor={`ob-mmpu-${i}`}>1{m.unit}の分数</label>
-                  <input
+                  <NumericInput
                     id={`ob-mmpu-${i}`}
-                    type="number"
-                    inputMode="decimal"
-                    step="0.5"
+                    decimal
+                    step={0.5}
                     value={m.minutesPerUnit}
-                    onChange={(e) => setMaterials((p) => p.map((x, j) => (j === i ? { ...x, minutesPerUnit: Number(e.target.value) } : x)))}
+                    min={0.1}
+                    placeholder="例: 12"
+                    onChange={(v) => setMaterials((p) => p.map((x, j) => (j === i ? { ...x, minutesPerUnit: v } : x)))}
                   />
                 </div>
               </div>

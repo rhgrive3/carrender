@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Subject, StudyTask } from '../../types';
 
@@ -32,6 +33,90 @@ export function ProgressBar({ value, color }: { value: number; color?: string })
         style={{ width: `${pct}%`, background: color ?? 'var(--accent-grad)' }}
       />
     </div>
+  );
+}
+
+export function NumericInput({
+  id,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  decimal = false,
+  placeholder,
+  ariaLabel,
+  emptyValue = 0,
+}: {
+  id?: string;
+  value: number | null;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  decimal?: boolean;
+  placeholder?: string;
+  ariaLabel?: string;
+  emptyValue?: number;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [text, setText] = useState(() => (value === null || value === 0 ? '' : String(value)));
+
+  useEffect(() => {
+    if (focused) return;
+    setText(value === null || value === 0 ? '' : String(value));
+  }, [focused, value]);
+
+  const parse = (raw: string): number | null => {
+    if (raw.trim() === '') return null;
+    const n = decimal ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
+    if (Number.isNaN(n)) return null;
+    const clipped = Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min ?? Number.NEGATIVE_INFINITY, n));
+    return clipped;
+  };
+
+  const sanitize = (raw: string): string => {
+    const base = raw.replace(decimal ? /[^0-9.]/g : /[^0-9]/g, '');
+    if (!decimal) return base;
+    const [head, ...rest] = base.split('.');
+    return rest.length > 0 ? `${head}.${rest.join('')}` : head;
+  };
+
+  return (
+    <input
+      id={id}
+      type="text"
+      inputMode={decimal ? 'decimal' : 'numeric'}
+      pattern={decimal ? undefined : '[0-9]*'}
+      value={text}
+      min={min}
+      max={max}
+      step={step}
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      onFocus={() => {
+        setFocused(true);
+        if (text === '0') setText('');
+      }}
+      onChange={(e) => {
+        const next = sanitize(e.target.value);
+        setText(next);
+        const parsed = parse(next);
+        onChange(parsed ?? emptyValue);
+      }}
+      onBlur={() => {
+        setFocused(false);
+        const parsed = parse(text);
+        if (parsed === null) {
+          setText('');
+          onChange(emptyValue);
+          return;
+        }
+        const normalized = decimal ? String(parsed).replace(/\.0+$/, '') : String(Math.trunc(parsed));
+        setText(normalized);
+        onChange(parsed);
+      }}
+    />
   );
 }
 

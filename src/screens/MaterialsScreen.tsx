@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
 import type { Material } from '../types';
-import { addDays, formatDateShort, genId, today } from '../lib/date';
+import { addDays, diffDays, formatDateShort, genId, today } from '../lib/date';
 import { computeMaterialForecast, todayQuotaFor } from '../lib/analytics';
-import { ProgressBar, EmptyState, Rating } from '../components/ui/bits';
+import { ProgressBar, EmptyState, Rating, NumericInput, Segmented } from '../components/ui/bits';
 import { Sheet } from '../components/ui/Sheet';
 import { useToast } from '../components/ui/Toast';
 import { UNIT_OPTIONS } from '../data/defaults';
@@ -14,6 +14,19 @@ const FORECAST_UI = {
   behind: { label: '遅れ', cls: 'status-warn' },
   risk: { label: '危険', cls: 'status-danger' },
 } as const;
+
+const DEADLINE_LABEL: Record<Material['deadlinePolicy'], string> = {
+  strict: '期限厳守',
+  normal: 'できれば',
+  flexible: '余裕があれば',
+};
+
+const PHASE_LABEL: Record<Material['phase'], string> = {
+  first: '1周目',
+  second: '2周目',
+  correction: '間違い直し',
+  review: '復習',
+};
 
 export function MaterialsScreen() {
   const { state } = useApp();
@@ -51,13 +64,16 @@ export function MaterialsScreen() {
           「＋」から教材を追加すると、試験日までの計画を自動で作ります。
         </EmptyState>
       ) : (
-        materials.map((m) => {
+        <div className="materials-grid">
+        {materials.map((m) => {
           const subject = state.subjects.find((s) => s.id === m.subjectId);
           const forecast = computeMaterialForecast(state, m.id, t);
           const rate = m.totalAmount > 0 ? m.doneAmount / m.totalAmount : 0;
           const quota = todayQuotaFor(state, m.id, t);
           const fu = FORECAST_UI[forecast?.status ?? 'onTrack'];
           const done = m.doneAmount >= m.totalAmount;
+          const daysLeft = diffDays(t, m.targetDate);
+          const requiredWeekly = forecast ? Math.ceil(forecast.requiredPacePerDay * 7) : 0;
           return (
             <div className="card" key={m.id}>
               <div className="row spread">
@@ -70,6 +86,7 @@ export function MaterialsScreen() {
                   ) : (
                     <span className={`status-badge ${fu.cls}`}>{fu.label}</span>
                   )}
+                  {m.paused && <span className="status-badge status-warn">一時停止</span>}
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={() => setEditTarget(m)} aria-label={`${m.name}の詳細を開く`}>
                   詳細
@@ -91,6 +108,12 @@ export function MaterialsScreen() {
                 </span>
                 <span className="faint">目標 {formatDateShort(m.targetDate)}</span>
               </div>
+              <div className="material-metrics mt-8">
+                <span>期限まで {daysLeft < 0 ? `${Math.abs(daysLeft)}日超過` : `${daysLeft}日`}</span>
+                <span>{forecast ? `必要 ${forecast.requiredPacePerDay}${m.unit}/日` : '必要量計算中'}</span>
+                <span>{requiredWeekly > 0 ? `${requiredWeekly}${m.unit}/週` : '週目標なし'}</span>
+                <span>{DEADLINE_LABEL[m.deadlinePolicy]}</span>
+              </div>
               {forecast && forecast.status !== 'ahead' && forecast.status !== 'onTrack' && forecast.projectedFinishDate && (
                 <div className="faint mt-8">
                   現在ペースの完了見込み {formatDateShort(forecast.projectedFinishDate)}({forecast.delayDays > 0 ? `${forecast.delayDays}日遅れ` : '前倒し'})
@@ -98,7 +121,8 @@ export function MaterialsScreen() {
               )}
             </div>
           );
-        })
+        })}
+        </div>
       )}
 
       {(addOpen || editTarget) && (
@@ -123,10 +147,20 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
   const [unit, setUnit] = useState<Material['unit']>(material?.unit ?? '問題');
   const [totalAmount, setTotalAmount] = useState(material?.totalAmount ?? 100);
   const [doneAmount, setDoneAmount] = useState(material?.doneAmount ?? 0);
+  const [startDate, setStartDate] = useState(material?.startDate ?? t);
   const [targetDate, setTargetDate] = useState(material?.targetDate ?? (state.goal ? state.goal.examDate : addDays(t, 60)));
   const [minutesPerUnit, setMinutesPerUnit] = useState(material?.minutesPerUnit ?? 10);
   const [priority, setPriority] = useState<Material['priority']>(material?.priority ?? 3);
   const [difficulty, setDifficulty] = useState<Material['difficulty']>(material?.difficulty ?? 3);
+  const [dailyTarget, setDailyTarget] = useState(material?.dailyTarget ?? 0);
+  const [weeklyTarget, setWeeklyTarget] = useState(material?.weeklyTarget ?? 0);
+  const [phase, setPhase] = useState<Material['phase']>(material?.phase ?? 'first');
+  const [deadlinePolicy, setDeadlinePolicy] = useState<Material['deadlinePolicy']>(material?.deadlinePolicy ?? 'normal');
+  const [examRelevance, setExamRelevance] = useState<Material['examRelevance']>(material?.examRelevance ?? 3);
+  const [reviewEnabled, setReviewEnabled] = useState(material?.reviewEnabled ?? true);
+  const [reviewIntervalsText, setReviewIntervalsText] = useState((material?.reviewIntervals ?? state.settings.reviewRule.intervals).join(', '));
+  const [paused, setPaused] = useState(material?.paused ?? false);
+  const [archived, setArchived] = useState(material?.archived ?? false);
   const [round, setRound] = useState(material?.round ?? 1);
 
   const save = () => {
@@ -134,6 +168,10 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       toast('教材名・科目・総量を入力してください');
       return;
     }
+    const reviewIntervals = reviewIntervalsText
+      .split(',')
+      .map((x) => Math.max(1, Number.parseInt(x.trim(), 10)))
+      .filter((x) => Number.isFinite(x));
     const payload: Material = {
       id: material?.id ?? genId('mat'),
       subjectId,
@@ -141,14 +179,23 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       unit,
       totalAmount,
       doneAmount: Math.min(doneAmount, totalAmount),
+      startDate,
       targetDate,
       priority,
       difficulty,
       minutesPerUnit: Math.max(0.1, minutesPerUnit),
-      round,
+      dailyTarget: dailyTarget > 0 ? dailyTarget : null,
+      weeklyTarget: weeklyTarget > 0 ? weeklyTarget : null,
+      phase,
+      deadlinePolicy,
+      examRelevance,
+      reviewEnabled,
+      reviewIntervals: reviewIntervals.length > 0 ? reviewIntervals : state.settings.reviewRule.intervals,
+      paused,
+      round: phase === 'second' ? 2 : phase === 'first' ? 1 : round,
       lastStudiedAt: material?.lastStudiedAt ?? null,
       nextReviewAt: material?.nextReviewAt ?? null,
-      archived: false,
+      archived,
       createdAt: material?.createdAt ?? new Date().toISOString(),
     };
     dispatch({ type: isEdit ? 'UPDATE_MATERIAL' : 'ADD_MATERIAL', material: payload });
@@ -195,44 +242,94 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       <div className="field-row">
         <div className="field">
           <label htmlFor="mf-total">総量({unit})</label>
-          <input
+          <NumericInput
             id="mf-total"
-            type="number"
-            inputMode="numeric"
             value={totalAmount}
             min={1}
-            onChange={(e) => setTotalAmount(Math.max(0, Number(e.target.value)))}
+            placeholder="例: 300"
+            onChange={(v) => setTotalAmount(Math.max(0, v))}
           />
         </div>
         <div className="field">
           <label htmlFor="mf-done">終わった量</label>
-          <input
+          <NumericInput
             id="mf-done"
-            type="number"
-            inputMode="numeric"
             value={doneAmount}
             min={0}
-            onChange={(e) => setDoneAmount(Math.max(0, Number(e.target.value)))}
+            placeholder="例: 40"
+            onChange={(v) => setDoneAmount(Math.max(0, v))}
           />
         </div>
       </div>
       <div className="field-row">
         <div className="field">
+          <label htmlFor="mf-start">開始日</label>
+          <input id="mf-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </div>
+        <div className="field">
           <label htmlFor="mf-target">目標完了日</label>
           <input id="mf-target" type="date" value={targetDate} min={t} onChange={(e) => setTargetDate(e.target.value)} />
         </div>
+      </div>
+      <div className="field-row">
         <div className="field">
           <label htmlFor="mf-mpu">1{unit}あたりの分数</label>
-          <input
+          <NumericInput
             id="mf-mpu"
-            type="number"
-            inputMode="decimal"
-            step="0.5"
+            decimal
+            step={0.5}
             value={minutesPerUnit}
             min={0.1}
-            onChange={(e) => setMinutesPerUnit(Number(e.target.value))}
+            placeholder="例: 12"
+            onChange={(v) => setMinutesPerUnit(v)}
           />
         </div>
+        <div className="field">
+          <label htmlFor="mf-daily">1日の目標量</label>
+          <NumericInput
+            id="mf-daily"
+            decimal
+            value={dailyTarget}
+            min={0}
+            placeholder="例: 5"
+            onChange={(v) => setDailyTarget(v)}
+          />
+        </div>
+      </div>
+      <div className="field-row">
+        <div className="field">
+          <label htmlFor="mf-weekly">1週間の目標量</label>
+          <NumericInput
+            id="mf-weekly"
+            decimal
+            value={weeklyTarget}
+            min={0}
+            placeholder="例: 35"
+            onChange={(v) => setWeeklyTarget(v)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="mf-deadline">期限ポリシー</label>
+          <select id="mf-deadline" value={deadlinePolicy} onChange={(e) => setDeadlinePolicy(e.target.value as Material['deadlinePolicy'])}>
+            <option value="strict">期限厳守</option>
+            <option value="normal">できれば</option>
+            <option value="flexible">余裕があれば</option>
+          </select>
+        </div>
+      </div>
+      <div className="field">
+        <label>フェーズ</label>
+        <Segmented
+          ariaLabel="教材フェーズ"
+          options={[
+            { value: 'first', label: PHASE_LABEL.first },
+            { value: 'second', label: PHASE_LABEL.second },
+            { value: 'correction', label: PHASE_LABEL.correction },
+            { value: 'review', label: PHASE_LABEL.review },
+          ]}
+          value={phase}
+          onChange={setPhase}
+        />
       </div>
       <div className="field">
         <label>優先度</label>
@@ -243,6 +340,22 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
         <Rating value={difficulty} onChange={(v) => setDifficulty(v)} icon="💪" label="難易度" />
       </div>
       <div className="field">
+        <label>試験重要度</label>
+        <Rating value={examRelevance} onChange={(v) => setExamRelevance(v)} icon="◆" label="試験重要度" />
+      </div>
+      <div className="field">
+        <label className="check-row">
+          <input type="checkbox" checked={reviewEnabled} onChange={(e) => setReviewEnabled(e.target.checked)} />
+          復習タスクを自動生成する
+        </label>
+      </div>
+      {reviewEnabled && (
+        <div className="field">
+          <label htmlFor="mf-review-intervals">復習間隔(日・カンマ区切り)</label>
+          <input id="mf-review-intervals" value={reviewIntervalsText} onChange={(e) => setReviewIntervalsText(e.target.value)} placeholder="例: 1, 3, 7, 14, 30" />
+        </div>
+      )}
+      <div className="field">
         <label>周回</label>
         <div className="segmented" role="radiogroup" aria-label="周回">
           {[1, 2, 3].map((r) => (
@@ -251,6 +364,16 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
             </button>
           ))}
         </div>
+      </div>
+      <div className="field-row">
+        <label className="check-row">
+          <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} />
+          一時停止
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
+          完了/非表示
+        </label>
       </div>
 
       <button className="btn btn-primary btn-block" onClick={save}>

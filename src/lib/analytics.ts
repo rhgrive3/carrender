@@ -86,7 +86,7 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
 
   // --- 教材別予測 ---
   const materialForecasts: MaterialForecast[] = state.materials
-    .filter((m) => !m.archived)
+    .filter((m) => !m.archived && !m.paused)
     .map((m) => computeMaterialForecast(state, m.id, ref))
     .filter((f): f is MaterialForecast => f !== null);
 
@@ -153,8 +153,8 @@ export function computeMaterialForecast(state: AppState, materialId: string, ref
     status = 'ahead';
   } else if (projectedFinishDate === null) {
     // 実績がまだない → 期待進捗との比較で判定
-    const total = Math.max(1, diffDays(m.createdAt.slice(0, 10), m.targetDate));
-    const elapsed = Math.max(0, diffDays(m.createdAt.slice(0, 10), ref));
+    const total = Math.max(1, diffDays(m.startDate ?? m.createdAt.slice(0, 10), m.targetDate));
+    const elapsed = Math.max(0, diffDays(m.startDate ?? m.createdAt.slice(0, 10), ref));
     const expected = Math.min(1, elapsed / total);
     const actual = m.totalAmount > 0 ? m.doneAmount / m.totalAmount : 1;
     const gap = expected - actual;
@@ -181,9 +181,12 @@ export function computeMaterialForecast(state: AppState, materialId: string, ref
 export function todayQuotaFor(state: AppState, materialId: string, ref: ISODate): number {
   const m = state.materials.find((x) => x.id === materialId);
   if (!m) return 0;
+  if (m.paused || m.archived) return 0;
   const remaining = Math.max(0, m.totalAmount - m.doneAmount);
   const days = Math.max(1, diffDays(ref, m.targetDate));
-  return Math.ceil(remaining / days);
+  const required = Math.ceil(remaining / days);
+  const custom = Math.ceil(Math.max(m.dailyTarget ?? 0, (m.weeklyTarget ?? 0) / 7));
+  return Math.max(required, custom);
 }
 
 // ============================================================

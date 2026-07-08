@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 interface SheetProps {
   open: boolean;
@@ -21,7 +22,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       className="sheet-backdrop"
       onClick={(e) => {
@@ -33,9 +34,15 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     >
       <div className="sheet">
         <div className="sheet-grabber" />
-        {title && <div className="sheet-title">{title}</div>}
+        <div className="sheet-title-row">
+          {title && <div className="sheet-title">{title}</div>}
+          <button className="sheet-close" type="button" aria-label="閉じる" onClick={onClose}>
+            ×
+          </button>
+        </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
