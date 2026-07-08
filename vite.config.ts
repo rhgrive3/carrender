@@ -2,9 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// GitHub Pages: https://<user>.github.io/carrender/
+// Cloudflare Pages: https://<project>.pages.dev/
 export default defineConfig({
-  base: '/carrender/',
+  base: '/',
   plugins: [
     react(),
     VitePWA({
@@ -15,8 +15,8 @@ export default defineConfig({
         short_name: 'StudyCmdr',
         description: '試験日から逆算して毎日の勉強計画を自動再設計する学習司令塔',
         lang: 'ja',
-        start_url: '/carrender/',
-        scope: '/carrender/',
+        start_url: '/',
+        scope: '/',
         display: 'standalone',
         orientation: 'portrait',
         theme_color: '#0b0f1a',
@@ -30,7 +30,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
-        navigateFallback: '/carrender/index.html',
+        navigateFallback: '/index.html',
         cleanupOutdatedCaches: true
       }
     })
