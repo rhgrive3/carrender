@@ -1,26 +1,70 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
-import { addDays, formatDateShort, formatMinutes, today, WEEKDAY_LABELS, weekdayOf } from '../lib/date';
+import {
+  addDays,
+  addMonths,
+  daysInMonthOf,
+  formatDateShort,
+  formatMinutes,
+  formatMinutesCompact,
+  monthKeyOf,
+  monthLabel,
+  startOfWeek,
+  today,
+  WEEKDAY_LABELS,
+  weekdayOf,
+} from '../lib/date';
 import { computeAnalytics } from '../lib/analytics';
 import { RecordSheet } from '../components/forms/RecordSheet';
 import { EmptyState } from '../components/ui/bits';
+import { MonthCalendar } from '../components/ui/MonthCalendar';
+import type { AppState, StudySession } from '../types';
+
+type Period = 'week' | 'month';
+
+/** 期間内の日付リスト(週: 日〜土 / 月: 1日〜末日) */
+function periodDays(period: Period, offset: number, t: string): string[] {
+  if (period === 'week') {
+    const start = addDays(startOfWeek(t), offset * 7);
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  }
+  const month = addMonths(monthKeyOf(t), offset);
+  return Array.from({ length: daysInMonthOf(month) }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`);
+}
+
+function periodTitle(period: Period, offset: number, t: string): string {
+  if (period === 'month') return monthLabel(addMonths(monthKeyOf(t), offset));
+  if (offset === 0) return '今週';
+  if (offset === -1) return '先週';
+  const start = addDays(startOfWeek(t), offset * 7);
+  return `${formatDateShort(start)}〜${formatDateShort(addDays(start, 6))}`;
+}
+
+function sumRange(minutesByDay: Map<string, number>, days: string[]): number {
+  return days.reduce((s, d) => s + (minutesByDay.get(d) ?? 0), 0);
+}
+
+function deltaLabel(current: number, previous: number): { text: string; positive: boolean } {
+  const diff = current - previous;
+  if (Math.abs(diff) < 1) return { text: '±0', positive: true };
+  return { text: `${diff > 0 ? '+' : '-'}${formatMinutes(Math.abs(diff))}`, positive: diff > 0 };
+}
 
 export function RecordsScreen() {
   const { state } = useApp();
   const t = today();
   const [addOpen, setAddOpen] = useState(false);
+  const [period, setPeriod] = useState<Period>('week');
+  const [offset, setOffset] = useState(0);
 
   const analytics = useMemo(() => computeAnalytics(state, t), [state, t]);
 
-  const last7 = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(t, -(6 - i))), [t]);
   const minutesByDay = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of state.sessions) map.set(s.date, (map.get(s.date) ?? 0) + s.minutes);
     return map;
   }, [state.sessions]);
-  const maxDay = Math.max(60, ...last7.map((d) => minutesByDay.get(d) ?? 0));
 
-  // 直近7日の予定(比較用)
   const plannedByDay = useMemo(() => {
     const map = new Map<string, number>();
     for (const task of state.tasks) {
@@ -30,24 +74,38 @@ export function RecordsScreen() {
     return map;
   }, [state.tasks]);
 
-  const recentSessions = useMemo(
+  const days = useMemo(() => periodDays(period, offset, t), [period, offset, t]);
+  const prevDays = useMemo(() => periodDays(period, offset - 1, t), [period, offset, t]);
+  const from = days[0];
+  const to = days[days.length - 1];
+
+  const totalActual = sumRange(minutesByDay, days);
+  const totalPlanned = days.filter((d) => d <= t).reduce((s, d) => s + (plannedByDay.get(d) ?? 0), 0);
+  const prevActual = sumRange(minutesByDay, prevDays);
+  const studyDays = days.filter((d) => (minutesByDay.get(d) ?? 0) > 0).length;
+  const elapsedDays = days.filter((d) => d <= t).length;
+  const dailyAvg = elapsedDays > 0 ? totalActual / elapsedDays : 0;
+  const delta = deltaLabel(totalActual, prevActual);
+
+  const sessions = useMemo(
     () =>
       [...state.sessions]
-        .filter((s) => s.date >= addDays(t, -6))
+        .filter((s) => s.date >= from && s.date <= to)
         .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
-    [state.sessions, t],
+    [state.sessions, from, to],
   );
 
-  // 科目別時間(直近7日)
   const bySubject = useMemo(() => {
     const map = new Map<string, number>();
-    for (const s of state.sessions) {
-      if (s.date < addDays(t, -6)) continue;
-      map.set(s.subjectId, (map.get(s.subjectId) ?? 0) + s.minutes);
-    }
+    for (const s of sessions) map.set(s.subjectId, (map.get(s.subjectId) ?? 0) + s.minutes);
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
-  }, [state.sessions, t]);
+  }, [sessions]);
   const maxSubject = Math.max(1, ...bySubject.map(([, m]) => m));
+
+  const switchPeriod = (next: Period) => {
+    setPeriod(next);
+    setOffset(0);
+  };
 
   return (
     <div className="screen">
@@ -63,64 +121,45 @@ export function RecordsScreen() {
         </button>
       </div>
 
-      {/* 予定 vs 実績 (7日) */}
-      <div className="card">
-        <div className="section-label" style={{ margin: '0 0 12px' }}>
-          直近7日間 予定 vs 実績
-        </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 130 }}>
-          {last7.map((d) => {
-            const actual = minutesByDay.get(d) ?? 0;
-            const planned = plannedByDay.get(d) ?? 0;
-            return (
-              <div key={d} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, height: '100%' }}>
-                <div style={{ flex: 1, width: '100%', display: 'flex', gap: 3, alignItems: 'flex-end', justifyContent: 'center' }}>
-                  <div
-                    title={`予定 ${formatMinutes(planned)}`}
-                    style={{
-                      width: '34%',
-                      height: `${Math.min(100, (planned / maxDay) * 100)}%`,
-                      background: 'var(--bg-elev3)',
-                      borderRadius: 5,
-                      minHeight: planned > 0 ? 4 : 0,
-                    }}
-                  />
-                  <div
-                    title={`実績 ${formatMinutes(actual)}`}
-                    style={{
-                      width: '34%',
-                      height: `${Math.min(100, (actual / maxDay) * 100)}%`,
-                      background: 'var(--accent-grad)',
-                      borderRadius: 5,
-                      minHeight: actual > 0 ? 4 : 0,
-                    }}
-                  />
-                </div>
-                <span className="faint" style={{ fontSize: 10.5, fontWeight: 700, color: d === t ? 'var(--accent)' : undefined }}>
-                  {WEEKDAY_LABELS[weekdayOf(d)]}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="row mt-8" style={{ gap: 14, justifyContent: 'center' }}>
-          <span className="faint">
-            <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: 'var(--bg-elev3)', marginRight: 5 }} />
-            予定
-          </span>
-          <span className="faint">
-            <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: 'var(--accent)', marginRight: 5 }} />
-            実績
-          </span>
+      <div className="segmented" role="tablist" aria-label="集計期間">
+        <button className={period === 'week' ? 'active' : ''} onClick={() => switchPeriod('week')}>週</button>
+        <button className={period === 'month' ? 'active' : ''} onClick={() => switchPeriod('month')}>月</button>
+      </div>
+
+      <div className="period-nav mt-12">
+        <button aria-label={period === 'week' ? '前の週' : '前の月'} onClick={() => setOffset(offset - 1)}>‹</button>
+        <b>{periodTitle(period, offset, t)}</b>
+        <div className="row" style={{ gap: 6 }}>
+          {offset !== 0 && (
+            <button style={{ width: 'auto', padding: '0 10px', fontSize: 12 }} onClick={() => setOffset(0)}>
+              {period === 'week' ? '今週' : '今月'}
+            </button>
+          )}
+          <button aria-label={period === 'week' ? '次の週' : '次の月'} disabled={offset >= 0} onClick={() => setOffset(offset + 1)}>›</button>
         </div>
       </div>
+
+      {/* サマリー */}
+      <div className="day-stats mt-12">
+        <div><b>{formatMinutes(totalActual)}</b><span>合計</span></div>
+        <div><b>{formatMinutes(Math.round(dailyAvg))}</b><span>日平均</span></div>
+        <div><b>{studyDays}/{days.length}日</b><span>学習日</span></div>
+        <div>
+          <b style={{ color: delta.positive ? 'var(--ok, var(--accent))' : 'var(--danger)' }}>{delta.text}</b>
+          <span>{period === 'week' ? '前週比' : '前月比'}</span>
+        </div>
+      </div>
+
+      {period === 'week' ? (
+        <WeekChart days={days} minutesByDay={minutesByDay} plannedByDay={plannedByDay} totalPlanned={totalPlanned} totalActual={totalActual} />
+      ) : (
+        <MonthHeatCalendar month={addMonths(monthKeyOf(t), offset)} minutesByDay={minutesByDay} />
+      )}
 
       {/* 科目別 */}
       {bySubject.length > 0 && (
         <div className="card mt-12">
-          <div className="section-label" style={{ margin: '0 0 12px' }}>
-            科目別の学習時間(7日)
-          </div>
+          <div className="section-label" style={{ margin: '0 0 12px' }}>科目別の学習時間</div>
           {bySubject.map(([sid, min]) => {
             const subject = state.subjects.find((s) => s.id === sid);
             return (
@@ -139,6 +178,7 @@ export function RecordsScreen() {
                 </div>
                 <span className="faint" style={{ width: 62, textAlign: 'right', flexShrink: 0 }}>
                   {formatMinutes(min)}
+                  <span style={{ marginLeft: 4 }}>{totalActual > 0 ? `${Math.round((min / totalActual) * 100)}%` : ''}</span>
                 </span>
               </div>
             );
@@ -147,41 +187,168 @@ export function RecordsScreen() {
       )}
 
       {/* セッション一覧 */}
-      <div className="section-label">学習ログ(7日)</div>
-      {recentSessions.length === 0 ? (
-        <EmptyState icon="📝" title="まだ記録がありません">
+      <div className="section-label">学習ログ({sessions.length}件)</div>
+      {sessions.length === 0 ? (
+        <EmptyState icon="📝" title="この期間の記録はありません">
           タイマーで勉強するか、「＋」から手動で記録できます。
         </EmptyState>
       ) : (
-        recentSessions.map((s) => {
-          const subject = state.subjects.find((x) => x.id === s.subjectId);
-          const material = state.materials.find((x) => x.id === s.materialId);
-          return (
-            <div className="task-card" key={s.id}>
-              <div className="subject-bar" style={{ background: subject?.color ?? 'var(--accent)' }} />
-              <div className="task-main">
-                <div className="task-meta-row">
-                  <span className="subject-chip" style={{ background: `${subject?.color}26`, color: subject?.color }}>
-                    {subject?.name}
-                  </span>
-                  <span className="task-type-chip">{s.source === 'timer' ? '⏱ タイマー' : '✍️ 手入力'}</span>
-                  <span className="task-time">{s.date === t ? '今日' : formatDateShort(s.date)}</span>
-                </div>
-                <div className="task-title">{material?.name ?? s.rangeLabel ?? '学習'}</div>
-                <div className="task-range">
-                  {formatMinutes(s.minutes)}
-                  {s.amountDone > 0 && material && ` ・ ${s.amountDone}${material.unit}`}
-                  {s.accuracy !== null && ` ・ 正答率${s.accuracy}%`}
-                  {s.focus !== null && ` ・ 🔥${s.focus}`}
-                </div>
-                {s.memo && <div className="faint mt-8">{s.memo}</div>}
-              </div>
-            </div>
-          );
-        })
+        <SessionLog sessions={sessions} state={state} t={t} />
       )}
 
       {addOpen && <RecordSheet open onClose={() => setAddOpen(false)} />}
     </div>
   );
+}
+
+// ============================================================
+// 週の予定 vs 実績バーチャート
+// ============================================================
+
+function WeekChart({
+  days,
+  minutesByDay,
+  plannedByDay,
+  totalPlanned,
+  totalActual,
+}: {
+  days: string[];
+  minutesByDay: Map<string, number>;
+  plannedByDay: Map<string, number>;
+  totalPlanned: number;
+  totalActual: number;
+}) {
+  const t = today();
+  const maxDay = Math.max(60, ...days.map((d) => Math.max(minutesByDay.get(d) ?? 0, plannedByDay.get(d) ?? 0)));
+  const achievement = totalPlanned > 0 ? Math.min(999, Math.round((totalActual / totalPlanned) * 100)) : null;
+
+  return (
+    <div className="card mt-12">
+      <div className="row spread" style={{ marginBottom: 12 }}>
+        <div className="section-label" style={{ margin: 0 }}>予定 vs 実績</div>
+        {achievement !== null && <span className="faint" style={{ fontWeight: 700 }}>達成率 {achievement}%</span>}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 130 }}>
+        {days.map((d) => {
+          const actual = minutesByDay.get(d) ?? 0;
+          const planned = plannedByDay.get(d) ?? 0;
+          const future = d > t;
+          return (
+            <div key={d} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, height: '100%', opacity: future ? 0.45 : 1 }}>
+              <div style={{ flex: 1, width: '100%', display: 'flex', gap: 3, alignItems: 'flex-end', justifyContent: 'center' }}>
+                <div
+                  title={`予定 ${formatMinutes(planned)}`}
+                  style={{
+                    width: '34%',
+                    height: `${Math.min(100, (planned / maxDay) * 100)}%`,
+                    background: 'var(--bg-elev3)',
+                    borderRadius: 5,
+                    minHeight: planned > 0 ? 4 : 0,
+                  }}
+                />
+                <div
+                  title={`実績 ${formatMinutes(actual)}`}
+                  style={{
+                    width: '34%',
+                    height: `${Math.min(100, (actual / maxDay) * 100)}%`,
+                    background: 'var(--accent-grad)',
+                    borderRadius: 5,
+                    minHeight: actual > 0 ? 4 : 0,
+                  }}
+                />
+              </div>
+              <span className="faint" style={{ fontSize: 10.5, fontWeight: 700, color: d === t ? 'var(--accent)' : undefined }}>
+                {WEEKDAY_LABELS[weekdayOf(d)]}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="row mt-8" style={{ gap: 14, justifyContent: 'center' }}>
+        <span className="faint">
+          <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: 'var(--bg-elev3)', marginRight: 5 }} />
+          予定
+        </span>
+        <span className="faint">
+          <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: 'var(--accent)', marginRight: 5 }} />
+          実績
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// 月のヒートカレンダー
+// ============================================================
+
+function MonthHeatCalendar({ month, minutesByDay }: { month: string; minutesByDay: Map<string, number> }) {
+  const monthDays = Array.from({ length: daysInMonthOf(month) }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`);
+  const max = Math.max(60, ...monthDays.map((d) => minutesByDay.get(d) ?? 0));
+
+  return (
+    <div className="card mt-12" style={{ padding: 13 }}>
+      <MonthCalendar
+        month={month}
+        renderDay={(d) => {
+          const min = minutesByDay.get(d) ?? 0;
+          return <span className="cal-cell-min">{formatMinutesCompact(min)}</span>;
+        }}
+        cellStyle={(d) => {
+          const min = minutesByDay.get(d) ?? 0;
+          if (min <= 0) return undefined;
+          const ratio = Math.min(1, min / max);
+          return { background: `color-mix(in srgb, var(--bg-elev1), var(--accent) ${Math.round(12 + ratio * 55)}%)` };
+        }}
+      />
+      <div className="faint mt-8" style={{ fontSize: 11.5 }}>色が濃い日ほど学習時間が長い日です</div>
+    </div>
+  );
+}
+
+// ============================================================
+// 学習ログ(日付見出し付き)
+// ============================================================
+
+function SessionLog({ sessions, state, t }: { sessions: StudySession[]; state: AppState; t: string }) {
+  let lastDate = '';
+  const out: JSX.Element[] = [];
+  for (const s of sessions) {
+    if (s.date !== lastDate) {
+      lastDate = s.date;
+      const dayTotal = sessions.filter((x) => x.date === s.date).reduce((sum, x) => sum + x.minutes, 0);
+      out.push(
+        <div key={`h-${s.date}`} className="row spread" style={{ margin: '10px 2px 6px' }}>
+          <span style={{ fontSize: 12.5, fontWeight: 800 }}>
+            {s.date === t ? '今日' : `${formatDateShort(s.date)} (${WEEKDAY_LABELS[weekdayOf(s.date)]})`}
+          </span>
+          <span className="faint">{formatMinutes(dayTotal)}</span>
+        </div>,
+      );
+    }
+    const subject = state.subjects.find((x) => x.id === s.subjectId);
+    const material = state.materials.find((x) => x.id === s.materialId);
+    out.push(
+      <div className="task-card" key={s.id}>
+        <div className="subject-bar" style={{ background: subject?.color ?? 'var(--accent)' }} />
+        <div className="task-main">
+          <div className="task-meta-row">
+            <span className="subject-chip" style={{ background: `${subject?.color}26`, color: subject?.color }}>
+              {subject?.name}
+            </span>
+            <span className="task-type-chip">{s.source === 'timer' ? '⏱ タイマー' : '✍️ 手入力'}</span>
+          </div>
+          <div className="task-title">{material?.name ?? s.rangeLabel ?? '学習'}</div>
+          <div className="task-range">
+            {formatMinutes(s.minutes)}
+            {s.amountDone > 0 && material && ` ・ ${s.amountDone}${material.unit}`}
+            {s.accuracy !== null && ` ・ 正答率${s.accuracy}%`}
+            {s.focus !== null && ` ・ 🔥${s.focus}`}
+          </div>
+          {s.memo && <div className="faint mt-8">{s.memo}</div>}
+        </div>
+      </div>,
+    );
+  }
+  return <>{out}</>;
 }

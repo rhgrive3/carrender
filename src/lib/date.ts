@@ -58,6 +58,43 @@ export function weekdayOf(date: ISODate): Weekday {
 
 export const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'] as const;
 
+/** その日を含む週の日曜日 */
+export function startOfWeek(date: ISODate): ISODate {
+  return addDays(date, -weekdayOf(date));
+}
+
+/** "YYYY-MM" */
+export function monthKeyOf(date: ISODate): string {
+  return date.slice(0, 7);
+}
+
+export function addMonths(monthKey: string, n: number): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  const total = y * 12 + (m - 1) + n;
+  const ny = Math.floor(total / 12);
+  const nm = (total - ny * 12) + 1;
+  return `${ny}-${String(nm).padStart(2, '0')}`;
+}
+
+export function daysInMonthOf(monthKey: string): number {
+  const [y, m] = monthKey.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+export function monthLabel(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  return `${y}年${m}月`;
+}
+
+/** 分を「1.5h」「45m」のようにカレンダーのマスに収まる形式へ */
+export function formatMinutesCompact(min: number): string {
+  const m = Math.round(min);
+  if (m <= 0) return '';
+  if (m < 60) return `${m}m`;
+  const h = Math.round((m / 60) * 10) / 10;
+  return `${h}h`;
+}
+
 export function formatDateJa(date: ISODate): string {
   const { m, d } = partsOf(date);
   return `${m}月${d}日(${WEEKDAY_LABELS[weekdayOf(date)]})`;

@@ -926,6 +926,126 @@ body {
   min-width: 9px;
 }
 
+/* ---------- 月カレンダー ---------- */
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.cal-head {
+  margin-bottom: 6px;
+}
+
+.cal-head span {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-faint);
+}
+
+.cal-sun {
+  color: var(--danger);
+}
+
+.cal-sat {
+  color: var(--accent);
+}
+
+.cal-cell {
+  min-height: 52px;
+  padding: 4px 2px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-elev1);
+  color: var(--text);
+  font-family: var(--font);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cal-cell.past {
+  opacity: 0.75;
+}
+
+.cal-cell:disabled {
+  cursor: default;
+}
+
+.cal-cell.today {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  opacity: 1;
+}
+
+.cal-cell.selected {
+  background: color-mix(in srgb, var(--bg-elev1), var(--accent) 12%);
+  opacity: 1;
+}
+
+.cal-daynum {
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.cal-cell-min {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.cal-dots {
+  display: flex;
+  gap: 2.5px;
+  justify-content: center;
+}
+
+.cal-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  display: block;
+}
+
+/* 期間ナビゲーション(‹ 2026年7月 ›) */
+.period-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.period-nav b {
+  font-size: 14.5px;
+  font-weight: 800;
+}
+
+.period-nav button {
+  width: 36px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-elev2);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.period-nav button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* ---------- 週間プラン ---------- */
 
 .day-column {

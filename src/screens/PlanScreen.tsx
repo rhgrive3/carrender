@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
-import { addDays, formatDateShort, formatMinutes, hmToMinutes, minutesToHM, today, WEEKDAY_LABELS, weekdayOf, genId } from '../lib/date';
+import { addDays, addMonths, formatDateShort, formatMinutes, formatMinutesCompact, hmToMinutes, minutesToHM, monthKeyOf, monthLabel, today, WEEKDAY_LABELS, weekdayOf, genId } from '../lib/date';
+import { MonthCalendar } from '../components/ui/MonthCalendar';
 import { availableMinutesOn, dayPlanOn, fixedEventsOn, freeSlotsOn } from '../lib/scheduler';
 import type { StudyTask } from '../types';
 import { Sheet } from '../components/ui/Sheet';
@@ -30,6 +31,8 @@ export function PlanScreen() {
   const [dayDetailOpen, setDayDetailOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addDate, setAddDate] = useState(t);
+  const [view, setView] = useState<'week' | 'month'>('week');
+  const [month, setMonth] = useState(() => monthKeyOf(t));
   const widePlan = useMediaQuery('(min-width: 1024px) and (orientation: landscape)');
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(t, i)), [t]);
@@ -112,7 +115,15 @@ export function PlanScreen() {
         </div>
       )}
 
+      <div className="segmented mt-12" role="tablist" aria-label="計画の表示形式">
+        <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>週(リスト)</button>
+        <button className={view === 'month' ? 'active' : ''} onClick={() => { setView('month'); setMonth(monthKeyOf(selectedDay)); }}>月(カレンダー)</button>
+      </div>
+
       <div className="planner-layout mt-16">
+        {view === 'month' ? (
+          <PlanMonthView month={month} onMonthChange={setMonth} selectedDay={selectedDay} onSelectDay={openDay} />
+        ) : (
         <div className="week-grid">
           {days.map((d) => {
             const tasks = tasksByDay.get(d) ?? [];
@@ -175,6 +186,7 @@ export function PlanScreen() {
             );
           })}
         </div>
+        )}
 
         <aside className="day-detail-dock" aria-label="選択日の詳細">
           <DayDetailPanel
@@ -206,6 +218,93 @@ export function PlanScreen() {
       )}
       {selected && <TaskEditSheet task={selected} onClose={() => setSelected(null)} />}
       {addOpen && <ManualTaskSheet initialDate={addDate} onClose={() => setAddOpen(false)} />}
+    </div>
+  );
+}
+
+// ============================================================
+// 月カレンダービュー
+// ============================================================
+
+function PlanMonthView({
+  month,
+  onMonthChange,
+  selectedDay,
+  onSelectDay,
+}: {
+  month: string;
+  onMonthChange: (month: string) => void;
+  selectedDay: string;
+  onSelectDay: (date: string) => void;
+}) {
+  const { state } = useApp();
+  const t = today();
+  const examDate = state.goal?.examDate ?? null;
+
+  const byDay = useMemo(() => {
+    const map = new Map<string, { minutes: number; subjects: string[]; total: number; done: number }>();
+    for (const task of state.tasks) {
+      if (!task.scheduledDate.startsWith(month) || task.status === 'skipped') continue;
+      let e = map.get(task.scheduledDate);
+      if (!e) {
+        e = { minutes: 0, subjects: [], total: 0, done: 0 };
+        map.set(task.scheduledDate, e);
+      }
+      e.minutes += task.estimatedMinutes;
+      e.total += 1;
+      if (task.status === 'done') e.done += 1;
+      if (!e.subjects.includes(task.subjectId)) e.subjects.push(task.subjectId);
+    }
+    return map;
+  }, [state.tasks, month]);
+
+  const monthPlanned = [...byDay.values()].reduce((s, e) => s + e.minutes, 0);
+
+  return (
+    <div className="card" style={{ padding: 13 }}>
+      <div className="period-nav" style={{ marginBottom: 10 }}>
+        <button aria-label="前の月" onClick={() => onMonthChange(addMonths(month, -1))}>‹</button>
+        <b>
+          {monthLabel(month)}
+          <span className="faint" style={{ fontWeight: 700, marginLeft: 8 }}>予定 {formatMinutes(monthPlanned)}</span>
+        </b>
+        <div className="row" style={{ gap: 6 }}>
+          {month !== monthKeyOf(t) && (
+            <button style={{ width: 'auto', padding: '0 10px', fontSize: 12 }} onClick={() => onMonthChange(monthKeyOf(t))}>今月</button>
+          )}
+          <button aria-label="次の月" onClick={() => onMonthChange(addMonths(month, 1))}>›</button>
+        </div>
+      </div>
+      <MonthCalendar
+        month={month}
+        selectedDate={selectedDay}
+        onSelectDay={onSelectDay}
+        renderDay={(d) => {
+          const e = byDay.get(d);
+          const isExam = d === examDate;
+          if (!e && !isExam) return null;
+          return (
+            <>
+              {isExam && <span style={{ fontSize: 10, lineHeight: 1 }} title="試験日">🎯</span>}
+              {e && (
+                <>
+                  <span className="cal-cell-min">
+                    {e.total > 0 && e.done === e.total ? '✓' : formatMinutesCompact(e.minutes)}
+                  </span>
+                  <span className="cal-dots">
+                    {e.subjects.slice(0, 3).map((sid) => (
+                      <i key={sid} style={{ background: state.subjects.find((s) => s.id === sid)?.color ?? 'var(--accent)' }} />
+                    ))}
+                  </span>
+                </>
+              )}
+            </>
+          );
+        }}
+      />
+      <div className="faint mt-8" style={{ fontSize: 11.5 }}>
+        日付をタップすると詳細計画を開きます{examDate ? ' ・ 🎯 = 試験日' : ''}
+      </div>
     </div>
   );
 }
