@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
-import { addDays, addMonths, formatDateShort, formatMinutes, formatMinutesCompact, hmToMinutes, minutesToHM, monthKeyOf, monthLabel, today, WEEKDAY_LABELS, weekdayOf, genId } from '../lib/date';
+import { addDays, addMonths, formatDateShort, formatMinutes, formatMinutesCompact, formatMinutesTile, hmToMinutes, minutesToHM, monthKeyOf, monthLabel, today, WEEKDAY_LABELS, weekdayOf, genId } from '../lib/date';
 import { MonthCalendar } from '../components/ui/MonthCalendar';
 import { availableMinutesOn, dayPlanOn, fixedEventsOn, freeSlotsOn } from '../lib/scheduler';
 import type { StudyTask } from '../types';
 import { Sheet } from '../components/ui/Sheet';
-import { Stepper, TASK_TYPE_LABEL } from '../components/ui/bits';
+import { Segmented, Stepper, TASK_TYPE_LABEL } from '../components/ui/bits';
 import { useToast } from '../components/ui/Toast';
 import { useTimer } from '../components/timer/TimerContext';
 import { RecordSheet } from '../components/forms/RecordSheet';
@@ -385,50 +385,50 @@ function DayDetailPanel({
 
   return (
     <div className="day-detail-panel">
-      <div className="row spread">
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 17 }}>
-            {date === t ? '今日' : `${formatDateShort(date)} (${WEEKDAY_LABELS[weekdayOf(date)]})`}
-          </div>
-          <div className="faint">
-            空き枠 {slots.map((s) => `${minutesToHM(s.start)}〜${minutesToHM(s.end)}`).join(' / ') || 'なし'}
-          </div>
+      <div>
+        <div style={{ fontWeight: 800, fontSize: 17 }}>
+          {date === t ? '今日' : `${formatDateShort(date)} (${WEEKDAY_LABELS[weekdayOf(date)]})`}
         </div>
-        <span className={`status-badge ${load === 'rest' ? 'status-warn' : load === 'heavy' ? 'status-danger' : load === 'light' ? 'status-accent' : 'status-ok'}`}>
-          {load === 'rest' ? '休養日' : load === 'heavy' ? '重め' : load === 'light' ? '軽め' : '通常'}
-        </span>
+        <div className="faint">
+          空き枠 {slots.map((s) => `${minutesToHM(s.start)}〜${minutesToHM(s.end)}`).join(' / ') || 'なし'}
+        </div>
       </div>
 
       <div className="day-stats mt-12">
-        <div><b>{formatMinutes(planned)}</b><span>予定</span></div>
-        <div><b>{formatMinutes(actual)}</b><span>実績</span></div>
+        <div><b>{formatMinutesTile(planned)}</b><span>予定</span></div>
+        <div><b>{formatMinutesTile(actual)}</b><span>実績</span></div>
         <div><b>{Math.round(achievement * 100)}%</b><span>達成率</span></div>
-        <div><b>{formatMinutes(free)}</b><span>空き</span></div>
+        <div><b>{formatMinutesTile(free)}</b><span>空き</span></div>
       </div>
 
-      <div className="row mt-12" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <button className="btn btn-secondary btn-sm" onClick={() => onAddTask(date)}>タスク追加</button>
+      <div className="field mt-12" style={{ marginBottom: 0 }}>
+        <label>この日の負荷(変えると自動で再計算)</label>
+        <Segmented
+          ariaLabel="この日の負荷"
+          options={[
+            { value: 'normal', label: '通常' },
+            { value: 'light', label: '軽め' },
+            { value: 'heavy', label: '重め' },
+            { value: 'rest', label: '休養' },
+          ]}
+          value={load}
+          onChange={(next) => {
+            if (next !== load) applyLoad(next);
+          }}
+        />
+      </div>
+
+      <div className="row mt-12" style={{ gap: 8 }}>
+        <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => onAddTask(date)}>＋ タスク追加</button>
         <button
           className="btn btn-secondary btn-sm"
+          style={{ flex: 1 }}
           onClick={() => {
             dispatch({ type: 'RESCHEDULE_FROM', fromDate: date, reason: `${formatDateShort(date)}だけ再計算` });
             toast('この日以降を再計算しました');
           }}
         >
-          この日を再計算
-        </button>
-        <button className="btn btn-ghost btn-sm" onClick={() => applyLoad('light')}>軽め</button>
-        <button className="btn btn-ghost btn-sm" onClick={() => applyLoad('heavy')}>重め</button>
-        <button className="btn btn-ghost btn-sm" onClick={() => applyLoad('rest')}>休養日</button>
-        <button
-          className="btn btn-danger btn-sm"
-          onClick={() => {
-            if (date === t) dispatch({ type: 'TODAY_IMPOSSIBLE' });
-            else applyLoad('rest');
-            toast(date === t ? '今日の分を明日以降へ分散しました' : 'この日を休養日にしました');
-          }}
-        >
-          今日は無理
+          🔄 この日を再計算
         </button>
       </div>
 
@@ -614,7 +614,7 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
 
       <div className="row mt-16">
         <button
-          className="btn btn-primary btn-sm"
+          className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
           onClick={() => {
             timer.start({
@@ -627,24 +627,11 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
             onClose();
           }}
         >
-          開始
+          ▶ 開始
         </button>
         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => setRecordOpen(true)}>
-          完了
+          ✓ 完了
         </button>
-        <button
-          className="btn btn-danger btn-sm"
-          style={{ flex: 1 }}
-          onClick={() => {
-            dispatch({ type: 'DELETE_TASK', taskId: task.id });
-            toast('タスクを削除しました');
-            onClose();
-          }}
-        >
-          削除
-        </button>
-      </div>
-      <div className="row mt-8">
         <button
           className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
@@ -654,12 +641,23 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
             onClose();
           }}
         >
-          延期して再計算
-        </button>
-        <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={applyChanges}>
-          日時変更を保存
+          ⏭ 延期
         </button>
       </div>
+      <button className="btn btn-primary btn-block mt-8" onClick={applyChanges}>
+        変更を保存
+      </button>
+      <button
+        className="btn btn-ghost btn-block mt-8"
+        style={{ color: 'var(--danger)' }}
+        onClick={() => {
+          dispatch({ type: 'DELETE_TASK', taskId: task.id });
+          toast('タスクを削除しました');
+          onClose();
+        }}
+      >
+        このタスクを削除
+      </button>
     </Sheet>
     {recordOpen && (
       <RecordSheet

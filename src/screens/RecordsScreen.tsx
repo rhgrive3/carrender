@@ -7,6 +7,7 @@ import {
   formatDateShort,
   formatMinutes,
   formatMinutesCompact,
+  formatMinutesTile,
   monthKeyOf,
   monthLabel,
   startOfWeek,
@@ -47,7 +48,7 @@ function sumRange(minutesByDay: Map<string, number>, days: string[]): number {
 function deltaLabel(current: number, previous: number): { text: string; positive: boolean } {
   const diff = current - previous;
   if (Math.abs(diff) < 1) return { text: '±0', positive: true };
-  return { text: `${diff > 0 ? '+' : '-'}${formatMinutes(Math.abs(diff))}`, positive: diff > 0 };
+  return { text: `${diff > 0 ? '+' : '-'}${formatMinutesTile(Math.abs(diff))}`, positive: diff > 0 };
 }
 
 export function RecordsScreen() {
@@ -141,8 +142,8 @@ export function RecordsScreen() {
 
       {/* サマリー */}
       <div className="day-stats mt-12">
-        <div><b>{formatMinutes(totalActual)}</b><span>合計</span></div>
-        <div><b>{formatMinutes(Math.round(dailyAvg))}</b><span>日平均</span></div>
+        <div><b>{formatMinutesTile(totalActual)}</b><span>合計</span></div>
+        <div><b>{formatMinutesTile(Math.round(dailyAvg))}</b><span>日平均</span></div>
         <div><b>{studyDays}/{days.length}日</b><span>学習日</span></div>
         <div>
           <b style={{ color: delta.positive ? 'var(--ok, var(--accent))' : 'var(--danger)' }}>{delta.text}</b>
@@ -176,8 +177,8 @@ export function RecordsScreen() {
                     }}
                   />
                 </div>
-                <span className="faint" style={{ width: 62, textAlign: 'right', flexShrink: 0 }}>
-                  {formatMinutes(min)}
+                <span className="faint" style={{ width: 78, textAlign: 'right', flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                  {formatMinutesTile(min)}
                   <span style={{ marginLeft: 4 }}>{totalActual > 0 ? `${Math.round((min / totalActual) * 100)}%` : ''}</span>
                 </span>
               </div>

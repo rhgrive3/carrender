@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../state/AuthContext';
 import { Sheet } from '../components/ui/Sheet';
-import { Segmented, Rating, NumericInput } from '../components/ui/bits';
+import { Segmented, Rating, NumericInput, Disclosure } from '../components/ui/bits';
 import { useToast } from '../components/ui/Toast';
 import { exportJSON, importJSON, saveStateNow } from '../lib/storage';
 import { formatDateShort, genId, hmToMinutes, minutesToHM, today, WEEKDAY_LABELS } from '../lib/date';
@@ -146,11 +146,17 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     onClose();
   };
 
+  const weekdaySummary = (() => {
+    const fmt = (min: number) => (min >= 60 ? `${Math.round((min / 60) * 10) / 10}h` : `${min}分`);
+    const weekday = availability.find((s) => s.weekday === 1)?.minutes ?? 0;
+    const weekend = availability.find((s) => s.weekday === 0)?.minutes ?? 0;
+    return `平日${fmt(weekday)} ・ 日曜${fmt(weekend)}`;
+  })();
+
   return (
     <Sheet open={open} onClose={onClose} title="設定">
       {/* アカウント */}
-      <div className="section-label">🔑 アカウント</div>
-      <div className="card" style={{ padding: 14, marginBottom: 18 }}>
+      <div className="card" style={{ padding: 14, marginBottom: 14 }}>
         <div className="row spread">
           <div>
             <div style={{ fontWeight: 800, fontSize: 15 }}>{user?.username ?? '-'}</div>
@@ -171,6 +177,15 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         </div>
       </div>
 
+      {/* デモデータ警告 */}
+      {state.isDemo && (
+        <div className="card" style={{ padding: 12, marginBottom: 14, borderColor: 'var(--warn)' }}>
+          <p style={{ fontSize: 13, lineHeight: 1.6 }}>
+            現在<b>デモデータ</b>を表示中です。本番利用の際は下の「データ管理」から初期化して自分のデータで始めてください。
+          </p>
+        </div>
+      )}
+
       {/* テーマ */}
       <div className="field">
         <label>テーマ</label>
@@ -188,8 +203,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
 
       {/* 目標 */}
       {state.goal && (
-        <>
-          <div className="section-label">🎯 目標と試験日</div>
+        <Disclosure title="🎯 目標と試験日" summary={`${state.goal.name} ・ ${formatDateShort(state.goal.examDate)}`}>
           <div className="field">
             <label htmlFor="st-goal">目標名</label>
             <input id="st-goal" value={goalName} onChange={(e) => setGoalName(e.target.value)} />
@@ -201,52 +215,11 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           <button className="btn btn-secondary btn-sm btn-block" onClick={saveGoal}>
             目標を保存して再計算
           </button>
-        </>
+        </Disclosure>
       )}
 
-      {/* 学習時間の上限 */}
-      <div className="section-label">学習ブロック設定</div>
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor="st-max-daily">1日の最大勉強時間(分)</label>
-          <NumericInput
-            id="st-max-daily"
-            value={settingsDraft.maxDailyMinutes}
-            min={0}
-            max={1200}
-            placeholder="例: 360"
-            onChange={(v) => setSettingsDraft((prev) => ({ ...prev, maxDailyMinutes: v }))}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="st-session-max">1コマの最大時間(分)</label>
-          <NumericInput
-            id="st-session-max"
-            value={settingsDraft.sessionMaxMinutes}
-            min={15}
-            max={240}
-            placeholder="例: 90"
-            onChange={(v) => setSettingsDraft((prev) => ({ ...prev, sessionMaxMinutes: v }))}
-          />
-        </div>
-      </div>
-      <div className="field">
-        <label htmlFor="st-session-min">1コマの最小時間(分)</label>
-        <NumericInput
-          id="st-session-min"
-          value={settingsDraft.sessionMinMinutes}
-          min={5}
-          max={120}
-          placeholder="例: 25"
-          onChange={(v) => setSettingsDraft((prev) => ({ ...prev, sessionMinMinutes: v }))}
-        />
-      </div>
-      <button className="btn btn-secondary btn-sm btn-block" onClick={saveStudySettings}>
-        ブロック設定を保存して再計算
-      </button>
-
-      {/* 勉強可能時間 */}
-      <div className="section-label">曜日ごとの勉強可能時間</div>
+      {/* 勉強できる時間 */}
+      <Disclosure title="⏰ 勉強できる時間" summary={weekdaySummary}>
       {availability.map((slot) => (
         <div key={slot.weekday} className="card availability-card">
           <div className="row spread">
@@ -256,7 +229,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             </span>
           </div>
           {(slot.windows.length > 0 ? slot.windows : []).map((window, idx) => (
-            <div key={`${slot.weekday}-${idx}`} className="row mt-8">
+            <div key={`${slot.weekday}-${idx}`} className="row mt-8" style={{ gap: 6 }}>
               <input
                 aria-label={`${WEEKDAY_LABELS[slot.weekday]}曜日 ${idx + 1}枠目の開始`}
                 type="time"
@@ -278,8 +251,13 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
                 }}
                 style={inputStyle}
               />
-              <button className="btn btn-ghost btn-sm" onClick={() => updateAvailabilityWindows(slot.weekday, slot.windows.filter((_, i) => i !== idx))}>
-                削除
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ padding: '0 8px', minHeight: 44, fontSize: 17, flexShrink: 0 }}
+                aria-label={`${WEEKDAY_LABELS[slot.weekday]}曜日 ${idx + 1}枠目を削除`}
+                onClick={() => updateAvailabilityWindows(slot.weekday, slot.windows.filter((_, i) => i !== idx))}
+              >
+                ✕
               </button>
             </div>
           ))}
@@ -302,11 +280,52 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         </div>
       ))}
       <button className="btn btn-secondary btn-sm btn-block" onClick={saveAvailability}>
-        曜日テンプレートを保存して再計算
+        曜日ごとの時間を保存して再計算
       </button>
 
+      <div className="section-label compact">1日・1コマの上限</div>
+      <div className="field-row">
+        <div className="field">
+          <label htmlFor="st-max-daily">1日の最大(分)</label>
+          <NumericInput
+            id="st-max-daily"
+            value={settingsDraft.maxDailyMinutes}
+            min={0}
+            max={1200}
+            placeholder="例: 360"
+            onChange={(v) => setSettingsDraft((prev) => ({ ...prev, maxDailyMinutes: v }))}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="st-session-max">1コマの最大(分)</label>
+          <NumericInput
+            id="st-session-max"
+            value={settingsDraft.sessionMaxMinutes}
+            min={15}
+            max={240}
+            placeholder="例: 90"
+            onChange={(v) => setSettingsDraft((prev) => ({ ...prev, sessionMaxMinutes: v }))}
+          />
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor="st-session-min">1コマの最小(分)</label>
+        <NumericInput
+          id="st-session-min"
+          value={settingsDraft.sessionMinMinutes}
+          min={5}
+          max={120}
+          placeholder="例: 25"
+          onChange={(v) => setSettingsDraft((prev) => ({ ...prev, sessionMinMinutes: v }))}
+        />
+      </div>
+      <button className="btn btn-secondary btn-sm btn-block" onClick={saveStudySettings}>
+        上限を保存して再計算
+      </button>
+      </Disclosure>
+
       {/* 固定予定 */}
-      <div className="section-label">固定予定</div>
+      <Disclosure title="📌 固定予定" summary={events.length > 0 ? `${events.length}件` : '学校・塾など'}>
       {events.map((ev) => (
         <div key={ev.id} className="row" style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700 }}>
@@ -366,9 +385,10 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           追加
         </button>
       </div>
+      </Disclosure>
 
       {/* 日別例外 */}
-      <div className="section-label">日別の例外</div>
+      <Disclosure title="🗓 日別の例外" summary={state.dayPlans.length > 0 ? `${state.dayPlans.length}件` : '模試・休養日など'}>
       <div className="field-row">
         <div className="field">
           <label htmlFor="st-ex-date">日付</label>
@@ -418,24 +438,17 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           ))}
         </div>
       )}
+      </Disclosure>
 
       {/* 科目の重要度・苦手度 */}
       {state.subjects.length > 0 && (
-        <>
-          <div className="section-label">📖 科目の重要度・苦手度</div>
+        <Disclosure title="📖 科目の重要度・苦手度" summary={`${state.subjects.length}科目`}>
           <SubjectTuner />
-        </>
+        </Disclosure>
       )}
 
       {/* データ管理 */}
-      <div className="section-label">💾 データ管理</div>
-      {state.isDemo && (
-        <div className="card" style={{ padding: 12, marginBottom: 10, borderColor: 'var(--warn)' }}>
-          <p style={{ fontSize: 13, lineHeight: 1.6 }}>
-            現在<b>デモデータ</b>を表示中です。本番利用の際は「初期化」して自分のデータで始めてください。
-          </p>
-        </div>
-      )}
+      <Disclosure title="💾 データ管理" summary="バックアップ・初期化">
       <div className="row" style={{ gap: 8 }}>
         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={doExport}>
           ⬇ エクスポート
@@ -459,6 +472,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       <button className="btn btn-danger btn-block mt-8" onClick={doReset}>
         すべてのデータを初期化
       </button>
+      </Disclosure>
 
       <p className="faint" style={{ textAlign: 'center', marginTop: 18 }}>
         StudyCommander v1.0 ・ データはアカウントに紐づけてクラウドに保存されます
@@ -469,6 +483,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
 
 const inputStyle: React.CSSProperties = {
   flex: 1,
+  minWidth: 0,
   minHeight: 44,
   background: 'var(--bg-elev2)',
   border: '1.5px solid var(--border)',
@@ -476,7 +491,8 @@ const inputStyle: React.CSSProperties = {
   color: 'var(--text)',
   fontFamily: 'var(--font)',
   fontSize: 16,
-  padding: '8px 10px',
+  padding: '8px 6px',
+  textAlign: 'center',
 };
 
 function SubjectTuner() {

@@ -113,6 +113,15 @@ export function formatMinutes(min: number): string {
   return r === 0 ? `${h}時間` : `${h}時間${r}分`;
 }
 
+/** 小さな統計タイル用の短い表記: 「5h55m」「45分」「6h」(折り返し防止) */
+export function formatMinutesTile(min: number): string {
+  const m = Math.round(min);
+  if (m < 60) return `${m}分`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r === 0 ? `${h}h` : `${h}h${String(r).padStart(2, '0')}m`;
+}
+
 /** 長い時間を「約N時間」に丸める(分析の大きな数値用) */
 export function formatHoursShort(min: number): string {
   const h = min / 60;

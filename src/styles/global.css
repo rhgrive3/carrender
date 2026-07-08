@@ -491,22 +491,36 @@ body {
 
 .task-actions {
   display: flex;
-  gap: 7px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
 .task-action-btn {
-  width: 42px;
-  height: 42px;
+  width: 46px;
+  height: 46px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--bg-elev2);
   color: var(--text-sub);
-  font-size: 17px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
   cursor: pointer;
+  font-family: var(--font);
+}
+
+.task-action-btn .ta-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.task-action-btn .ta-label {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 .task-action-btn.primary {
@@ -1149,6 +1163,9 @@ body {
   display: block;
   font-size: 15px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .day-stats span {
@@ -1256,7 +1273,7 @@ body {
 
 .material-metrics {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
 
@@ -1264,13 +1281,30 @@ body {
   min-width: 0;
   border-radius: 8px;
   background: var(--bg-elev2);
-  color: var(--text-sub);
-  font-size: 12px;
-  font-weight: 700;
   padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.material-metrics i {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-faint);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.material-metrics b {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .availability-card {
@@ -1287,6 +1321,72 @@ body {
   .materials-grid .card + .card {
     margin-top: 0;
   }
+}
+
+/* ---------- 折りたたみセクション ---------- */
+
+.disclosure {
+  background: var(--bg-elev1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.disclosure-head {
+  width: 100%;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-family: var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+
+.disclosure-title {
+  font-size: 14.5px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.disclosure-summary {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.disclosure-chevron {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 13px;
+  transition: transform 0.18s ease;
+  flex-shrink: 0;
+}
+
+.disclosure-summary + .disclosure-chevron {
+  margin-left: 0;
+}
+
+.disclosure.open .disclosure-chevron {
+  transform: rotate(180deg);
+}
+
+.disclosure-body {
+  padding: 2px 14px 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
 }
 
 /* ---------- 空状態 ---------- */

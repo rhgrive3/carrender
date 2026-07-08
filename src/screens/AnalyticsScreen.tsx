@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useApp } from '../state/AppContext';
 import { computeAnalytics } from '../lib/analytics';
-import { diffDays, formatDateShort, formatHoursShort, formatMinutes, today } from '../lib/date';
+import { diffDays, formatDateShort, formatHoursShort, formatMinutes, formatMinutesTile, today } from '../lib/date';
 import { ProgressRing } from '../components/ui/ProgressRing';
 import { ProgressBar, EmptyState } from '../components/ui/bits';
 
@@ -76,7 +76,7 @@ export function AnalyticsScreen() {
           <ProgressRing
             value={capacityRate}
             label={`${Math.round(capacityRate * 100)}%`}
-            sublabel="時間消費率"
+            sublabel="時間の使用率"
             color={a.capacity.ok ? undefined : 'var(--danger)'}
           />
           <div className="hero-numbers">
@@ -102,6 +102,9 @@ export function AnalyticsScreen() {
             )}
           </div>
         </div>
+        <p className="faint" style={{ marginTop: 12, fontSize: 11.5, lineHeight: 1.5 }}>
+          使用率 = 残りの学習量 ÷ 試験日までに確保できる時間。100%を超えると計画が入り切りません。
+        </p>
       </div>
 
       {/* 自動コメント */}
@@ -154,7 +157,7 @@ export function AnalyticsScreen() {
                     <div style={{ flex: 1, height: 7, background: 'var(--bg-elev3)', borderRadius: 100 }}>
                       <div style={{ width: `${(s.plannedMinutes / max) * 100}%`, height: '100%', borderRadius: 100, background: 'var(--border-strong)' }} />
                     </div>
-                    <span className="faint" style={{ width: 76, textAlign: 'right' }}>予定 {formatMinutes(s.plannedMinutes)}</span>
+                    <span className="faint" style={{ width: 76, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>予定 {formatMinutesTile(s.plannedMinutes)}</span>
                   </div>
                   <div className="row" style={{ gap: 8 }}>
                     <div style={{ flex: 1, height: 7, background: 'var(--bg-elev3)', borderRadius: 100 }}>

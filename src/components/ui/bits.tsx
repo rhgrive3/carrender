@@ -219,3 +219,28 @@ export function EmptyState({ icon, title, children }: { icon: string; title: str
     </div>
   );
 }
+
+/** 折りたたみセクション: 詳細設定を隠してフォームや設定画面をシンプルに保つ */
+export function Disclosure({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={`disclosure ${open ? 'open' : ''}`}>
+      <button type="button" className="disclosure-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className="disclosure-title">{title}</span>
+        {summary && <span className="disclosure-summary">{summary}</span>}
+        <span className="disclosure-chevron" aria-hidden="true">▾</span>
+      </button>
+      {open && <div className="disclosure-body">{children}</div>}
+    </div>
+  );
+}

@@ -3,7 +3,7 @@ import { useApp } from '../state/AppContext';
 import type { Material } from '../types';
 import { addDays, diffDays, formatDateShort, genId, today } from '../lib/date';
 import { computeMaterialForecast, todayQuotaFor } from '../lib/analytics';
-import { ProgressBar, EmptyState, Rating, NumericInput, Segmented } from '../components/ui/bits';
+import { ProgressBar, EmptyState, Rating, NumericInput, Segmented, Disclosure } from '../components/ui/bits';
 import { Sheet } from '../components/ui/Sheet';
 import { useToast } from '../components/ui/Toast';
 import { UNIT_OPTIONS } from '../data/defaults';
@@ -14,12 +14,6 @@ const FORECAST_UI = {
   behind: { label: '遅れ', cls: 'status-warn' },
   risk: { label: '危険', cls: 'status-danger' },
 } as const;
-
-const DEADLINE_LABEL: Record<Material['deadlinePolicy'], string> = {
-  strict: '期限厳守',
-  normal: 'できれば',
-  flexible: '余裕があれば',
-};
 
 const PHASE_LABEL: Record<Material['phase'], string> = {
   first: '1周目',
@@ -88,8 +82,8 @@ export function MaterialsScreen() {
                   )}
                   {m.paused && <span className="status-badge status-warn">一時停止</span>}
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => setEditTarget(m)} aria-label={`${m.name}の詳細を開く`}>
-                  詳細
+                <button className="btn btn-ghost btn-sm" onClick={() => setEditTarget(m)} aria-label={`${m.name}を編集`}>
+                  編集
                 </button>
               </div>
 
@@ -106,14 +100,29 @@ export function MaterialsScreen() {
                   {m.unit}
                   {!done && quota > 0 && ` ・ 今日の目安 ${quota}${m.unit}`}
                 </span>
-                <span className="faint">目標 {formatDateShort(m.targetDate)}</span>
+                <span className="faint" style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  目標 {formatDateShort(m.targetDate)}
+                  {m.deadlinePolicy === 'strict' && ' 厳守'}
+                </span>
               </div>
-              <div className="material-metrics mt-8">
-                <span>期限まで {daysLeft < 0 ? `${Math.abs(daysLeft)}日超過` : `${daysLeft}日`}</span>
-                <span>{forecast ? `必要 ${forecast.requiredPacePerDay}${m.unit}/日` : '必要量計算中'}</span>
-                <span>{requiredWeekly > 0 ? `${requiredWeekly}${m.unit}/週` : '週目標なし'}</span>
-                <span>{DEADLINE_LABEL[m.deadlinePolicy]}</span>
-              </div>
+              {!done && (
+                <div className="material-metrics mt-8">
+                  <span>
+                    <i>期限まで</i>
+                    <b style={daysLeft < 0 ? { color: 'var(--danger)' } : undefined}>
+                      {daysLeft < 0 ? `${Math.abs(daysLeft)}日超過` : `${daysLeft}日`}
+                    </b>
+                  </span>
+                  <span>
+                    <i>1日の目安</i>
+                    <b>{forecast ? `${forecast.requiredPacePerDay}${m.unit}` : '計算中'}</b>
+                  </span>
+                  <span>
+                    <i>1週間の目安</i>
+                    <b>{requiredWeekly > 0 ? `${requiredWeekly}${m.unit}` : '-'}</b>
+                  </span>
+                </div>
+              )}
               {forecast && forecast.status !== 'ahead' && forecast.status !== 'onTrack' && forecast.projectedFinishDate && (
                 <div className="faint mt-8">
                   現在ペースの完了見込み {formatDateShort(forecast.projectedFinishDate)}({forecast.delayDays > 0 ? `${forecast.delayDays}日遅れ` : '前倒し'})
@@ -261,122 +270,124 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
           />
         </div>
       </div>
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor="mf-start">開始日</label>
-          <input id="mf-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="mf-target">目標完了日</label>
-          <input id="mf-target" type="date" value={targetDate} min={t} onChange={(e) => setTargetDate(e.target.value)} />
-        </div>
+      <div className="field">
+        <label htmlFor="mf-target">目標完了日</label>
+        <input id="mf-target" type="date" value={targetDate} min={t} onChange={(e) => setTargetDate(e.target.value)} />
+        <div className="field-hint">この日までに終わるよう毎日の計画を自動で組みます。あとは保存するだけでOK。</div>
       </div>
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor="mf-mpu">1{unit}あたりの分数</label>
-          <NumericInput
-            id="mf-mpu"
-            decimal
-            step={0.5}
-            value={minutesPerUnit}
-            min={0.1}
-            placeholder="例: 12"
-            onChange={(v) => setMinutesPerUnit(v)}
-          />
+
+      <Disclosure title="詳細設定" summary="ペース・優先度・復習など(任意)">
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="mf-start">開始日</label>
+            <input id="mf-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="mf-mpu">1{unit}あたりの分数</label>
+            <NumericInput
+              id="mf-mpu"
+              decimal
+              step={0.5}
+              value={minutesPerUnit}
+              min={0.1}
+              placeholder="例: 12"
+              onChange={(v) => setMinutesPerUnit(v)}
+            />
+          </div>
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="mf-daily">1日の目標量(任意)</label>
+            <NumericInput
+              id="mf-daily"
+              decimal
+              value={dailyTarget}
+              min={0}
+              placeholder="自動計算"
+              onChange={(v) => setDailyTarget(v)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="mf-weekly">1週間の目標量(任意)</label>
+            <NumericInput
+              id="mf-weekly"
+              decimal
+              value={weeklyTarget}
+              min={0}
+              placeholder="自動計算"
+              onChange={(v) => setWeeklyTarget(v)}
+            />
+          </div>
         </div>
         <div className="field">
-          <label htmlFor="mf-daily">1日の目標量</label>
-          <NumericInput
-            id="mf-daily"
-            decimal
-            value={dailyTarget}
-            min={0}
-            placeholder="例: 5"
-            onChange={(v) => setDailyTarget(v)}
-          />
-        </div>
-      </div>
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor="mf-weekly">1週間の目標量</label>
-          <NumericInput
-            id="mf-weekly"
-            decimal
-            value={weeklyTarget}
-            min={0}
-            placeholder="例: 35"
-            onChange={(v) => setWeeklyTarget(v)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="mf-deadline">期限ポリシー</label>
+          <label htmlFor="mf-deadline">期限の扱い</label>
           <select id="mf-deadline" value={deadlinePolicy} onChange={(e) => setDeadlinePolicy(e.target.value as Material['deadlinePolicy'])}>
-            <option value="strict">期限厳守</option>
-            <option value="normal">できれば</option>
+            <option value="strict">期限厳守(最優先で配置)</option>
+            <option value="normal">できれば守りたい</option>
             <option value="flexible">余裕があれば</option>
           </select>
         </div>
-      </div>
-      <div className="field">
-        <label>フェーズ</label>
-        <Segmented
-          ariaLabel="教材フェーズ"
-          options={[
-            { value: 'first', label: PHASE_LABEL.first },
-            { value: 'second', label: PHASE_LABEL.second },
-            { value: 'correction', label: PHASE_LABEL.correction },
-            { value: 'review', label: PHASE_LABEL.review },
-          ]}
-          value={phase}
-          onChange={setPhase}
-        />
-      </div>
-      <div className="field">
-        <label>優先度</label>
-        <Rating value={priority} onChange={(v) => setPriority(v)} icon="⚑" label="優先度" />
-      </div>
-      <div className="field">
-        <label>難易度(高いほど復習を増やします)</label>
-        <Rating value={difficulty} onChange={(v) => setDifficulty(v)} icon="💪" label="難易度" />
-      </div>
-      <div className="field">
-        <label>試験重要度</label>
-        <Rating value={examRelevance} onChange={(v) => setExamRelevance(v)} icon="◆" label="試験重要度" />
-      </div>
-      <div className="field">
-        <label className="check-row">
-          <input type="checkbox" checked={reviewEnabled} onChange={(e) => setReviewEnabled(e.target.checked)} />
-          復習タスクを自動生成する
-        </label>
-      </div>
-      {reviewEnabled && (
         <div className="field">
-          <label htmlFor="mf-review-intervals">復習間隔(日・カンマ区切り)</label>
-          <input id="mf-review-intervals" value={reviewIntervalsText} onChange={(e) => setReviewIntervalsText(e.target.value)} placeholder="例: 1, 3, 7, 14, 30" />
+          <label>フェーズ</label>
+          <Segmented
+            ariaLabel="教材フェーズ"
+            options={[
+              { value: 'first', label: PHASE_LABEL.first },
+              { value: 'second', label: PHASE_LABEL.second },
+              { value: 'correction', label: PHASE_LABEL.correction },
+              { value: 'review', label: PHASE_LABEL.review },
+            ]}
+            value={phase}
+            onChange={setPhase}
+          />
         </div>
-      )}
-      <div className="field">
-        <label>周回</label>
-        <div className="segmented" role="radiogroup" aria-label="周回">
-          {[1, 2, 3].map((r) => (
-            <button key={r} type="button" role="radio" aria-checked={round === r} className={round === r ? 'active' : ''} onClick={() => setRound(r)}>
-              {r}周目
-            </button>
-          ))}
+        <div className="field">
+          <label>優先度(高いほど先に配置)</label>
+          <Rating value={priority} onChange={(v) => setPriority(v)} icon="⚑" label="優先度" />
         </div>
-      </div>
-      <div className="field-row">
-        <label className="check-row">
-          <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} />
-          一時停止
-        </label>
-        <label className="check-row">
-          <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
-          完了/非表示
-        </label>
-      </div>
+        <div className="field">
+          <label>難易度(高いほど復習を増やします)</label>
+          <Rating value={difficulty} onChange={(v) => setDifficulty(v)} icon="💪" label="難易度" />
+        </div>
+        <div className="field">
+          <label>試験への重要度</label>
+          <Rating value={examRelevance} onChange={(v) => setExamRelevance(v)} icon="◆" label="試験への重要度" />
+        </div>
+        <div className="field">
+          <label className="check-row">
+            <input type="checkbox" checked={reviewEnabled} onChange={(e) => setReviewEnabled(e.target.checked)} />
+            復習タスクを自動生成する
+          </label>
+        </div>
+        {reviewEnabled && (
+          <div className="field">
+            <label htmlFor="mf-review-intervals">復習間隔(日・カンマ区切り)</label>
+            <input id="mf-review-intervals" value={reviewIntervalsText} onChange={(e) => setReviewIntervalsText(e.target.value)} placeholder="例: 1, 3, 7, 14, 30" />
+          </div>
+        )}
+        <div className="field">
+          <label>周回</label>
+          <div className="segmented" role="radiogroup" aria-label="周回">
+            {[1, 2, 3].map((r) => (
+              <button key={r} type="button" role="radio" aria-checked={round === r} className={round === r ? 'active' : ''} onClick={() => setRound(r)}>
+                {r}周目
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field-row" style={{ marginBottom: 0 }}>
+          <label className="check-row">
+            <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} />
+            一時停止
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
+            完了/非表示
+          </label>
+        </div>
+      </Disclosure>
 
-      <button className="btn btn-primary btn-block" onClick={save}>
+      <button className="btn btn-primary btn-block mt-12" onClick={save}>
         {isEdit ? '保存して再計算' : '追加して計画に反映'}
       </button>
       {isEdit && (

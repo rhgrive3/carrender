@@ -56,14 +56,17 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
         </div>
         {!isDone && (
           <div className="task-actions">
-            <button className="task-action-btn" aria-label={`${task.title}を延期`} onClick={postpone} title="延期">
-              ⏭
+            <button className="task-action-btn" aria-label={`${task.title}を延期`} onClick={postpone}>
+              <span className="ta-icon" aria-hidden="true">⏭</span>
+              <span className="ta-label">延期</span>
             </button>
-            <button className="task-action-btn" aria-label={`${task.title}を完了として記録`} onClick={() => setRecordOpen(true)} title="完了">
-              ✓
+            <button className="task-action-btn" aria-label={`${task.title}を完了として記録`} onClick={() => setRecordOpen(true)}>
+              <span className="ta-icon" aria-hidden="true">✓</span>
+              <span className="ta-label">完了</span>
             </button>
-            <button className="task-action-btn primary" aria-label={`${task.title}のタイマーを開始`} onClick={startTimer} title="開始">
-              ▶
+            <button className="task-action-btn primary" aria-label={`${task.title}のタイマーを開始`} onClick={startTimer}>
+              <span className="ta-icon" aria-hidden="true">▶</span>
+              <span className="ta-label">開始</span>
             </button>
           </div>
         )}
