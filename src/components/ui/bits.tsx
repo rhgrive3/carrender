@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { Subject, StudyTask } from '../../types';
 
 export function SubjectChip({ subject }: { subject: Subject | undefined }) {
@@ -128,7 +129,7 @@ export function Rating({
 }: {
   value: number | null;
   onChange: (v: 1 | 2 | 3 | 4 | 5) => void;
-  icon?: string;
+  icon?: ReactNode;
   label: string;
 }) {
   return (
@@ -223,11 +224,15 @@ export function EmptyState({ icon, title, children }: { icon: string; title: str
 /** 折りたたみセクション: 詳細設定を隠してフォームや設定画面をシンプルに保つ */
 export function Disclosure({
   title,
+  icon,
+  iconColor,
   summary,
   defaultOpen = false,
   children,
 }: {
   title: string;
+  icon?: ReactNode;
+  iconColor?: string;
   summary?: string;
   defaultOpen?: boolean;
   children: ReactNode;
@@ -236,9 +241,16 @@ export function Disclosure({
   return (
     <div className={`disclosure ${open ? 'open' : ''}`}>
       <button type="button" className="disclosure-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {icon && (
+          <span className="disclosure-icon" aria-hidden="true" style={iconColor ? { color: iconColor } : undefined}>
+            {icon}
+          </span>
+        )}
         <span className="disclosure-title">{title}</span>
         {summary && <span className="disclosure-summary">{summary}</span>}
-        <span className="disclosure-chevron" aria-hidden="true">▾</span>
+        <span className="disclosure-chevron" aria-hidden="true">
+          <ChevronDown size={16} strokeWidth={2.2} />
+        </span>
       </button>
       {open && <div className="disclosure-body">{children}</div>}
     </div>

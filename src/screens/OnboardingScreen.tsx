@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Plus, Rocket, Target } from 'lucide-react';
 import { useApp, type OnboardingInput } from '../state/AppContext';
 import { addDays, today } from '../lib/date';
 import { SUBJECT_COLOR_PALETTE, SUBJECT_PRESETS, UNIT_OPTIONS } from '../data/defaults';
@@ -85,7 +86,7 @@ export function OnboardingScreen() {
           }}
           aria-hidden="true"
         >
-          🎯
+          <Target size={32} strokeWidth={2} color="#fff" />
         </div>
         <h1 style={{ fontSize: 22, fontWeight: 800, marginTop: 14 }}>StudyCommander</h1>
         <p className="muted" style={{ marginTop: 5, lineHeight: 1.6 }}>
@@ -270,7 +271,7 @@ export function OnboardingScreen() {
             </div>
           ))}
           <button className="btn btn-secondary btn-block mb-12" onClick={addMaterial}>
-            ＋ 教材を追加
+            <Plus size={14} strokeWidth={2.6} aria-hidden="true" /> 教材を追加
           </button>
           <p className="faint" style={{ marginBottom: 14 }}>教材は後からいつでも追加・編集できます。</p>
           <div className="row">
@@ -278,7 +279,7 @@ export function OnboardingScreen() {
               戻る
             </button>
             <button className="btn btn-primary" style={{ flex: 1 }} onClick={finish}>
-              🚀 計画を自動生成する
+              <Rocket size={15} strokeWidth={2.2} aria-hidden="true" /> 計画を自動生成する
             </button>
           </div>
         </div>

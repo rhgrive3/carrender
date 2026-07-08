@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Eye, EyeOff, Target, TriangleAlert } from 'lucide-react';
 import { useAuth } from '../state/AuthContext';
 import { Segmented } from '../components/ui/bits';
 
@@ -60,7 +61,7 @@ export function LoginScreen() {
       <div className="auth-card-wrap">
         <div className="auth-logo-block">
           <div className="auth-logo" aria-hidden="true">
-            🎯
+            <Target size={32} strokeWidth={2} color="#fff" />
           </div>
           <h1 className="auth-title">StudyCommander</h1>
           <p className="auth-subtitle">
@@ -85,7 +86,7 @@ export function LoginScreen() {
 
           {displayError && (
             <div className="auth-error" role="alert">
-              <span aria-hidden="true">⚠️</span>
+              <TriangleAlert size={15} strokeWidth={2.4} aria-hidden="true" style={{ flexShrink: 0 }} />
               <span>{displayError}</span>
             </div>
           )}
@@ -128,7 +129,7 @@ export function LoginScreen() {
                   aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示する'}
                   aria-pressed={showPassword}
                 >
-                  {showPassword ? '🙈' : '👁'}
+                  {showPassword ? <EyeOff size={19} strokeWidth={2} aria-hidden="true" /> : <Eye size={19} strokeWidth={2} aria-hidden="true" />}
                 </button>
               </div>
               <p className="field-hint">メールアドレスや認証コードは不要です</p>

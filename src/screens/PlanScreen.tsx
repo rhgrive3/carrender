@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Check, ChevronDown, ChevronUp, Pin, Play, Plus, RefreshCw, Repeat, SkipForward, Trash2, TriangleAlert } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { addDays, addMonths, formatDateShort, formatMinutes, formatMinutesCompact, formatMinutesTile, hmToMinutes, minutesToHM, monthKeyOf, monthLabel, today, WEEKDAY_LABELS, weekdayOf, genId } from '../lib/date';
 import { MonthCalendar } from '../components/ui/MonthCalendar';
@@ -71,7 +72,7 @@ export function PlanScreen() {
             setAddOpen(true);
           }}
         >
-          ＋
+          <Plus size={22} strokeWidth={2.2} aria-hidden="true" />
         </button>
       </div>
 
@@ -84,7 +85,7 @@ export function PlanScreen() {
             toast('1週間の計画を再設計しました');
           }}
         >
-          🔄 今週を再設計
+          <RefreshCw size={14} strokeWidth={2.4} aria-hidden="true" /> 今週を再設計
         </button>
         <button
           className="btn btn-secondary btn-sm"
@@ -101,7 +102,10 @@ export function PlanScreen() {
       {overdueCount > 0 && (
         <div className="card mt-12" style={{ borderColor: 'var(--warn)', padding: 13 }}>
           <div className="row spread">
-            <span style={{ fontSize: 13.5, fontWeight: 700 }}>⚠️ 未達成タスクが{overdueCount}件あります</span>
+            <span className="iflex" style={{ fontSize: 13.5, fontWeight: 700 }}>
+              <TriangleAlert size={14} strokeWidth={2.4} aria-hidden="true" style={{ color: 'var(--warn)' }} />
+              未達成タスクが{overdueCount}件あります
+            </span>
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => {
@@ -145,7 +149,7 @@ export function PlanScreen() {
 
                 {events.map((ev) => (
                   <div key={ev.id + d} className="mini-block" style={{ opacity: 0.65, cursor: 'default' }}>
-                    <span aria-hidden="true">📌</span>
+                    <Pin size={13} strokeWidth={2.2} aria-hidden="true" style={{ flexShrink: 0 }} />
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{ev.title}</span>
                     <span className="faint" style={{ marginLeft: 'auto' }}>
                       {ev.start}〜{ev.end}
@@ -169,8 +173,8 @@ export function PlanScreen() {
                       <span style={{ width: 4, alignSelf: 'stretch', borderRadius: 4, background: subject?.color, flexShrink: 0 }} />
                       <span style={{ minWidth: 0, flex: 1 }}>
                         <span style={{ display: 'block', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {done && '✓ '}
-                          {task.type === 'review' && '🔁 '}
+                          {done && <Check size={12} strokeWidth={3} aria-label="完了" style={{ color: 'var(--ok)', verticalAlign: '-0.1em', marginRight: 2 }} />}
+                          {task.type === 'review' && <Repeat size={12} strokeWidth={2.6} aria-label="復習" style={{ color: 'var(--accent)', verticalAlign: '-0.1em', marginRight: 2 }} />}
                           {task.type === 'correction' && '✍️ '}
                           {task.title}
                         </span>
@@ -419,7 +423,9 @@ function DayDetailPanel({
       </div>
 
       <div className="row mt-12" style={{ gap: 8 }}>
-        <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => onAddTask(date)}>＋ タスク追加</button>
+        <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => onAddTask(date)}>
+          <Plus size={14} strokeWidth={2.6} aria-hidden="true" /> タスク追加
+        </button>
         <button
           className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
@@ -428,7 +434,7 @@ function DayDetailPanel({
             toast('この日以降を再計算しました');
           }}
         >
-          🔄 この日を再計算
+          <RefreshCw size={14} strokeWidth={2.4} aria-hidden="true" /> この日を再計算
         </button>
       </div>
 
@@ -499,10 +505,18 @@ function TaskListBlock({ title, tasks, onTaskSelect }: { title: string; tasks: S
               <span>{task.rangeLabel || '詳細なし'} ・ {task.scheduledStart ?? '--:--'}〜{task.scheduledEnd ?? '--:--'} ・ {task.estimatedMinutes}分</span>
             </button>
             <div className="task-line-actions">
-              <button className="btn btn-ghost btn-sm" onClick={() => dispatch({ type: 'REORDER_TASK', taskId: task.id, direction: 'up' })}>上</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => dispatch({ type: 'REORDER_TASK', taskId: task.id, direction: 'down' })}>下</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => dispatch({ type: 'MOVE_TASK', taskId: task.id, date: addDays(task.scheduledDate, 1) })}>翌日</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => dispatch({ type: 'DELETE_TASK', taskId: task.id })}>削除</button>
+              <button className="line-icon-btn" aria-label={`${task.title}を上へ移動`} onClick={() => dispatch({ type: 'REORDER_TASK', taskId: task.id, direction: 'up' })}>
+                <ChevronUp size={16} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+              <button className="line-icon-btn" aria-label={`${task.title}を下へ移動`} onClick={() => dispatch({ type: 'REORDER_TASK', taskId: task.id, direction: 'down' })}>
+                <ChevronDown size={16} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+              <button className="line-icon-btn" aria-label={`${task.title}を翌日へ移動`} onClick={() => dispatch({ type: 'MOVE_TASK', taskId: task.id, date: addDays(task.scheduledDate, 1) })}>
+                <SkipForward size={15} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+              <button className="line-icon-btn danger" aria-label={`${task.title}を削除`} onClick={() => dispatch({ type: 'DELETE_TASK', taskId: task.id })}>
+                <Trash2 size={15} strokeWidth={2.2} aria-hidden="true" />
+              </button>
             </div>
           </div>
         );
@@ -627,10 +641,10 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
             onClose();
           }}
         >
-          ▶ 開始
+          <Play size={13} strokeWidth={2.4} fill="currentColor" aria-hidden="true" /> 開始
         </button>
         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => setRecordOpen(true)}>
-          ✓ 完了
+          <Check size={14} strokeWidth={2.8} aria-hidden="true" /> 完了
         </button>
         <button
           className="btn btn-secondary btn-sm"
@@ -641,7 +655,7 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
             onClose();
           }}
         >
-          ⏭ 延期
+          <SkipForward size={13} strokeWidth={2.4} aria-hidden="true" /> 延期
         </button>
       </div>
       <button className="btn btn-primary btn-block mt-8" onClick={applyChanges}>

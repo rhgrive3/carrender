@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Plus, Timer } from 'lucide-react';
 import { Sheet } from '../ui/Sheet';
 import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
 import { useApp } from '../../state/AppContext';
@@ -121,7 +122,9 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
               <div style={{ fontWeight: 700, fontSize: 14.5 }}>{preset.rangeLabel || material?.name || '学習'}</div>
               <div className="faint mt-8">学習時間 {preset.minutes}分</div>
             </div>
-            <span className="status-badge status-accent">⏱ タイマー</span>
+            <span className="status-badge status-accent iflex" style={{ gap: 4 }}>
+              <Timer size={12} strokeWidth={2.4} aria-hidden="true" /> タイマー
+            </span>
           </div>
         </div>
       )}
@@ -188,7 +191,7 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
         </div>
       ) : (
         <button className="btn btn-ghost btn-sm" onClick={() => setShowMemo(true)}>
-          ＋ メモを追加
+          <Plus size={14} strokeWidth={2.6} aria-hidden="true" /> メモを追加
         </button>
       )}
 

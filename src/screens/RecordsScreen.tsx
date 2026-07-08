@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { PenLine, Plus, Timer } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import {
   addDays,
@@ -118,7 +119,7 @@ export function RecordsScreen() {
           </div>
         </div>
         <button className="icon-btn" aria-label="記録を手動で追加" onClick={() => setAddOpen(true)}>
-          ＋
+          <Plus size={22} strokeWidth={2.2} aria-hidden="true" />
         </button>
       </div>
 
@@ -337,7 +338,13 @@ function SessionLog({ sessions, state, t }: { sessions: StudySession[]; state: A
             <span className="subject-chip" style={{ background: `${subject?.color}26`, color: subject?.color }}>
               {subject?.name}
             </span>
-            <span className="task-type-chip">{s.source === 'timer' ? '⏱ タイマー' : '✍️ 手入力'}</span>
+            <span className="task-type-chip iflex" style={{ gap: 3 }}>
+              {s.source === 'timer' ? (
+                <><Timer size={11} strokeWidth={2.4} aria-hidden="true" /> タイマー</>
+              ) : (
+                <><PenLine size={11} strokeWidth={2.4} aria-hidden="true" /> 手入力</>
+              )}
+            </span>
           </div>
           <div className="task-title">{material?.name ?? s.rangeLabel ?? '学習'}</div>
           <div className="task-range">

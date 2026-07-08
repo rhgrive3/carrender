@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Check, CircleCheck, Play, SkipForward } from 'lucide-react';
 import type { StudyTask } from '../../types';
 import { useApp } from '../../state/AppContext';
 import { useTimer } from '../timer/TimerContext';
@@ -57,20 +58,20 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
         {!isDone && (
           <div className="task-actions">
             <button className="task-action-btn" aria-label={`${task.title}を延期`} onClick={postpone}>
-              <span className="ta-icon" aria-hidden="true">⏭</span>
+              <span className="ta-icon" aria-hidden="true"><SkipForward size={15} strokeWidth={2.4} /></span>
               <span className="ta-label">延期</span>
             </button>
             <button className="task-action-btn" aria-label={`${task.title}を完了として記録`} onClick={() => setRecordOpen(true)}>
-              <span className="ta-icon" aria-hidden="true">✓</span>
+              <span className="ta-icon" aria-hidden="true"><Check size={15} strokeWidth={2.8} /></span>
               <span className="ta-label">完了</span>
             </button>
             <button className="task-action-btn primary" aria-label={`${task.title}のタイマーを開始`} onClick={startTimer}>
-              <span className="ta-icon" aria-hidden="true">▶</span>
+              <span className="ta-icon" aria-hidden="true"><Play size={15} strokeWidth={2.4} fill="currentColor" /></span>
               <span className="ta-label">開始</span>
             </button>
           </div>
         )}
-        {isDone && <span style={{ fontSize: 20 }} aria-label="完了済み">✅</span>}
+        {isDone && <CircleCheck size={22} strokeWidth={2.2} aria-label="完了済み" style={{ color: 'var(--ok)', flexShrink: 0 }} />}
       </div>
 
       {recordOpen && (

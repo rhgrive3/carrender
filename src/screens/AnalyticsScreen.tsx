@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { CircleCheck, Lightbulb, TriangleAlert } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { computeAnalytics } from '../lib/analytics';
 import { diffDays, formatDateShort, formatHoursShort, formatMinutes, formatMinutesTile, today } from '../lib/date';
@@ -67,9 +68,13 @@ export function AnalyticsScreen() {
         <div className="hero-topline">
           <span style={{ fontWeight: 800, fontSize: 15 }}>試験日までに終わる?</span>
           {a.capacity.ok ? (
-            <span className="status-badge status-ok">✓ 間に合う見込み</span>
+            <span className="status-badge status-ok iflex" style={{ gap: 4 }}>
+              <CircleCheck size={12} strokeWidth={2.6} aria-hidden="true" /> 間に合う見込み
+            </span>
           ) : (
-            <span className="status-badge status-danger">⚠ 不足あり</span>
+            <span className="status-badge status-danger iflex" style={{ gap: 4 }}>
+              <TriangleAlert size={12} strokeWidth={2.6} aria-hidden="true" /> 不足あり
+            </span>
           )}
         </div>
         <div className="hero-stats">
@@ -108,7 +113,12 @@ export function AnalyticsScreen() {
       </div>
 
       {/* 自動コメント */}
-      <div className="section-label">💡 今週の改善点</div>
+      <div className="section-label">
+        <span className="iflex">
+          <Lightbulb size={14} strokeWidth={2.4} aria-hidden="true" style={{ color: 'var(--warn)' }} />
+          今週の改善点
+        </span>
+      </div>
       <div className="card">
         {a.comments.map((c, i) => (
           <p key={i} style={{ fontSize: 14, lineHeight: 1.65, marginTop: i === 0 ? 0 : 10 }}>
@@ -163,7 +173,7 @@ export function AnalyticsScreen() {
                     <div style={{ flex: 1, height: 7, background: 'var(--bg-elev3)', borderRadius: 100 }}>
                       <div style={{ width: `${(s.actualMinutes / max) * 100}%`, height: '100%', borderRadius: 100, background: subject?.color ?? 'var(--accent)' }} />
                     </div>
-                    <span className="faint" style={{ width: 76, textAlign: 'right' }}>実績 {formatMinutes(s.actualMinutes)}</span>
+                    <span className="faint" style={{ width: 76, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>実績 {formatMinutesTile(s.actualMinutes)}</span>
                   </div>
                 </div>
               </div>

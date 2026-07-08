@@ -45,7 +45,7 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-  --font: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', 'Segoe UI', sans-serif;
+  --font: 'Noto Sans JP Variable', -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', 'Segoe UI', sans-serif;
 }
 
 :root[data-theme='light'] {
@@ -512,7 +512,9 @@ body {
 }
 
 .task-action-btn .ta-icon {
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
 }
 
@@ -841,7 +843,9 @@ body {
   border: 1px solid var(--border);
   background: var(--bg-elev2);
   color: var(--text);
-  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
@@ -1217,14 +1221,37 @@ body {
 .task-line-actions {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
   justify-content: flex-end;
-  max-width: 148px;
+  flex-shrink: 0;
 }
 
 .task-line-actions .btn {
   min-height: 30px;
   padding: 0 8px;
+}
+
+/* リスト行内の小さなアイコン操作ボタン */
+.line-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev2);
+  color: var(--text-sub);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.line-icon-btn:active {
+  background: var(--bg-elev3);
+}
+
+.line-icon-btn.danger {
+  color: var(--danger);
 }
 
 .task-detail-grid {
@@ -1349,6 +1376,18 @@ body {
   cursor: pointer;
 }
 
+.disclosure-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--accent);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
 .disclosure-title {
   font-size: 14.5px;
   font-weight: 800;
@@ -1370,7 +1409,8 @@ body {
 .disclosure-chevron {
   margin-left: auto;
   color: var(--text-faint);
-  font-size: 13px;
+  display: flex;
+  align-items: center;
   transition: transform 0.18s ease;
   flex-shrink: 0;
 }
@@ -1479,6 +1519,18 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/* テキストと並べるインラインアイコン用 */
+.iflex {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+svg.lucide {
+  flex-shrink: 0;
+  vertical-align: -0.16em;
 }
 
 .spread {

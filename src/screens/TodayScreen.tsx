@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Lightbulb, Play, RefreshCw, Repeat, Settings, TriangleAlert, X } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useTimer } from '../components/timer/TimerContext';
 import { computeAnalytics } from '../lib/analytics';
@@ -63,7 +64,7 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
           <div className="screen-sub">{formatDateJa(t)}</div>
         </div>
         <button className="icon-btn" aria-label="設定を開く" onClick={onOpenSettings}>
-          ⚙️
+          <Settings size={21} strokeWidth={1.9} aria-hidden="true" />
         </button>
       </div>
 
@@ -110,13 +111,16 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
       {state.lastReschedule && (
         <div className="card mt-12" style={{ borderColor: 'var(--accent)', background: 'var(--accent-soft)' }}>
           <div className="row spread">
-            <div style={{ fontWeight: 800, fontSize: 13.5 }}>🔄 計画を再設計しました</div>
+            <div className="iflex" style={{ fontWeight: 800, fontSize: 13.5 }}>
+              <RefreshCw size={14} strokeWidth={2.4} aria-hidden="true" style={{ color: 'var(--accent)' }} />
+              計画を再設計しました
+            </div>
             <button
               className="btn btn-ghost btn-sm"
               aria-label="通知を閉じる"
               onClick={() => dispatch({ type: 'DISMISS_RESCHEDULE_BANNER' })}
             >
-              ✕
+              <X size={16} strokeWidth={2.4} aria-hidden="true" />
             </button>
           </div>
           <p className="muted" style={{ marginTop: 4, lineHeight: 1.55 }}>{state.lastReschedule.summaryText}</p>
@@ -126,7 +130,10 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
       {/* キャパシティ警告 */}
       {!analytics.capacity.ok && (
         <div className="card mt-12" style={{ borderColor: 'var(--danger)' }}>
-          <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--danger)' }}>⚠️ 時間が不足しています</div>
+          <div className="iflex" style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--danger)' }}>
+            <TriangleAlert size={14} strokeWidth={2.4} aria-hidden="true" />
+            時間が不足しています
+          </div>
           <p className="muted" style={{ marginTop: 4, lineHeight: 1.55 }}>
             現在の計画では試験日までに約{formatMinutes(analytics.capacity.deficitMinutes)}不足します。教材の優先度を見直すか、勉強可能時間を増やしてください。
           </p>
@@ -162,7 +169,7 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
                   })
                 }
               >
-                ▶ 今すぐ開始
+                <Play size={15} strokeWidth={2.4} fill="currentColor" aria-hidden="true" /> 今すぐ開始
               </button>
               <button
                 className="btn btn-secondary"
@@ -194,7 +201,10 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
       {overdue.length > 0 && (
         <>
           <div className="section-label">
-            <span>⚠️ 未達成のタスク</span>
+            <span className="iflex">
+              <TriangleAlert size={14} strokeWidth={2.4} aria-hidden="true" style={{ color: 'var(--warn)' }} />
+              未達成のタスク
+            </span>
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => {
@@ -229,7 +239,12 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
       {/* 復習期限 */}
       {(reviews.overdue.length > 0 || reviews.upcoming.length > 0) && (
         <>
-          <div className="section-label">🔁 復習期限</div>
+          <div className="section-label">
+            <span className="iflex">
+              <Repeat size={14} strokeWidth={2.4} aria-hidden="true" style={{ color: 'var(--accent)' }} />
+              復習期限
+            </span>
+          </div>
           {[...reviews.overdue, ...reviews.upcoming]
             .filter((x) => x.scheduledDate !== t)
             .slice(0, 4)
@@ -242,7 +257,12 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
       {/* 今日の一言分析 */}
       {analytics.comments.length > 0 && (
         <>
-          <div className="section-label">💡 今日の一言</div>
+          <div className="section-label">
+            <span className="iflex">
+              <Lightbulb size={14} strokeWidth={2.4} aria-hidden="true" style={{ color: 'var(--warn)' }} />
+              今日の一言
+            </span>
+          </div>
           <div className="card">
             <p style={{ fontSize: 14, lineHeight: 1.65 }}>{analytics.comments[0]}</p>
           </div>

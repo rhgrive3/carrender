@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Check, Pause, Play } from 'lucide-react';
 import { useTimer, type TimerTarget } from './TimerContext';
 import { useApp } from '../../state/AppContext';
 import { formatHM } from '../../lib/date';
@@ -76,15 +77,15 @@ export function TimerOverlay() {
       <div style={{ width: '100%', maxWidth: 420, display: 'flex', gap: 12 }}>
         {timer.running ? (
           <button className="btn btn-secondary btn-block" onClick={timer.pause}>
-            ⏸ 一時停止
+            <Pause size={15} strokeWidth={2.4} fill="currentColor" aria-hidden="true" /> 一時停止
           </button>
         ) : (
           <button className="btn btn-secondary btn-block" onClick={timer.resume}>
-            ▶ 再開
+            <Play size={15} strokeWidth={2.4} fill="currentColor" aria-hidden="true" /> 再開
           </button>
         )}
         <button className="btn btn-primary btn-block" onClick={handleFinish}>
-          ✓ 終了して記録
+          <Check size={16} strokeWidth={2.8} aria-hidden="true" /> 終了して記録
         </button>
       </div>
     </div>

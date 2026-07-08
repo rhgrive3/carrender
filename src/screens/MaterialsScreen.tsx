@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Dumbbell, Flag, Plus, Star } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import type { Material } from '../types';
 import { addDays, diffDays, formatDateShort, genId, today } from '../lib/date';
@@ -49,7 +50,7 @@ export function MaterialsScreen() {
           <div className="screen-sub">{materials.length}冊を管理中</div>
         </div>
         <button className="icon-btn" aria-label="教材を追加" onClick={() => setAddOpen(true)}>
-          ＋
+          <Plus size={22} strokeWidth={2.2} aria-hidden="true" />
         </button>
       </div>
 
@@ -343,15 +344,15 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
         </div>
         <div className="field">
           <label>優先度(高いほど先に配置)</label>
-          <Rating value={priority} onChange={(v) => setPriority(v)} icon="⚑" label="優先度" />
+          <Rating value={priority} onChange={(v) => setPriority(v)} icon={<Flag size={17} strokeWidth={2.2} />} label="優先度" />
         </div>
         <div className="field">
           <label>難易度(高いほど復習を増やします)</label>
-          <Rating value={difficulty} onChange={(v) => setDifficulty(v)} icon="💪" label="難易度" />
+          <Rating value={difficulty} onChange={(v) => setDifficulty(v)} icon={<Dumbbell size={17} strokeWidth={2.2} />} label="難易度" />
         </div>
         <div className="field">
           <label>試験への重要度</label>
-          <Rating value={examRelevance} onChange={(v) => setExamRelevance(v)} icon="◆" label="試験への重要度" />
+          <Rating value={examRelevance} onChange={(v) => setExamRelevance(v)} icon={<Star size={17} strokeWidth={2.2} />} label="試験への重要度" />
         </div>
         <div className="field">
           <label className="check-row">

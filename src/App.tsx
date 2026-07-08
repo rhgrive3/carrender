@@ -13,6 +13,7 @@ import { SettingsSheet } from './screens/SettingsSheet';
 import { LoginScreen } from './screens/LoginScreen';
 import { TimerOverlay } from './components/timer/TimerOverlay';
 
+import { Target } from 'lucide-react';
 import { IconHome, IconPlan, IconBook, IconTimer, IconChart } from './components/navigation/NavIcons';
 
 type Tab = 'today' | 'plan' | 'materials' | 'records' | 'analytics';
@@ -91,7 +92,9 @@ function AuthGate({ children }: { children: JSX.Element }) {
     return (
       <div className="auth-shell" aria-hidden="true">
         <div className="auth-logo-block">
-          <div className="auth-logo boot-pulse">🎯</div>
+          <div className="auth-logo boot-pulse">
+            <Target size={32} strokeWidth={2} color="#fff" />
+          </div>
         </div>
       </div>
     );

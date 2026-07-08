@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { AlarmClock, BookOpen, CalendarCog, Database, Download, Pin, Target, Upload, X } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../state/AuthContext';
 import { Sheet } from '../components/ui/Sheet';
@@ -203,7 +204,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
 
       {/* 目標 */}
       {state.goal && (
-        <Disclosure title="🎯 目標と試験日" summary={`${state.goal.name} ・ ${formatDateShort(state.goal.examDate)}`}>
+        <Disclosure title="目標と試験日" icon={<Target size={16} strokeWidth={2.2} />} iconColor="var(--danger)" summary={`${state.goal.name} ・ ${formatDateShort(state.goal.examDate)}`}>
           <div className="field">
             <label htmlFor="st-goal">目標名</label>
             <input id="st-goal" value={goalName} onChange={(e) => setGoalName(e.target.value)} />
@@ -219,7 +220,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       )}
 
       {/* 勉強できる時間 */}
-      <Disclosure title="⏰ 勉強できる時間" summary={weekdaySummary}>
+      <Disclosure title="勉強できる時間" icon={<AlarmClock size={16} strokeWidth={2.2} />} iconColor="var(--accent)" summary={weekdaySummary}>
       {availability.map((slot) => (
         <div key={slot.weekday} className="card availability-card">
           <div className="row spread">
@@ -257,7 +258,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
                 aria-label={`${WEEKDAY_LABELS[slot.weekday]}曜日 ${idx + 1}枠目を削除`}
                 onClick={() => updateAvailabilityWindows(slot.weekday, slot.windows.filter((_, i) => i !== idx))}
               >
-                ✕
+                <X size={16} strokeWidth={2.4} aria-hidden="true" />
               </button>
             </div>
           ))}
@@ -325,7 +326,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       </Disclosure>
 
       {/* 固定予定 */}
-      <Disclosure title="📌 固定予定" summary={events.length > 0 ? `${events.length}件` : '学校・塾など'}>
+      <Disclosure title="固定予定" icon={<Pin size={16} strokeWidth={2.2} />} iconColor="var(--warn)" summary={events.length > 0 ? `${events.length}件` : '学校・塾など'}>
       {events.map((ev) => (
         <div key={ev.id} className="row" style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700 }}>
@@ -388,7 +389,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       </Disclosure>
 
       {/* 日別例外 */}
-      <Disclosure title="🗓 日別の例外" summary={state.dayPlans.length > 0 ? `${state.dayPlans.length}件` : '模試・休養日など'}>
+      <Disclosure title="日別の例外" icon={<CalendarCog size={16} strokeWidth={2.2} />} iconColor="var(--accent)" summary={state.dayPlans.length > 0 ? `${state.dayPlans.length}件` : '模試・休養日など'}>
       <div className="field-row">
         <div className="field">
           <label htmlFor="st-ex-date">日付</label>
@@ -442,19 +443,19 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
 
       {/* 科目の重要度・苦手度 */}
       {state.subjects.length > 0 && (
-        <Disclosure title="📖 科目の重要度・苦手度" summary={`${state.subjects.length}科目`}>
+        <Disclosure title="科目の重要度・苦手度" icon={<BookOpen size={16} strokeWidth={2.2} />} iconColor="var(--ok)" summary={`${state.subjects.length}科目`}>
           <SubjectTuner />
         </Disclosure>
       )}
 
       {/* データ管理 */}
-      <Disclosure title="💾 データ管理" summary="バックアップ・初期化">
+      <Disclosure title="データ管理" icon={<Database size={16} strokeWidth={2.2} />} iconColor="var(--text-sub)" summary="バックアップ・初期化">
       <div className="row" style={{ gap: 8 }}>
         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={doExport}>
-          ⬇ エクスポート
+          <Download size={14} strokeWidth={2.4} aria-hidden="true" /> エクスポート
         </button>
         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => fileRef.current?.click()}>
-          ⬆ インポート
+          <Upload size={14} strokeWidth={2.4} aria-hidden="true" /> インポート
         </button>
       </div>
       <input

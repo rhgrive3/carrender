@@ -31,7 +31,19 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
         navigateFallback: '/index.html',
-        cleanupOutdatedCaches: true
+        cleanupOutdatedCaches: true,
+        // フォントはunicode-range分割(124ファイル)なのでprecacheせず、使った分だけ長期キャッシュする
+        runtimeCaching: [
+          {
+            urlPattern: /\.woff2$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'fonts',
+              expiration: { maxEntries: 160, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          }
+        ]
       }
     })
   ],
