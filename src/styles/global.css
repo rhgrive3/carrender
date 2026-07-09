@@ -918,6 +918,80 @@ body {
   animation: timer-breathe 3.2s ease-in-out infinite;
 }
 
+.timer-topbar {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.timer-topbar .segmented {
+  flex: 1;
+}
+
+.timer-phase-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 100px;
+  padding: 7px 15px;
+}
+
+.timer-phase-badge.break {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.timer-clock-break {
+  color: var(--ok);
+}
+
+.timer-cycles {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.timer-cycle-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-elev3);
+  border: 1.5px solid var(--border-strong);
+}
+
+.timer-cycle-dot.done {
+  background: var(--accent-grad);
+  border-color: transparent;
+}
+
+.noise-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 100px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-elev1);
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.noise-toggle.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 @keyframes timer-breathe {
   0%, 100% {
     opacity: 1;
@@ -1695,6 +1769,286 @@ svg.lucide {
     transform: scale(1.07);
     opacity: 0.85;
   }
+}
+
+/* ---------- PWAインストールゲート ---------- */
+
+.install-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background:
+    radial-gradient(1000px 500px at 50% -10%, rgba(79, 124, 255, 0.22), transparent 60%),
+    var(--bg);
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-top) + 28px) 22px calc(var(--safe-bottom) + 28px);
+}
+
+.install-gate-inner {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.install-logo {
+  width: 76px;
+  height: 76px;
+  border-radius: 22px;
+  background: var(--accent-grad);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 40px rgba(79, 124, 255, 0.45);
+  animation: auth-boot-pulse 2.2s ease-in-out infinite;
+}
+
+.install-title {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-top: 14px;
+}
+
+.install-lead {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--text-sub);
+  margin-top: 10px;
+}
+
+.install-lead b {
+  color: var(--text);
+}
+
+.install-benefits {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.install-benefits > span {
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 100px;
+  padding: 6px 11px;
+}
+
+.install-steps {
+  width: 100%;
+  margin-top: 22px;
+  background: var(--bg-elev1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 16px;
+  box-shadow: var(--shadow-card);
+  text-align: left;
+}
+
+.install-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 9px 0;
+}
+
+.install-step + .install-step {
+  border-top: 1px solid var(--border);
+}
+
+.install-step-num {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-grad);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.install-step-body {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.install-inline-icon {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin: 0 3px;
+  color: var(--accent);
+}
+
+.install-cta {
+  margin-top: 22px;
+  min-height: 54px;
+  font-size: 16px;
+}
+
+.install-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-radius: 12px;
+  padding: 10px 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+
+.install-copy-btn {
+  display: flex;
+  margin-top: 8px;
+}
+
+.install-done {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--ok);
+}
+
+.install-done-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.install-footnote {
+  margin-top: 22px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.7;
+}
+
+/* ---------- 実績バッジ ---------- */
+
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.badge-cell {
+  background: var(--bg-elev1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 12px 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 3px;
+  opacity: 0.55;
+}
+
+.badge-cell.unlocked {
+  opacity: 1;
+  border-color: rgba(79, 124, 255, 0.45);
+  background: linear-gradient(160deg, var(--accent-soft), var(--bg-elev1) 70%);
+}
+
+.badge-icon {
+  font-size: 26px;
+}
+
+.badge-cell:not(.unlocked) .badge-icon {
+  filter: grayscale(1);
+}
+
+.badge-title {
+  font-size: 11.5px;
+  font-weight: 800;
+}
+
+.badge-desc {
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.badge-progress {
+  width: 100%;
+  height: 4px;
+  border-radius: 100px;
+  background: var(--bg-elev3);
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.badge-progress > div {
+  height: 100%;
+  border-radius: 100px;
+  background: var(--accent-grad);
+}
+
+/* ---------- フリータイマー ---------- */
+
+.quick-subject-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-subject-chip {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 100px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-elev2);
+  color: var(--text-sub);
+  font-family: var(--font);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ---------- デスクトップ用インストールバナー ---------- */
+
+.install-banner {
+  position: fixed;
+  top: calc(var(--safe-top) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(calc(100% - 32px), 560px);
+  background: var(--bg-glass);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: var(--shadow-float);
+}
+
+.install-banner-text {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.install-banner-close {
+  flex-shrink: 0;
 }
 
 ::-webkit-scrollbar {

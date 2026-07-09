@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Lightbulb, Play, RefreshCw, Repeat, Settings, TriangleAlert, X } from 'lucide-react';
+import { Lightbulb, Play, RefreshCw, Repeat, Settings, Timer, TriangleAlert, X } from 'lucide-react';
+import { QuickStartSheet } from '../components/timer/QuickStartSheet';
 import { useApp } from '../state/AppContext';
 import { useTimer } from '../components/timer/TimerContext';
 import { computeAnalytics } from '../lib/analytics';
@@ -24,6 +25,7 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
   const timer = useTimer();
   const toast = useToast();
   const [celebrate, setCelebrate] = useState(0);
+  const [quickOpen, setQuickOpen] = useState(false);
   const t = today();
 
   const analytics = useMemo(() => computeAnalytics(state, t), [state, t]);
@@ -42,7 +44,11 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
   );
   const pending = todayTasks.filter((x) => x.status === 'planned' || x.status === 'doing' || x.status === 'postponed');
   const overdue = useMemo(
-    () => state.tasks.filter((x) => x.status === 'planned' && x.scheduledDate < t).slice(0, 5),
+    () =>
+      state.tasks
+        .filter((x) => x.status === 'planned' && x.scheduledDate < t)
+        .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate) || b.priority - a.priority)
+        .slice(0, 5),
     [state.tasks, t],
   );
 
@@ -63,9 +69,14 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
           <div className="screen-title">今日</div>
           <div className="screen-sub">{formatDateJa(t)}</div>
         </div>
-        <button className="icon-btn" aria-label="設定を開く" onClick={onOpenSettings}>
-          <Settings size={21} strokeWidth={1.9} aria-hidden="true" />
-        </button>
+        <div className="row" style={{ gap: 6 }}>
+          <button className="icon-btn" aria-label="フリータイマーを開始" onClick={() => setQuickOpen(true)}>
+            <Timer size={21} strokeWidth={1.9} aria-hidden="true" />
+          </button>
+          <button className="icon-btn" aria-label="設定を開く" onClick={onOpenSettings}>
+            <Settings size={21} strokeWidth={1.9} aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <div className="today-layout">
@@ -191,6 +202,9 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
           <div style={{ fontSize: 38 }}>🎉</div>
           <div style={{ fontWeight: 800, fontSize: 17, marginTop: 6 }}>今日の予定をすべて達成!</div>
           <p className="muted mt-8">おつかれさま。明日の計画はもう準備できています。</p>
+          <button className="btn btn-secondary btn-sm mt-16" onClick={() => setQuickOpen(true)}>
+            <Play size={14} strokeWidth={2.4} fill="currentColor" aria-hidden="true" /> もっと勉強する(フリータイマー)
+          </button>
         </div>
       )}
         </div>
@@ -270,6 +284,8 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
       )}
         </div>
       </div>
+
+      {quickOpen && <QuickStartSheet open onClose={() => setQuickOpen(false)} />}
     </div>
   );
 }

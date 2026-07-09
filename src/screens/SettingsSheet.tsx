@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
-import { AlarmClock, BookOpen, CalendarCog, Database, Download, Pin, Target, Upload, X } from 'lucide-react';
+import { AlarmClock, BookOpen, CalendarCog, Database, Download, FileDown, Pin, Target, Timer, Trophy, Upload, X } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../state/AuthContext';
 import { Sheet } from '../components/ui/Sheet';
 import { Segmented, Rating, NumericInput, Disclosure } from '../components/ui/bits';
 import { useToast } from '../components/ui/Toast';
-import { exportJSON, importJSON, saveStateNow } from '../lib/storage';
+import { exportJSON, exportSessionsCSV, importJSON, saveStateNow } from '../lib/storage';
+import { notificationSupported, requestNotificationPermission } from '../lib/notify';
 import { formatDateShort, genId, hmToMinutes, minutesToHM, today, WEEKDAY_LABELS } from '../lib/date';
 import type { DayLoad, DayPlanOverride, FixedEvent, TimeRange, Weekday } from '../types';
 
@@ -64,6 +65,40 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   const saveStudySettings = () => {
     dispatch({ type: 'UPDATE_SETTINGS', settings: settingsDraft });
     toast('学習時間の上限を保存し、計画を再計算しました');
+  };
+
+  const saveTimerSettings = () => {
+    dispatch({ type: 'UPDATE_SETTINGS', settings: settingsDraft });
+    toast('タイマー設定を保存しました');
+  };
+
+  const setTimerFlag = async (key: 'sound' | 'vibration' | 'notification' | 'keepScreenOn', value: boolean) => {
+    if (key === 'notification' && value) {
+      const ok = await requestNotificationPermission();
+      if (!ok) {
+        toast('通知が許可されていません。端末の設定を確認してください');
+        return;
+      }
+    }
+    const next = { ...settingsDraft, timer: { ...settingsDraft.timer, [key]: value } };
+    setSettingsDraft(next);
+    dispatch({ type: 'UPDATE_SETTINGS', settings: next });
+  };
+
+  const saveWeeklyGoal = () => {
+    dispatch({ type: 'UPDATE_SETTINGS', settings: settingsDraft });
+    toast(settingsDraft.weeklyTargetMinutes > 0 ? '週間目標を設定しました。記録画面で進捗が見られます' : '週間目標を解除しました');
+  };
+
+  const doExportCSV = () => {
+    const blob = new Blob([exportSessionsCSV(state)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `studycommander-log-${today()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('学習ログをCSVでエクスポートしました');
   };
 
   const addEvent = () => {
@@ -325,6 +360,125 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       </button>
       </Disclosure>
 
+      {/* 週間目標 */}
+      <Disclosure
+        title="週間目標"
+        icon={<Trophy size={16} strokeWidth={2.2} />}
+        iconColor="var(--warn)"
+        summary={state.settings.weeklyTargetMinutes > 0 ? `週${Math.round((state.settings.weeklyTargetMinutes / 60) * 10) / 10}時間` : '未設定'}
+      >
+        <div className="field">
+          <label htmlFor="st-weekly-goal">1週間の目標学習時間(時間)</label>
+          <NumericInput
+            id="st-weekly-goal"
+            value={settingsDraft.weeklyTargetMinutes > 0 ? Math.round((settingsDraft.weeklyTargetMinutes / 60) * 10) / 10 : 0}
+            min={0}
+            max={100}
+            decimal
+            placeholder="例: 20(0で解除)"
+            onChange={(v) => setSettingsDraft((prev) => ({ ...prev, weeklyTargetMinutes: Math.round(v * 60) }))}
+          />
+        </div>
+        <p className="field-hint" style={{ marginBottom: 10 }}>記録画面(週表示)に進捗バーが表示され、達成でバッジを獲得できます</p>
+        <button className="btn btn-secondary btn-sm btn-block" onClick={saveWeeklyGoal}>
+          週間目標を保存
+        </button>
+      </Disclosure>
+
+      {/* タイマーと通知 */}
+      <Disclosure
+        title="タイマーと通知"
+        icon={<Timer size={16} strokeWidth={2.2} />}
+        iconColor="var(--accent-2)"
+        summary={`${state.settings.timer.defaultMode === 'pomodoro' ? 'ポモドーロ' : 'ストップウォッチ'} ・ ${state.settings.timer.pomodoro.workMinutes}分集中`}
+      >
+        <div className="field">
+          <label>標準のタイマー</label>
+          <Segmented
+            ariaLabel="標準のタイマー"
+            options={[
+              { value: 'stopwatch', label: 'ストップウォッチ' },
+              { value: 'pomodoro', label: '🍅 ポモドーロ' },
+            ]}
+            value={settingsDraft.timer.defaultMode}
+            onChange={(defaultMode) => {
+              const next = { ...settingsDraft, timer: { ...settingsDraft.timer, defaultMode } };
+              setSettingsDraft(next);
+              dispatch({ type: 'UPDATE_SETTINGS', settings: next });
+            }}
+          />
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="st-pomo-work">集中(分)</label>
+            <NumericInput
+              id="st-pomo-work"
+              value={settingsDraft.timer.pomodoro.workMinutes}
+              min={5}
+              max={120}
+              placeholder="25"
+              onChange={(v) => setSettingsDraft((p) => ({ ...p, timer: { ...p.timer, pomodoro: { ...p.timer.pomodoro, workMinutes: Math.max(5, v) } } }))}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="st-pomo-break">休憩(分)</label>
+            <NumericInput
+              id="st-pomo-break"
+              value={settingsDraft.timer.pomodoro.breakMinutes}
+              min={1}
+              max={60}
+              placeholder="5"
+              onChange={(v) => setSettingsDraft((p) => ({ ...p, timer: { ...p.timer, pomodoro: { ...p.timer.pomodoro, breakMinutes: Math.max(1, v) } } }))}
+            />
+          </div>
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="st-pomo-long">長い休憩(分)</label>
+            <NumericInput
+              id="st-pomo-long"
+              value={settingsDraft.timer.pomodoro.longBreakMinutes}
+              min={5}
+              max={90}
+              placeholder="15"
+              onChange={(v) => setSettingsDraft((p) => ({ ...p, timer: { ...p.timer, pomodoro: { ...p.timer.pomodoro, longBreakMinutes: Math.max(5, v) } } }))}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="st-pomo-cycles">長い休憩までの回数</label>
+            <NumericInput
+              id="st-pomo-cycles"
+              value={settingsDraft.timer.pomodoro.cyclesUntilLongBreak}
+              min={2}
+              max={8}
+              placeholder="4"
+              onChange={(v) => setSettingsDraft((p) => ({ ...p, timer: { ...p.timer, pomodoro: { ...p.timer.pomodoro, cyclesUntilLongBreak: Math.min(8, Math.max(2, v)) } } }))}
+            />
+          </div>
+        </div>
+        <button className="btn btn-secondary btn-sm btn-block" style={{ marginBottom: 12 }} onClick={saveTimerSettings}>
+          ポモドーロ設定を保存
+        </button>
+        <label className="check-row">
+          <input type="checkbox" checked={settingsDraft.timer.sound} onChange={(e) => setTimerFlag('sound', e.target.checked)} />
+          フェーズ切替時にチャイムを鳴らす
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={settingsDraft.timer.vibration} onChange={(e) => setTimerFlag('vibration', e.target.checked)} />
+          バイブレーション(対応端末のみ)
+        </label>
+        {notificationSupported() && (
+          <label className="check-row">
+            <input type="checkbox" checked={settingsDraft.timer.notification} onChange={(e) => setTimerFlag('notification', e.target.checked)} />
+            集中・休憩の切り替えを通知する
+          </label>
+        )}
+        <label className="check-row">
+          <input type="checkbox" checked={settingsDraft.timer.keepScreenOn} onChange={(e) => setTimerFlag('keepScreenOn', e.target.checked)} />
+          タイマー中は画面を消灯しない
+        </label>
+      </Disclosure>
+
       {/* 固定予定 */}
       <Disclosure title="固定予定" icon={<Pin size={16} strokeWidth={2.2} />} iconColor="var(--warn)" summary={events.length > 0 ? `${events.length}件` : '学校・塾など'}>
       {events.map((ev) => (
@@ -458,6 +612,9 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           <Upload size={14} strokeWidth={2.4} aria-hidden="true" /> インポート
         </button>
       </div>
+      <button className="btn btn-secondary btn-sm btn-block mt-8" onClick={doExportCSV}>
+        <FileDown size={14} strokeWidth={2.4} aria-hidden="true" /> 学習ログをCSVで書き出す
+      </button>
       <input
         ref={fileRef}
         type="file"

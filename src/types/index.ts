@@ -205,6 +205,25 @@ export interface RescheduleResult {
   summaryText: string;
 }
 
+// ---------- タイマー ----------
+export type TimerMode = 'stopwatch' | 'pomodoro';
+
+export interface PomodoroSettings {
+  workMinutes: number;
+  breakMinutes: number;
+  longBreakMinutes: number;
+  cyclesUntilLongBreak: number;
+}
+
+export interface TimerSettings {
+  defaultMode: TimerMode;
+  pomodoro: PomodoroSettings;
+  sound: boolean;
+  vibration: boolean;
+  notification: boolean;
+  keepScreenOn: boolean;
+}
+
 // ---------- 設定 ----------
 export interface AppSettings {
   theme: 'auto' | 'dark' | 'light';
@@ -212,6 +231,9 @@ export interface AppSettings {
   sessionMinMinutes: number;
   sessionMaxMinutes: number;
   reviewRule: ReviewRule;
+  /** 週間目標学習時間(分)。0なら未設定 */
+  weeklyTargetMinutes: number;
+  timer: TimerSettings;
 }
 
 // ---------- アプリ全体 ----------

@@ -1,4 +1,20 @@
-import type { AppSettings, AvailabilitySlot, TimeRange, Weekday } from '../types';
+import type { AppSettings, AvailabilitySlot, TimeRange, TimerSettings, Weekday } from '../types';
+
+export function defaultTimerSettings(): TimerSettings {
+  return {
+    defaultMode: 'stopwatch',
+    pomodoro: {
+      workMinutes: 25,
+      breakMinutes: 5,
+      longBreakMinutes: 15,
+      cyclesUntilLongBreak: 4,
+    },
+    sound: true,
+    vibration: true,
+    notification: false,
+    keepScreenOn: true,
+  };
+}
 
 export function defaultSettings(): AppSettings {
   return {
@@ -12,6 +28,8 @@ export function defaultSettings(): AppSettings {
       highAccuracyThreshold: 90,
       correctionThreshold: 60,
     },
+    weeklyTargetMinutes: 0,
+    timer: defaultTimerSettings(),
   };
 }
 

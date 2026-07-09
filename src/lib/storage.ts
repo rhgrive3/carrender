@@ -1,5 +1,5 @@
 import type { AppState } from '../types';
-import { defaultAvailability, defaultSettings } from '../data/defaults';
+import { defaultAvailability, defaultSettings, defaultTimerSettings } from '../data/defaults';
 import { toISODate } from './date';
 
 const KEY = 'studycommander_state_v1';
@@ -73,6 +73,26 @@ export function exportJSON(state: AppState): string {
   return JSON.stringify(state, null, 2);
 }
 
+/** 学習ログをExcel/スプレッドシートで開けるCSVに変換する(BOM付きUTF-8) */
+export function exportSessionsCSV(state: AppState): string {
+  const esc = (v: string | number | null) => {
+    const s = v === null ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = ['日付', '開始時刻', '科目', '教材', '学習時間(分)', '進んだ量', '単位', '正答率(%)', '集中度', '記録方法', 'メモ'];
+  const rows = [...state.sessions]
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+    .map((s) => {
+      const subject = state.subjects.find((x) => x.id === s.subjectId);
+      const material = state.materials.find((x) => x.id === s.materialId);
+      const time = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(s.startedAt));
+      return [s.date, time, subject?.name ?? '', material?.name ?? '', s.minutes, s.amountDone || '', material?.unit ?? '', s.accuracy ?? '', s.focus ?? '', s.source === 'timer' ? 'タイマー' : '手入力', s.memo]
+        .map(esc)
+        .join(',');
+    });
+  return '﻿' + [header.join(','), ...rows].join('\r\n');
+}
+
 export function importJSON(json: string): AppState {
   const parsed = JSON.parse(json) as AppState;
   if (
@@ -89,7 +109,18 @@ export function importJSON(json: string): AppState {
 }
 
 export function normalizeState(input: AppState): AppState {
-  const settings = { ...defaultSettings(), ...(input.settings ?? {}) };
+  const timerDefaults = defaultTimerSettings();
+  const settings = {
+    ...defaultSettings(),
+    ...(input.settings ?? {}),
+    // v2以前の保存データにはtimer/weeklyTargetMinutesがないため深いレベルで補完する
+    weeklyTargetMinutes: Math.max(0, input.settings?.weeklyTargetMinutes ?? 0),
+    timer: {
+      ...timerDefaults,
+      ...(input.settings?.timer ?? {}),
+      pomodoro: { ...timerDefaults.pomodoro, ...(input.settings?.timer?.pomodoro ?? {}) },
+    },
+  };
   const availabilityDefaults = defaultAvailability();
   const availability = (Array.isArray(input.availability) && input.availability.length > 0
     ? input.availability

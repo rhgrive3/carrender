@@ -1,5 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+// beforeinstallpromptを取り逃さないよう、Reactマウント前にリスナーを登録する
+import './lib/pwa';
 import App from './App';
 import '@fontsource-variable/noto-sans-jp';
 import './styles/global.css';

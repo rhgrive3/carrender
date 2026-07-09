@@ -6,6 +6,7 @@ import { buildDemoState } from '../src/data/demo';
 import { generatePlan, computeCapacity, computeDayStatus, availableMinutesOn, freeSlotsOn } from '../src/lib/scheduler';
 import { generateReviewTasks } from '../src/lib/review';
 import { computeAnalytics } from '../src/lib/analytics';
+import { computeAchievements, unlockedCount } from '../src/lib/achievements';
 import { addDays, today } from '../src/lib/date';
 import type { StudySession } from '../src/types';
 
@@ -106,6 +107,18 @@ check('数学(遅れ設定)がbehind/riskと判定される', mathForecast?.stat
 console.log('  コメント:');
 for (const c of a.comments) console.log(`   ・${c}`);
 check('分析コメントが生成される', a.comments.length >= 2);
+
+console.log('--- 実績バッジ ---');
+{
+  const badges = computeAchievements(state, t);
+  check('バッジが定義されている', badges.length >= 10, badges.length);
+  const first = badges.find((b) => b.id === 'first-session');
+  check('「はじめの一歩」が獲得済み(デモは実績あり)', first?.unlocked === true);
+  check('全バッジのprogressが0-1', badges.every((b) => b.progress >= 0 && b.progress <= 1));
+  console.log(`  獲得: ${unlockedCount(badges)}/${badges.length} → ${badges.filter((b) => b.unlocked).map((b) => b.title).join(', ')}`);
+  const empty = computeAchievements({ ...state, sessions: [], tasks: [], materials: [] }, t);
+  check('データなしでは獲得0', unlockedCount(empty) === 0, unlockedCount(empty));
+}
 
 console.log('--- 「今日は無理」 ---');
 const impossibleTasks = state.tasks.map((x) => (x.scheduledDate === t && x.status === 'planned' ? { ...x, status: 'postponed' as const, scheduledDate: addDays(t, 1) } : x));

@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react';
-import { PenLine, Plus, Timer } from 'lucide-react';
+import { PenLine, Plus, Share2, Timer } from 'lucide-react';
 import { useApp } from '../state/AppContext';
+import { useToast } from '../components/ui/Toast';
+import { computeAchievements, unlockedCount } from '../lib/achievements';
+import { shareStudyCard } from '../lib/sharecard';
+import { ProgressBar } from '../components/ui/bits';
 import {
   addDays,
   addMonths,
@@ -55,11 +59,19 @@ function deltaLabel(current: number, previous: number): { text: string; positive
 export function RecordsScreen() {
   const { state } = useApp();
   const t = today();
+  const toast = useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [period, setPeriod] = useState<Period>('week');
   const [offset, setOffset] = useState(0);
 
   const analytics = useMemo(() => computeAnalytics(state, t), [state, t]);
+  const achievements = useMemo(() => computeAchievements(state, t), [state, t]);
+
+  const doShare = async () => {
+    const result = await shareStudyCard(state, t);
+    if (result === 'downloaded') toast('シェア画像を保存しました');
+    else if (result === 'failed') toast('画像の生成に失敗しました');
+  };
 
   const minutesByDay = useMemo(() => {
     const map = new Map<string, number>();
@@ -118,9 +130,14 @@ export function RecordsScreen() {
             今週 {formatMinutes(analytics.weekMinutes)} ・ 今月 {formatMinutes(analytics.monthMinutes)} ・ 🔥 {analytics.streakDays}日連続
           </div>
         </div>
-        <button className="icon-btn" aria-label="記録を手動で追加" onClick={() => setAddOpen(true)}>
-          <Plus size={22} strokeWidth={2.2} aria-hidden="true" />
-        </button>
+        <div className="row" style={{ gap: 6 }}>
+          <button className="icon-btn" aria-label="今日の記録をシェア画像にする" onClick={doShare}>
+            <Share2 size={20} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+          <button className="icon-btn" aria-label="記録を手動で追加" onClick={() => setAddOpen(true)}>
+            <Plus size={22} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <div className="segmented" role="tablist" aria-label="集計期間">
@@ -151,6 +168,23 @@ export function RecordsScreen() {
           <span>{period === 'week' ? '前週比' : '前月比'}</span>
         </div>
       </div>
+
+      {/* 週間目標(Studyplus式) */}
+      {period === 'week' && offset === 0 && state.settings.weeklyTargetMinutes > 0 && (
+        <div className="card mt-12" style={{ padding: 13 }}>
+          <div className="row spread" style={{ marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 800 }}>🎯 週間目標</span>
+            <span className="faint" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {formatMinutesTile(totalActual)} / {formatMinutesTile(state.settings.weeklyTargetMinutes)}
+              ({Math.round((totalActual / state.settings.weeklyTargetMinutes) * 100)}%)
+            </span>
+          </div>
+          <ProgressBar value={totalActual / state.settings.weeklyTargetMinutes} color={totalActual >= state.settings.weeklyTargetMinutes ? 'var(--ok)' : undefined} />
+          {totalActual >= state.settings.weeklyTargetMinutes && (
+            <div className="faint mt-8" style={{ color: 'var(--ok)', fontWeight: 700 }}>今週の目標を達成しました 🎉</div>
+          )}
+        </div>
+      )}
 
       {period === 'week' ? (
         <WeekChart days={days} minutesByDay={minutesByDay} plannedByDay={plannedByDay} totalPlanned={totalPlanned} totalActual={totalActual} />
@@ -197,6 +231,26 @@ export function RecordsScreen() {
       ) : (
         <SessionLog sessions={sessions} state={state} t={t} />
       )}
+
+      {/* 実績バッジ */}
+      <div className="section-label">
+        <span>実績バッジ</span>
+        <span className="faint">{unlockedCount(achievements)}/{achievements.length} 獲得</span>
+      </div>
+      <div className="badge-grid">
+        {achievements.map((a) => (
+          <div key={a.id} className={`badge-cell ${a.unlocked ? 'unlocked' : ''}`} title={a.desc}>
+            <span className="badge-icon" aria-hidden="true">{a.icon}</span>
+            <span className="badge-title">{a.title}</span>
+            <span className="badge-desc">{a.unlocked ? '獲得!' : a.progressLabel}</span>
+            {!a.unlocked && (
+              <div className="badge-progress" aria-hidden="true">
+                <div style={{ width: `${Math.round(a.progress * 100)}%` }} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
 
       {addOpen && <RecordSheet open onClose={() => setAddOpen(false)} />}
     </div>

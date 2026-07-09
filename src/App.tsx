@@ -15,6 +15,9 @@ import { TimerOverlay } from './components/timer/TimerOverlay';
 
 import { Target } from 'lucide-react';
 import { IconHome, IconPlan, IconBook, IconTimer, IconChart } from './components/navigation/NavIcons';
+import { InstallGate } from './components/pwa/InstallGate';
+import { InstallBanner } from './components/pwa/InstallBanner';
+import { shouldShowInstallGate } from './lib/pwa';
 
 type Tab = 'today' | 'plan' | 'materials' | 'records' | 'analytics';
 
@@ -108,8 +111,16 @@ function AuthGate({ children }: { children: JSX.Element }) {
 }
 
 export default function App() {
+  // standalone起動かどうかはページ読み込み中に変わらないため初回判定のみでよい
+  const [gated] = useState(() => shouldShowInstallGate());
+
+  if (gated) {
+    return <InstallGate />;
+  }
+
   return (
     <AuthProvider>
+      <InstallBanner />
       <AuthGate>
         <AppProvider>
           <TimerProvider>
