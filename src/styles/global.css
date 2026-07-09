@@ -933,6 +933,32 @@ body {
   flex: 1;
 }
 
+.timer-confirm {
+  width: 100%;
+  max-width: 420px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elev1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  box-shadow: var(--shadow-soft);
+}
+
+.timer-confirm-title {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.timer-confirm-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .timer-phase-badge {
   display: inline-flex;
   align-items: center;
@@ -1000,6 +1026,21 @@ body {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+@media (max-width: 420px) {
+  .timer-confirm {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .timer-confirm-actions {
+    width: 100%;
+  }
+
+  .timer-confirm-actions .btn {
+    flex: 1;
+  }
 }
 
 @keyframes timer-breathe {

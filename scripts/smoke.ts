@@ -9,7 +9,7 @@ import { computeAnalytics } from '../src/lib/analytics';
 import { computeAchievements, unlockedCount } from '../src/lib/achievements';
 import { addDays, today } from '../src/lib/date';
 import { normalizeTaskSchedule } from '../src/lib/taskSchedule';
-import { appReducer } from '../src/state/AppContext';
+import { appReducer, emptyState } from '../src/state/AppContext';
 import type { StudySession } from '../src/types';
 
 const t = today();
@@ -83,6 +83,56 @@ console.log('--- 再スケジューリング ---');
 const { state: s2, result } = generatePlan(state, t, 'テスト再計算');
 check('再計算が完了', s2.tasks.length > 0);
 console.log(`  サマリー: ${result.summaryText}`);
+
+{
+  const fixedNow = new Date('2026-07-09T02:34:00.000Z'); // Asia/Tokyo 11:34
+  const base = emptyState();
+  const rescheduledToday = generatePlan(
+    {
+      ...base,
+      onboarded: true,
+      goal: { id: 'goal_test', name: 'テスト', examDate: '2026-07-20', createdAt: fixedNow.toISOString() },
+      subjects: [{ id: 'subj_test', name: '数学', color: '#4f7cff', importance: 3, weakness: 3 }],
+      materials: [
+        {
+          id: 'mat_test',
+          subjectId: 'subj_test',
+          name: '問題集',
+          unit: 'ページ',
+          totalAmount: 20,
+          doneAmount: 0,
+          startDate: '2026-07-09',
+          targetDate: '2026-07-20',
+          priority: 3,
+          difficulty: 3,
+          minutesPerUnit: 25,
+          dailyTarget: null,
+          weeklyTarget: null,
+          phase: 'first',
+          deadlinePolicy: 'normal',
+          examRelevance: 3,
+          reviewEnabled: true,
+          reviewIntervals: [1, 3, 7],
+          paused: false,
+          round: 1,
+          lastStudiedAt: null,
+          nextReviewAt: null,
+          archived: false,
+          createdAt: fixedNow.toISOString(),
+        },
+      ],
+      availability: [{ weekday: 4, minutes: 180, windows: [{ start: '09:00', end: '12:00' }] }],
+      settings: { ...base.settings, sessionMinMinutes: 25, sessionMaxMinutes: 90, maxDailyMinutes: 180 },
+    },
+    '2026-07-09',
+    '当日再計算テスト',
+    { now: fixedNow },
+  ).state;
+  const firstTask = rescheduledToday.tasks
+    .filter((task) => task.scheduledDate === '2026-07-09' && task.status === 'planned')
+    .sort((a, b) => (a.scheduledStart ?? '99:99').localeCompare(b.scheduledStart ?? '99:99'))[0];
+  check('当日の再計算は現在時刻以降から組む', firstTask?.scheduledStart === '11:35', firstTask);
+}
 
 console.log('--- 復習タスク生成 ---');
 const doneTask = todayTasks[0];

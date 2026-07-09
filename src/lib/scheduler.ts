@@ -10,7 +10,7 @@ import type {
   Subject,
   TimeRange,
 } from '../types';
-import { addDays, diffDays, genId, hmToMinutes, minutesToHM, today, weekdayOf, formatMinutes } from './date';
+import { addDays, APP_TIME_ZONE, diffDays, genId, hmToMinutes, minutesToHM, toISODate, today, weekdayOf, formatMinutes } from './date';
 
 // ============================================================
 // 優先度スコア
@@ -135,6 +135,26 @@ interface FreeSlot {
   end: number;
 }
 
+interface GeneratePlanOptions {
+  now?: Date;
+}
+
+function currentMinutesInTimeZone(now: Date, timeZone = APP_TIME_ZONE): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+  return (hour % 24) * 60 + minute;
+}
+
+function roundUpToStep(min: number, step: number): number {
+  return Math.ceil(min / step) * step;
+}
+
 export function fixedEventsOn(state: AppState, date: ISODate): FixedEvent[] {
   const wd = weekdayOf(date);
   return state.fixedEvents.filter((e) => (e.date ? e.date === date : e.weekday === wd));
@@ -213,7 +233,10 @@ export function generatePlan(
   state: AppState,
   fromDate: ISODate,
   reason: string,
+  options: GeneratePlanOptions = {},
 ): { state: AppState; result: RescheduleResult } {
+  const now = options.now ?? new Date();
+  const todayDate = toISODate(now);
   const goal = state.goal;
   const horizonEnd = goal
     ? addDays(fromDate, Math.min(HORIZON_DAYS - 1, Math.max(0, diffDays(fromDate, goal.examDate))))
@@ -226,7 +249,6 @@ export function generatePlan(
   // --- 1. 保持するタスクと再配置対象を分ける ---
   // fromDateが明日以降の場合、今日〜fromDate前日の未着手タスクは
   // 「進行中の当日計画」としてそのまま維持する(記録するたびに今日が崩れないように)
-  const todayDate = today();
   const keepStart = todayDate < fromDate ? todayDate : fromDate;
   const kept: StudyTask[] = [];
   const toPlace: StudyTask[] = []; // 復習・間違い直し・手動・未達成 → 再配置
@@ -280,7 +302,10 @@ export function generatePlan(
       .reduce((s, t) => s + t.estimatedMinutes, 0);
     let budget = Math.max(0, capacity - usedByKept);
 
-    const slots = freeSlotsOn(state, day);
+    const minimumStart = day === todayDate ? roundUpToStep(currentMinutesInTimeZone(now), 5) : null;
+    const slots = freeSlotsOn(state, day)
+      .map((slot) => (minimumStart === null ? slot : { ...slot, start: Math.max(slot.start, minimumStart) }))
+      .filter((slot) => slot.end - slot.start >= state.settings.sessionMinMinutes);
     let slotIdx = 0;
     let slotCursor = slots.length > 0 ? slots[0].start : hmToMinutes(DAY_START);
     let lastSubject: string | null = null;

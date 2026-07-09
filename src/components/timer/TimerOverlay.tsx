@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, CloudRain, Coffee, Pause, Play, SkipForward, VolumeX, Wind } from 'lucide-react';
+import { Check, CloudRain, Coffee, Pause, Play, SkipForward, Trash2, VolumeX, Wind, X } from 'lucide-react';
 import { useTimer, type TimerTarget } from './TimerContext';
 import { useApp } from '../../state/AppContext';
 import { formatHM } from '../../lib/date';
@@ -17,6 +17,7 @@ export function TimerOverlay() {
   // 終了時はtimer.targetが消えるため、記録用にスナップショットを保持する
   const [finished, setFinished] = useState<{ target: TimerTarget; minutes: number } | null>(null);
   const [noise, setNoiseState] = useState<NoiseType>(() => getNoise());
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const active = timer.target !== null;
   const isBreak = timer.mode === 'pomodoro' && timer.phase !== 'work';
@@ -33,6 +34,10 @@ export function TimerOverlay() {
     setNoise(noise);
     return () => stopNoise();
   }, [active, timer.running, isBreak, noise]);
+
+  useEffect(() => {
+    if (!active) setConfirmDiscard(false);
+  }, [active]);
 
   if (finished) {
     return (
@@ -62,7 +67,14 @@ export function TimerOverlay() {
     if (!target) return;
     const minutes = timer.finish();
     stopNoise();
+    setConfirmDiscard(false);
     setFinished({ target, minutes });
+  };
+
+  const handleDiscard = () => {
+    stopNoise();
+    setConfirmDiscard(false);
+    timer.discard();
   };
 
   const cycleNoise = () => {
@@ -89,16 +101,28 @@ export function TimerOverlay() {
         />
         <button
           className="btn btn-ghost btn-sm"
-          onClick={() => {
-            if (window.confirm('タイマーを破棄しますか?記録は保存されません。')) {
-              stopNoise();
-              timer.discard();
-            }
-          }}
+          onClick={() => setConfirmDiscard(true)}
         >
           破棄
         </button>
       </div>
+
+      {confirmDiscard && (
+        <div className="timer-confirm" role="alertdialog" aria-modal="true" aria-label="タイマー破棄の確認">
+          <div>
+            <div className="timer-confirm-title">タイマーを破棄しますか?</div>
+            <div className="faint">記録は保存されません。</div>
+          </div>
+          <div className="timer-confirm-actions">
+            <button className="btn btn-secondary btn-sm" onClick={() => setConfirmDiscard(false)}>
+              <X size={14} strokeWidth={2.4} aria-hidden="true" /> キャンセル
+            </button>
+            <button className="btn btn-danger btn-sm" onClick={handleDiscard}>
+              <Trash2 size={14} strokeWidth={2.4} aria-hidden="true" /> 破棄
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22, width: '100%' }}>
         {subject && (

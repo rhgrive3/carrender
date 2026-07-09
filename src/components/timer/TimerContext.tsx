@@ -260,11 +260,26 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     const p = persistedRef.current ?? loadPersisted();
     if (!p) return 0;
     const workSec = workSecOf(p, Date.now(), pomoRef.current);
+    persistedRef.current = null;
     setPersisted(null);
+    try {
+      localStorage.removeItem(KEY);
+    } catch {
+      // 保存失敗は致命的でない
+    }
     return Math.max(1, Math.round(workSec / 60));
   }, []);
 
-  const discard = useCallback(() => setPersisted(null), []);
+  const discard = useCallback(() => {
+    persistedRef.current = null;
+    setPersisted(null);
+    setNow(Date.now());
+    try {
+      localStorage.removeItem(KEY);
+    } catch {
+      // 保存失敗は致命的でない
+    }
+  }, []);
 
   const phaseElapsedSec = persisted ? persisted.phaseAccumulatedSec + runSecOf(persisted, now) : 0;
   const phaseDurationSec = persisted ? phaseDurationSecOf(persisted, pomo) : null;
