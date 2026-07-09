@@ -157,7 +157,13 @@ export function normalizeState(input: AppState): AppState {
                 : null,
         }))
       : [],
-    fixedEvents: Array.isArray(input.fixedEvents) ? input.fixedEvents : [],
+    fixedEvents: Array.isArray(input.fixedEvents)
+      ? input.fixedEvents.map((e) => ({
+          ...e,
+          startDate: e.startDate ?? null,
+          endDate: e.endDate ?? null,
+        }))
+      : [],
     materials: (input.materials ?? []).map((m) => ({
       ...m,
       startDate: m.startDate ?? m.createdAt?.slice(0, 10) ?? toISODate(new Date()),

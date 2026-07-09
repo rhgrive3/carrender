@@ -127,6 +127,8 @@ export interface FixedEvent {
   title: string;
   weekday: Weekday | null; // 繰り返し(毎週)ならweekday、単発ならdate
   date: ISODate | null;
+  startDate?: ISODate | null; // 毎週予定の有効開始日(nullなら無期限)
+  endDate?: ISODate | null; // 毎週予定の有効終了日(nullなら無期限)
   start: string; // "HH:mm"
   end: string;
 }

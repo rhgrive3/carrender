@@ -167,7 +167,13 @@ function roundUpToStep(min: number, step: number): number {
 
 export function fixedEventsOn(state: AppState, date: ISODate): FixedEvent[] {
   const wd = weekdayOf(date);
-  return state.fixedEvents.filter((e) => (e.date ? e.date === date : e.weekday === wd));
+  return state.fixedEvents.filter((e) => {
+    if (e.date) return e.date === date;
+    if (e.weekday !== wd) return false;
+    if (e.startDate && date < e.startDate) return false;
+    if (e.endDate && date > e.endDate) return false;
+    return true;
+  });
 }
 
 export function dayPlanOn(state: AppState, date: ISODate) {

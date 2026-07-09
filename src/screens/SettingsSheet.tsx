@@ -29,11 +29,22 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   const [availability, setAvailability] = useState(state.availability);
   const [events, setEvents] = useState(state.fixedEvents);
   const [settingsDraft, setSettingsDraft] = useState(state.settings);
-  const [newEvent, setNewEvent] = useState<{ title: string; mode: 'weekly' | 'date'; weekday: Weekday; date: string; start: string; end: string }>({
+  const [newEvent, setNewEvent] = useState<{
+    title: string;
+    mode: 'weekly' | 'date';
+    weekday: Weekday;
+    date: string;
+    startDate: string;
+    endDate: string;
+    start: string;
+    end: string;
+  }>({
     title: '',
     mode: 'weekly',
     weekday: 1,
     date: today(),
+    startDate: '',
+    endDate: '',
     start: '08:00',
     end: '16:00',
   });
@@ -106,11 +117,17 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       toast('予定名と正しい時間帯を入力してください');
       return;
     }
+    if (newEvent.mode === 'weekly' && newEvent.startDate && newEvent.endDate && newEvent.startDate > newEvent.endDate) {
+      toast('固定予定の有効期間を正しく入力してください');
+      return;
+    }
     const ev: FixedEvent = {
       id: genId('ev'),
       title: newEvent.title.trim(),
       weekday: newEvent.mode === 'weekly' ? newEvent.weekday : null,
       date: newEvent.mode === 'date' ? newEvent.date : null,
+      startDate: newEvent.mode === 'weekly' && newEvent.startDate ? newEvent.startDate : null,
+      endDate: newEvent.mode === 'weekly' && newEvent.endDate ? newEvent.endDate : null,
       start: newEvent.start,
       end: newEvent.end,
     };
@@ -147,6 +164,17 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     const next = events.filter((e) => e.id !== id);
     setEvents(next);
     dispatch({ type: 'UPDATE_FIXED_EVENTS', fixedEvents: next });
+  };
+
+  const eventLabel = (ev: FixedEvent) => {
+    if (ev.weekday !== null) {
+      const period =
+        ev.startDate || ev.endDate
+          ? ` (${ev.startDate ? formatDateShort(ev.startDate) : '開始未定'}〜${ev.endDate ? formatDateShort(ev.endDate) : '終了未定'})`
+          : '';
+      return `毎週${WEEKDAY_LABELS[ev.weekday]}${period}`;
+    }
+    return ev.date ? formatDateShort(ev.date) : '';
   };
 
   const doExport = () => {
@@ -484,7 +512,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       {events.map((ev) => (
         <div key={ev.id} className="row" style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700 }}>
-            {ev.weekday !== null ? `毎週${WEEKDAY_LABELS[ev.weekday]}` : ev.date ? formatDateShort(ev.date) : ''} {ev.title}
+            {eventLabel(ev)} {ev.title}
           </span>
           <span className="faint">
             {ev.start}〜{ev.end}
@@ -532,6 +560,29 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           )}
         </div>
       </div>
+      {newEvent.mode === 'weekly' && (
+        <div className="field-row">
+          <div className="field" style={{ marginBottom: 8 }}>
+            <label htmlFor="fixed-start-date">有効開始日(任意)</label>
+            <input
+              id="fixed-start-date"
+              type="date"
+              value={newEvent.startDate}
+              onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+            />
+          </div>
+          <div className="field" style={{ marginBottom: 8 }}>
+            <label htmlFor="fixed-end-date">有効終了日(任意)</label>
+            <input
+              id="fixed-end-date"
+              type="date"
+              value={newEvent.endDate}
+              min={newEvent.startDate || undefined}
+              onChange={(e) => setNewEvent({ ...newEvent, endDate: e.target.value })}
+            />
+          </div>
+        </div>
+      )}
       <div className="row" style={{ marginBottom: 8 }}>
         <input aria-label="開始時刻" type="time" value={newEvent.start} onChange={(e) => setNewEvent({ ...newEvent, start: e.target.value })} style={inputStyle} />
         <span className="faint">〜</span>
