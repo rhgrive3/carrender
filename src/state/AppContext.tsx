@@ -14,7 +14,7 @@ import type {
   UserGoal,
 } from '../types';
 import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, normalizeState } from '../lib/storage';
-import { generatePlan } from '../lib/scheduler';
+import { freeSlotsOn, generatePlan, subtractBusySlots, taskBusySlots } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
 import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
 import { buildDemoState } from '../data/demo';
@@ -218,14 +218,34 @@ export function appReducer(state: AppState, action: Action): AppState {
       const reordered = [...list];
       const [picked] = reordered.splice(index, 1);
       reordered.splice(target, 0, picked);
-      let cursor = Math.min(...reordered.map((x) => (x.scheduledStart ? hmToMinutes(x.scheduledStart) : 18 * 60)));
-      if (!Number.isFinite(cursor)) cursor = 18 * 60;
+      // 固定予定と完了/実行中タスクの時間帯を避けた空き枠に、新しい順序で詰め直す
+      const occupied = taskBusySlots(
+        state.tasks.filter(
+          (x) => x.scheduledDate === task.scheduledDate && (x.status === 'done' || x.status === 'doing'),
+        ),
+      );
+      const slots = subtractBusySlots(freeSlotsOn(state, task.scheduledDate), occupied);
+      let cursor = Math.min(...reordered.map((x) => (x.scheduledStart ? hmToMinutes(x.scheduledStart) : Number.POSITIVE_INFINITY)));
+      if (!Number.isFinite(cursor)) cursor = slots[0]?.start ?? 18 * 60;
+      let slotIdx = 0;
       const times = new Map<string, { start: string; end: string }>();
       for (const item of reordered) {
-        const start = cursor;
-        const end = start + item.estimatedMinutes;
-        times.set(item.id, { start: minutesToHM(start), end: minutesToHM(end) });
-        cursor = end + 5;
+        const need = item.estimatedMinutes;
+        let placed: { start: number; end: number } | null = null;
+        while (slotIdx < slots.length) {
+          const slot = slots[slotIdx];
+          const start = Math.max(cursor, slot.start);
+          if (slot.end - start >= need) {
+            placed = { start, end: start + need };
+            break;
+          }
+          slotIdx += 1;
+          if (slotIdx < slots.length) cursor = Math.max(cursor, slots[slotIdx].start);
+        }
+        // 空き枠が尽きたら末尾に連結(従来挙動のフォールバック)
+        if (!placed) placed = { start: cursor, end: cursor + need };
+        times.set(item.id, { start: minutesToHM(placed.start), end: minutesToHM(placed.end) });
+        cursor = placed.end + 5;
       }
       return {
         ...state,

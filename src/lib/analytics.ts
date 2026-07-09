@@ -13,7 +13,7 @@ import { computeCapacity } from './scheduler';
 // ============================================================
 
 export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummary {
-  const sessions = state.sessions;
+  const sessions = state.sessions.filter((s) => s.date <= ref);
 
   // --- 日別合計分数 ---
   const minutesByDate = new Map<ISODate, number>();
@@ -60,8 +60,9 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
   // --- 直近7日の予定達成率 ---
   const tasks7d = state.tasks.filter((t) => t.scheduledDate >= weekFrom && t.scheduledDate <= ref);
   const relevant = tasks7d.filter((t) => t.status !== 'skipped');
-  const doneCount = relevant.filter((t) => t.status === 'done').length;
-  const planAchievementRate7d = relevant.length > 0 ? doneCount / relevant.length : 1;
+  const planned7d = relevant.reduce((sum, t) => sum + t.estimatedMinutes, 0);
+  const done7d = relevant.filter((t) => t.status === 'done').reduce((sum, t) => sum + t.estimatedMinutes, 0);
+  const planAchievementRate7d = planned7d > 0 ? Math.min(1, done7d / planned7d) : 1;
 
   // --- 科目別統計 (直近14日) ---
   const from14 = addDays(ref, -13);
@@ -72,13 +73,13 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
     const sSessions = sessions.filter((s) => s.subjectId === subj.id && s.date >= from14 && s.date <= ref);
     const planned = sTasks.reduce((sum, t) => sum + t.estimatedMinutes, 0);
     const actual = sSessions.reduce((sum, s) => sum + s.minutes, 0);
-    const done = sTasks.filter((t) => t.status === 'done').length;
+    const done = sTasks.filter((t) => t.status === 'done').reduce((sum, t) => sum + t.estimatedMinutes, 0);
     const withAcc = sSessions.filter((s) => s.accuracy !== null);
     return {
       subjectId: subj.id,
       plannedMinutes: planned,
       actualMinutes: actual,
-      completionRate: sTasks.length > 0 ? done / sTasks.length : 1,
+      completionRate: planned > 0 ? Math.min(1, done / planned) : 1,
       avgAccuracy:
         withAcc.length > 0 ? withAcc.reduce((sum, s) => sum + (s.accuracy ?? 0), 0) / withAcc.length : null,
     };
@@ -131,14 +132,15 @@ export function computeMaterialForecast(state: AppState, materialId: string, ref
   if (!m) return null;
   const remainingAmount = Math.max(0, m.totalAmount - m.doneAmount);
   const remainingMinutes = remainingAmount * m.minutesPerUnit;
-  const daysToTarget = Math.max(1, diffDays(ref, m.targetDate));
+  const daysToTarget = daysInclusive(ref, m.targetDate);
   const requiredPacePerDay = remainingAmount / daysToTarget;
 
   // 直近14日の実績ペース
-  const from = addDays(ref, -13);
-  const recent = state.sessions.filter((s) => s.materialId === m.id && s.date >= from);
+  const from = maxDate(addDays(ref, -13), m.startDate ?? m.createdAt.slice(0, 10));
+  const recent = state.sessions.filter((s) => s.materialId === m.id && s.date >= from && s.date <= ref);
   const recentAmount = recent.reduce((sum, s) => sum + s.amountDone, 0);
-  const currentPacePerDay = recentAmount / 14;
+  const activeDays = daysInclusive(from, ref);
+  const currentPacePerDay = recentAmount / activeDays;
 
   let projectedFinishDate: ISODate | null = null;
   if (remainingAmount === 0) {
@@ -183,10 +185,18 @@ export function todayQuotaFor(state: AppState, materialId: string, ref: ISODate)
   if (!m) return 0;
   if (m.paused || m.archived) return 0;
   const remaining = Math.max(0, m.totalAmount - m.doneAmount);
-  const days = Math.max(1, diffDays(ref, m.targetDate));
+  const days = daysInclusive(ref, m.targetDate);
   const required = Math.ceil(remaining / days);
   const custom = Math.ceil(Math.max(m.dailyTarget ?? 0, (m.weeklyTarget ?? 0) / 7));
   return Math.max(required, custom);
+}
+
+function daysInclusive(from: ISODate, to: ISODate): number {
+  return Math.max(1, diffDays(from, to) + 1);
+}
+
+function maxDate(a: ISODate, b: ISODate): ISODate {
+  return a > b ? a : b;
 }
 
 // ============================================================

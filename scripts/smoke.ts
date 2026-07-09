@@ -5,13 +5,13 @@
 import { buildDemoState } from '../src/data/demo';
 import { generatePlan, computeCapacity, computeDayStatus, availableMinutesOn, freeSlotsOn } from '../src/lib/scheduler';
 import { generateReviewTasks } from '../src/lib/review';
-import { computeAnalytics } from '../src/lib/analytics';
+import { computeAnalytics, todayQuotaFor } from '../src/lib/analytics';
 import { computeAchievements, unlockedCount } from '../src/lib/achievements';
 import { addDays, today } from '../src/lib/date';
 import { normalizeState } from '../src/lib/storage';
 import { normalizeTaskSchedule } from '../src/lib/taskSchedule';
 import { appReducer, emptyState } from '../src/state/AppContext';
-import type { AppState, Material, StudySession } from '../src/types';
+import type { AppState, Material, StudySession, StudyTask } from '../src/types';
 
 const t = today();
 let failures = 0;
@@ -267,6 +267,117 @@ console.log('  コメント:');
 for (const c of a.comments) console.log(`   ・${c}`);
 check('分析コメントが生成される', a.comments.length >= 2);
 
+{
+  const ref = '2026-07-10';
+  const base = emptyState();
+  const subject = { id: 'subj_analytics', name: '数学', color: '#4f7cff', importance: 3, weakness: 3 } as const;
+  const material: Material = {
+    id: 'mat_analytics',
+    subjectId: subject.id,
+    name: '分析用問題集',
+    unit: '問題',
+    totalAmount: 10,
+    doneAmount: 1,
+    startDate: '2026-07-01',
+    targetDate: '2026-07-11',
+    priority: 3,
+    difficulty: 3,
+    minutesPerUnit: 10,
+    dailyTarget: null,
+    weeklyTarget: null,
+    phase: 'first',
+    deadlinePolicy: 'normal',
+    examRelevance: 3,
+    reviewEnabled: false,
+    reviewIntervals: [1, 3, 7],
+    paused: false,
+    round: 1,
+    lastStudiedAt: null,
+    nextReviewAt: null,
+    archived: false,
+    createdAt: '2026-07-01T00:00:00.000Z',
+  };
+  const makeTask = (id: string, minutes: number, status: StudyTask['status']): StudyTask => ({
+    id,
+    subjectId: subject.id,
+    materialId: material.id,
+    title: material.name,
+    rangeLabel: id,
+    rangeStart: null,
+    rangeEnd: null,
+    amount: 1,
+    estimatedMinutes: minutes,
+    priority: 0,
+    dueDate: null,
+    type: 'new',
+    status,
+    scheduledDate: ref,
+    scheduledStart: null,
+    scheduledEnd: null,
+    generatedBy: 'auto',
+    memo: '',
+    reviewStage: null,
+    createdAt: '2026-07-01T00:00:00.000Z',
+    completedAt: status === 'done' ? '2026-07-10T00:00:00.000Z' : null,
+  });
+  const analyticsState: AppState = {
+    ...base,
+    onboarded: true,
+    goal: { id: 'goal_analytics', name: '分析テスト', examDate: '2026-07-31', createdAt: '2026-07-01T00:00:00.000Z' },
+    subjects: [subject],
+    materials: [material],
+    tasks: [makeTask('done_10min', 10, 'done'), makeTask('planned_90min', 90, 'planned')],
+    sessions: [
+      {
+        id: 'sess_actual',
+        taskId: 'done_10min',
+        subjectId: subject.id,
+        materialId: material.id,
+        date: ref,
+        startedAt: '2026-07-10T00:00:00.000Z',
+        minutes: 10,
+        amountDone: 1,
+        rangeLabel: '',
+        accuracy: 80,
+        focus: 3,
+        difficulty: 3,
+        memo: '',
+        source: 'manual',
+      },
+      {
+        id: 'sess_future',
+        taskId: null,
+        subjectId: subject.id,
+        materialId: material.id,
+        date: '2026-07-11',
+        startedAt: '2026-07-11T00:00:00.000Z',
+        minutes: 999,
+        amountDone: 9,
+        rangeLabel: '',
+        accuracy: 100,
+        focus: 3,
+        difficulty: 3,
+        memo: '',
+        source: 'manual',
+      },
+    ],
+  };
+  const analytics = computeAnalytics(analyticsState, ref);
+  const stat = analytics.subjectStats[0];
+  const forecast = analytics.materialForecasts[0];
+  check('分析の予定達成率は件数ではなく予定分数ベース', analytics.planAchievementRate7d === 0.1, analytics.planAchievementRate7d);
+  check('科目別達成率も予定分数ベース', stat.completionRate === 0.1, stat.completionRate);
+  check('分析は基準日より未来の実績を集計しない', analytics.weekMinutes === 10 && stat.actualMinutes === 10, {
+    weekMinutes: analytics.weekMinutes,
+    actualMinutes: stat.actualMinutes,
+  });
+  check('教材ペース予測は未来実績を含めず、開始日からの実日数で割る', forecast.currentPacePerDay === 0.1, forecast);
+  check('今日の必要量は今日と目標日を含む日数で割る', forecast.requiredPacePerDay === 4.5 && todayQuotaFor(analyticsState, material.id, ref) === 5, {
+    requiredPacePerDay: forecast.requiredPacePerDay,
+    quota: todayQuotaFor(analyticsState, material.id, ref),
+  });
+}
+
 console.log('--- 実績バッジ ---');
 {
   const badges = computeAchievements(state, t);
@@ -362,6 +473,294 @@ console.log('--- タスク時刻補正 ---');
 
   const overMidnight = normalizeTaskSchedule('2026-07-09', '23:40', 30, { now: fixedNow });
   check('日跨ぎになる予定は翌日9:00へ送る', overMidnight.date === '2026-07-10' && overMidnight.startTime === '09:00' && overMidnight.endTime === '09:30', overMidnight);
+}
+
+console.log('--- 固定予定・完了タスクとの時間帯重複防止 ---');
+{
+  const fixedNow = new Date('2026-07-09T01:00:00.000Z'); // JST 10:00
+  const base = emptyState();
+  const makeMat = (doneAmount: number): Material => ({
+    id: 'mat_ov',
+    subjectId: 'subj_ov',
+    name: '問題集',
+    unit: '問',
+    totalAmount: 100,
+    doneAmount,
+    startDate: '2026-07-09',
+    targetDate: '2026-08-31',
+    priority: 3,
+    difficulty: 3,
+    minutesPerUnit: 10,
+    dailyTarget: null,
+    weeklyTarget: null,
+    phase: 'first',
+    deadlinePolicy: 'normal',
+    examRelevance: 3,
+    reviewEnabled: false,
+    reviewIntervals: [1, 3, 7],
+    paused: false,
+    round: 1,
+    lastStudiedAt: null,
+    nextReviewAt: null,
+    archived: false,
+    createdAt: fixedNow.toISOString(),
+  });
+  const overlapState: AppState = {
+    ...base,
+    onboarded: true,
+    goal: { id: 'g_ov', name: 'テスト', examDate: '2026-09-30', createdAt: fixedNow.toISOString() },
+    subjects: [{ id: 'subj_ov', name: '数学', color: '#4f7cff', importance: 3, weakness: 3 }],
+    materials: [makeMat(5)],
+    availability: ([0, 1, 2, 3, 4, 5, 6] as const).map((weekday) => ({
+      weekday,
+      minutes: 120,
+      windows: [{ start: '18:00', end: '20:00' }],
+    })),
+    settings: { ...base.settings, sessionMinMinutes: 25, sessionMaxMinutes: 90, maxDailyMinutes: 600 },
+    tasks: [
+      {
+        id: 'task_done_ov',
+        subjectId: 'subj_ov',
+        materialId: 'mat_ov',
+        title: '済みタスク',
+        rangeLabel: '1〜5問',
+        rangeStart: 1,
+        rangeEnd: 5,
+        amount: 5,
+        estimatedMinutes: 50,
+        priority: 50,
+        dueDate: null,
+        memo: '',
+        type: 'new',
+        status: 'done',
+        scheduledDate: '2026-07-10',
+        scheduledStart: '18:00',
+        scheduledEnd: '18:50',
+        generatedBy: 'auto',
+        reviewStage: null,
+        createdAt: fixedNow.toISOString(),
+        completedAt: fixedNow.toISOString(),
+      },
+    ],
+  };
+  const replanned = generatePlan(overlapState, '2026-07-10', '重複検証', { now: fixedNow }).state;
+  const dayTasks = replanned.tasks.filter((x) => x.scheduledDate === '2026-07-10' && x.scheduledStart && x.scheduledEnd);
+  const toRange = (x: { scheduledStart: string | null; scheduledEnd: string | null }) => {
+    const [sh, sm] = x.scheduledStart!.split(':').map(Number);
+    const [eh, em] = x.scheduledEnd!.split(':').map(Number);
+    return { start: sh * 60 + sm, end: eh * 60 + em };
+  };
+  const overlapping = dayTasks.filter((a) =>
+    dayTasks.some((b) => {
+      if (a.id === b.id) return false;
+      const ra = toRange(a);
+      const rb = toRange(b);
+      return ra.start < rb.end && ra.end > rb.start;
+    }),
+  );
+  check(
+    '再計算で完了済みタスクの時間帯に新規タスクを重ねない',
+    overlapping.length === 0,
+    dayTasks.map((x) => `${x.status} ${x.scheduledStart}〜${x.scheduledEnd}`),
+  );
+
+  // REORDER_TASK: 固定予定(17:00〜18:00)を避けて詰め直す
+  const mkTask = (id: string, start: string, end: string, minutes: number): (typeof overlapState.tasks)[number] => ({
+    ...overlapState.tasks[0],
+    id,
+    status: 'planned',
+    completedAt: null,
+    estimatedMinutes: minutes,
+    scheduledDate: '2026-07-12',
+    scheduledStart: start,
+    scheduledEnd: end,
+  });
+  const reorderState: AppState = {
+    ...overlapState,
+    availability: ([0, 1, 2, 3, 4, 5, 6] as const).map((weekday) => ({
+      weekday,
+      minutes: 360,
+      windows: [{ start: '16:00', end: '22:00' }],
+    })),
+    fixedEvents: [{ id: 'ev_juku', title: '塾', weekday: null, date: '2026-07-12', start: '17:00', end: '18:00' }],
+    tasks: [mkTask('t1', '16:00', '16:50', 50), mkTask('t2', '18:00', '18:50', 50), mkTask('t3', '19:00', '19:30', 30)],
+  };
+  const reordered = appReducer(reorderState, { type: 'REORDER_TASK', taskId: 't3', direction: 'up' });
+  const jukuStart = 17 * 60;
+  const jukuEnd = 18 * 60;
+  const hitsEvent = reordered.tasks.filter((x) => {
+    if (!x.scheduledStart || !x.scheduledEnd) return false;
+    const r = toRange(x);
+    return r.start < jukuEnd && r.end > jukuStart;
+  });
+  check(
+    '並べ替え後の時刻が固定予定と重ならない',
+    hitsEvent.length === 0,
+    reordered.tasks.map((x) => `${x.id} ${x.scheduledStart}〜${x.scheduledEnd}`),
+  );
+}
+
+console.log('--- 計画ロジックの品質(上書き・ピン留め・ローテーション・実績反映) ---');
+{
+  const fixedNow = new Date('2026-07-09T01:00:00.000Z'); // JST 10:00
+  const base = emptyState();
+  const makeMat = (id: string, name: string, over: Partial<Material> = {}): Material => ({
+    id,
+    subjectId: 'subj_q',
+    name,
+    unit: '問',
+    totalAmount: 100,
+    doneAmount: 0,
+    startDate: '2026-07-09',
+    targetDate: '2026-08-31',
+    priority: 3,
+    difficulty: 3,
+    minutesPerUnit: 30,
+    dailyTarget: null,
+    weeklyTarget: null,
+    phase: 'first',
+    deadlinePolicy: 'normal',
+    examRelevance: 3,
+    reviewEnabled: false,
+    reviewIntervals: [1, 3, 7],
+    paused: false,
+    round: 1,
+    lastStudiedAt: null,
+    nextReviewAt: null,
+    archived: false,
+    createdAt: fixedNow.toISOString(),
+    ...over,
+  });
+  const qState: AppState = {
+    ...base,
+    onboarded: true,
+    goal: { id: 'g_q', name: 'テスト', examDate: '2026-09-30', createdAt: fixedNow.toISOString() },
+    subjects: [{ id: 'subj_q', name: '数学', color: '#4f7cff', importance: 3, weakness: 3 }],
+    materials: [makeMat('mat_q', '問題集Q')],
+    availability: ([0, 1, 2, 3, 4, 5, 6] as const).map((weekday) => ({
+      weekday,
+      minutes: 120,
+      windows: [{ start: '18:00', end: '20:00' }],
+    })),
+    settings: { ...base.settings, sessionMinMinutes: 25, sessionMaxMinutes: 90, maxDailyMinutes: 600 },
+  };
+
+  // 1. 日別例外の時間帯上書きで容量が「広がる」方向にも効く
+  const overrideState: AppState = {
+    ...qState,
+    dayPlans: [{ date: '2026-07-12', load: 'normal', memo: '', availabilityWindows: [{ start: '09:00', end: '21:00' }] }],
+  };
+  check(
+    '日別例外の時間帯上書きで勉強可能時間が広がる(120分→600分)',
+    availableMinutesOn(overrideState, '2026-07-12') === 600,
+    availableMinutesOn(overrideState, '2026-07-12'),
+  );
+  check('上書きなしの日は従来通り', availableMinutesOn(qState, '2026-07-12') === 120);
+
+  // 2. 手動で日時指定したタスクは再設計で動かない
+  const pinned: StudyTask = {
+    id: 'task_pin',
+    subjectId: 'subj_q',
+    materialId: null,
+    title: '模試の復習',
+    rangeLabel: '',
+    rangeStart: null,
+    rangeEnd: null,
+    amount: 1,
+    estimatedMinutes: 30,
+    priority: 60,
+    dueDate: '2026-07-20',
+    memo: '',
+    type: 'new',
+    status: 'planned',
+    scheduledDate: '2026-07-15',
+    scheduledStart: '18:30',
+    scheduledEnd: '19:00',
+    generatedBy: 'manual',
+    reviewStage: null,
+    createdAt: fixedNow.toISOString(),
+    completedAt: null,
+  };
+  const pinnedAfter = generatePlan({ ...qState, tasks: [pinned] }, '2026-07-10', '再設計', { now: fixedNow }).state.tasks.find(
+    (x) => x.id === 'task_pin',
+  );
+  check(
+    '手動固定タスクは再設計で日付・時刻が動かない',
+    pinnedAfter?.scheduledDate === '2026-07-15' && pinnedAfter?.scheduledStart === '18:30',
+    pinnedAfter,
+  );
+
+  // 3. 手動固定タスクが後から追加された固定予定と重なる場合は時刻だけ調整
+  const pinnedConflictState: AppState = {
+    ...qState,
+    tasks: [pinned],
+    fixedEvents: [{ id: 'ev_q', title: '塾', weekday: null, date: '2026-07-15', start: '18:00', end: '19:00' }],
+  };
+  const conflictAfter = generatePlan(pinnedConflictState, '2026-07-10', '固定予定の変更', { now: fixedNow }).state.tasks.find(
+    (x) => x.id === 'task_pin',
+  );
+  check(
+    '手動固定タスクは固定予定と重なると同日内で時刻だけ調整される',
+    conflictAfter?.scheduledDate === '2026-07-15' && conflictAfter?.scheduledStart === '19:00',
+    conflictAfter,
+  );
+
+  // 4. 同一教材が連続ブロックで選ばれない(代替教材がある場合のインターリービング)
+  const rotationState: AppState = {
+    ...qState,
+    materials: [makeMat('mat_r1', 'A問題集'), makeMat('mat_r2', 'B問題集'), makeMat('mat_r3', 'C問題集')],
+    availability: ([0, 1, 2, 3, 4, 5, 6] as const).map((weekday) => ({
+      weekday,
+      minutes: 450,
+      windows: [{ start: '09:00', end: '16:30' }],
+    })),
+    settings: { ...qState.settings, maxDailyMinutes: 450 },
+  };
+  const rotated = generatePlan(rotationState, '2026-07-10', 'ローテーション検証', { now: fixedNow }).state;
+  const rotDays = ['2026-07-10', '2026-07-11', '2026-07-12'];
+  let adjacentSame = 0;
+  for (const d of rotDays) {
+    const ordered = rotated.tasks
+      .filter((x) => x.scheduledDate === d && x.scheduledStart)
+      .sort((a, b) => a.scheduledStart!.localeCompare(b.scheduledStart!));
+    for (let i = 1; i < ordered.length; i++) {
+      if (ordered[i].materialId && ordered[i].materialId === ordered[i - 1].materialId) adjacentSame += 1;
+    }
+  }
+  check(
+    '代替教材がある日は同一教材が連続ブロックにならない',
+    adjacentSame === 0,
+    rotated.tasks
+      .filter((x) => rotDays.includes(x.scheduledDate))
+      .map((x) => `${x.scheduledDate} ${x.scheduledStart} ${x.title}`),
+  );
+
+  // 5. 今日のタスク外実績(フリータイマー等)が今日の計画容量から差し引かれる
+  const freeSession: StudySession = {
+    id: 'sess_free',
+    taskId: null,
+    subjectId: 'subj_q',
+    materialId: null,
+    date: '2026-07-09',
+    startedAt: fixedNow.toISOString(),
+    minutes: 60,
+    amountDone: 0,
+    rangeLabel: '自由学習',
+    accuracy: null,
+    focus: 3,
+    difficulty: null,
+    memo: '',
+    source: 'timer',
+  };
+  const withFree = generatePlan({ ...qState, sessions: [freeSession] }, '2026-07-09', '実績反映', { now: fixedNow }).state;
+  const todayPlannedMin = withFree.tasks
+    .filter((x) => x.scheduledDate === '2026-07-09' && x.status === 'planned')
+    .reduce((sum, x) => sum + x.estimatedMinutes, 0);
+  check(
+    `今日のフリー実績60分が容量から差し引かれる(予定${todayPlannedMin}分 <= 60分)`,
+    todayPlannedMin <= 60,
+    todayPlannedMin,
+  );
 }
 
 console.log(failures === 0 ? '\n🎉 ALL PASS' : `\n💥 ${failures} FAILURES`);

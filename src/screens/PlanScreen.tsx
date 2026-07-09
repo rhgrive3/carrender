@@ -594,7 +594,34 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
     }
 
     const normalized = normalizeTaskSchedule(date, startTime, minutes);
-    if (task.dueDate && task.dueDate >= t && normalized.date > task.dueDate) {
+
+    // 固定予定(学校・塾など)と重なる開始時刻は、予定の終わりまでずらす
+    let finalDate = normalized.date;
+    let finalStart = normalized.startTime;
+    let finalEnd = normalized.endTime;
+    let avoidedEvent = false;
+    if (finalStart) {
+      const events = fixedEventsOn(state, finalDate)
+        .map((ev) => ({ start: hmToMinutes(ev.start), end: hmToMinutes(ev.end) }))
+        .sort((a, b) => a.start - b.start);
+      let startMin = hmToMinutes(finalStart);
+      for (const ev of events) {
+        if (startMin < ev.end && startMin + minutes > ev.start) {
+          startMin = ev.end;
+          avoidedEvent = true;
+        }
+      }
+      if (avoidedEvent) {
+        if (startMin + minutes >= 24 * 60) {
+          finalDate = addDays(finalDate, 1);
+          startMin = 9 * 60;
+        }
+        finalStart = minutesToHM(startMin);
+        finalEnd = minutesToHM(startMin + minutes);
+      }
+    }
+
+    if (task.dueDate && task.dueDate >= t && finalDate > task.dueDate) {
       toast(`期限(${formatDateShort(task.dueDate)})を過ぎる予定にはできません`);
       return;
     }
@@ -603,15 +630,17 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
       type: 'UPDATE_TASK',
       task: {
         ...task,
-        scheduledDate: normalized.date,
-        scheduledStart: normalized.startTime || null,
-        scheduledEnd: normalized.endTime || null,
+        scheduledDate: finalDate,
+        scheduledStart: finalStart || null,
+        scheduledEnd: finalEnd || null,
         estimatedMinutes: minutes,
         memo,
         generatedBy: 'manual',
       },
     });
-    if (normalized.date !== date || normalized.startTime !== startTime) {
+    if (avoidedEvent) {
+      toast(`固定予定を避けて${formatDateShort(finalDate)} ${finalStart}〜に調整しました`);
+    } else if (normalized.date !== date || normalized.startTime !== startTime) {
       toast(`${formatDateShort(normalized.date)} ${normalized.startTime}〜に直して保存しました`);
     } else {
       toast('タスクを更新しました');

@@ -188,12 +188,25 @@ export function availabilityWindowsOn(state: AppState, date: ISODate): TimeRange
   return [];
 }
 
+/** 区間リストからbusy区間を除いた残り */
+export function subtractBusySlots(windows: FreeSlot[], busy: FreeSlot[]): FreeSlot[] {
+  const blocks = [...busy].sort((a, b) => a.start - b.start);
+  const out: FreeSlot[] = [];
+  for (const w of windows) {
+    let cursor = w.start;
+    for (const b of blocks) {
+      if (b.end <= cursor || b.start >= w.end) continue;
+      if (b.start > cursor) out.push({ start: cursor, end: Math.min(b.start, w.end) });
+      cursor = Math.max(cursor, b.end);
+    }
+    if (cursor < w.end) out.push({ start: cursor, end: w.end });
+  }
+  return out;
+}
+
 /** 固定予定を除いた自由時間帯(分単位の区間リスト) */
 export function freeSlotsOn(state: AppState, date: ISODate): FreeSlot[] {
-  const events = fixedEventsOn(state, date)
-    .map((e) => ({ start: hmToMinutes(e.start), end: hmToMinutes(e.end) }))
-    .sort((a, b) => a.start - b.start);
-  const slots: FreeSlot[] = [];
+  const events = fixedEventsOn(state, date).map((e) => ({ start: hmToMinutes(e.start), end: hmToMinutes(e.end) }));
   const baseWindows = availabilityWindowsOn(state, date)
     .map((w) => ({
       start: Math.max(hmToMinutes(DAY_START), hmToMinutes(w.start)),
@@ -201,16 +214,17 @@ export function freeSlotsOn(state: AppState, date: ISODate): FreeSlot[] {
     }))
     .filter((w) => w.end - w.start >= 15)
     .sort((a, b) => a.start - b.start);
-  for (const base of baseWindows) {
-    let cursor = base.start;
-    for (const ev of events) {
-      if (ev.end <= base.start || ev.start >= base.end) continue;
-      if (ev.start > cursor) slots.push({ start: cursor, end: Math.min(ev.start, base.end) });
-      cursor = Math.max(cursor, ev.end);
-    }
-    if (cursor < base.end) slots.push({ start: cursor, end: base.end });
+  return subtractBusySlots(baseWindows, events).filter((s) => s.end - s.start >= 15);
+}
+
+/** タスクが占有している時間帯(分単位の区間) */
+export function taskBusySlots(tasks: StudyTask[]): FreeSlot[] {
+  const out: FreeSlot[] = [];
+  for (const t of tasks) {
+    if (!t.scheduledStart || !t.scheduledEnd) continue;
+    out.push({ start: hmToMinutes(t.scheduledStart), end: hmToMinutes(t.scheduledEnd) });
   }
-  return slots.filter((s) => s.end - s.start >= 15);
+  return out;
 }
 
 /** その日の勉強可能分数(曜日設定と上限でクリップ) */
@@ -221,7 +235,9 @@ export function availableMinutesOn(state: AppState, date: ISODate): number {
   const slot = state.availability.find((a) => a.weekday === wd);
   const windows = freeSlotsOn(state, date);
   const windowMinutes = windows.reduce((sum, s) => sum + Math.max(0, s.end - s.start), 0);
-  const declared = slot ? slot.minutes : windowMinutes;
+  // 日別例外で時間帯を上書きした日は、その時間帯こそが申告値。
+  // 曜日の申告分数で頭打ちにすると「この日だけ長く勉強する」上書きが効かない。
+  const declared = override?.availabilityWindows ? windowMinutes : slot ? slot.minutes : windowMinutes;
   const base = Math.min(declared, windowMinutes, state.settings.maxDailyMinutes);
   const factor = override?.load === 'light' ? 0.6 : override?.load === 'heavy' ? 1.2 : 1;
   return Math.max(0, Math.round(Math.min(windowMinutes, base * factor)));
@@ -289,6 +305,12 @@ export function generatePlan(
       kept.push(t);
       continue;
     }
+    if (t.generatedBy === 'manual' && t.status === 'planned' && t.scheduledDate >= fromDate) {
+      // ユーザーが手で置いた予定は日付を尊重して動かさない
+      // (固定予定との時刻衝突だけは日ごとの処理で解消する)
+      kept.push(t);
+      continue;
+    }
     if (t.generatedBy === 'auto' && t.type === 'new') {
       // 自動生成の新規学習タスクは作り直す(教材残量から再生成)
       continue;
@@ -324,19 +346,71 @@ export function generatePlan(
   let day = fromDate;
   while (day <= horizonEnd) {
     const capacity = availableMinutesOn(state, day);
-    // その日にすでに確定している分(doing/done)を差し引く
+    const minimumStart = day === todayDate ? roundUpToStep(currentMinutesInTimeZone(now), 5) : null;
+    const trimmedFree = freeSlotsOn(state, day)
+      .map((slot) => (minimumStart === null ? slot : { ...slot, start: Math.max(slot.start, minimumStart) }))
+      .filter((slot) => slot.end > slot.start);
+
+    // --- 4a. 手動固定タスクの時刻衝突を解消(日付は守り、時刻だけ空きへ) ---
+    const busy: FreeSlot[] = [
+      ...fixedEventsOn(state, day).map((e) => ({ start: hmToMinutes(e.start), end: hmToMinutes(e.end) })),
+      ...taskBusySlots(kept.filter((t) => t.scheduledDate === day && (t.status === 'done' || t.status === 'doing'))),
+    ];
+    const overlapsBusy = (r: FreeSlot) => busy.some((b) => r.start < b.end && r.end > b.start);
+    const plannedKeptIdx = kept
+      .map((t, i) => [t, i] as const)
+      .filter(([t]) => t.scheduledDate === day && t.status === 'planned')
+      .sort((a, b) => (a[0].scheduledStart ?? '99:99').localeCompare(b[0].scheduledStart ?? '99:99'));
+    for (const [t, idx] of plannedKeptIdx) {
+      if (!t.scheduledStart || !t.scheduledEnd) continue;
+      const range = { start: hmToMinutes(t.scheduledStart), end: hmToMinutes(t.scheduledEnd) };
+      if (!overlapsBusy(range)) {
+        busy.push(range);
+        continue;
+      }
+      const fit = subtractBusySlots(trimmedFree, busy).find((s) => s.end - s.start >= t.estimatedMinutes);
+      if (fit) {
+        const moved = { ...t, scheduledStart: minutesToHM(fit.start), scheduledEnd: minutesToHM(fit.start + t.estimatedMinutes) };
+        kept[idx] = moved;
+        busy.push({ start: fit.start, end: fit.start + t.estimatedMinutes });
+        postponedChanges.push({
+          kind: 'moved',
+          taskTitle: t.title,
+          subjectId: t.subjectId,
+          detail: `固定予定と重なるため${moved.scheduledStart}〜に時刻を調整`,
+        });
+      } else {
+        kept[idx] = { ...t, scheduledStart: null, scheduledEnd: null };
+      }
+    }
+
+    // その日にすでに確定している分(完了/実行中/手動固定)を差し引く
     const dayKept = kept.filter((t) => t.scheduledDate === day && t.status !== 'skipped');
     const usedByKept = dayKept.reduce((s, t) => s + t.estimatedMinutes, 0);
-    let budget = Math.max(0, capacity - usedByKept);
+    // タスク外の学習実績(フリータイマー・作り直し前のタスクの消化分など)もその日の使用時間として数える
+    const keptIds = new Set(dayKept.map((t) => t.id));
+    const extraStudied = state.sessions
+      .filter((s) => s.date === day && (!s.taskId || !keptIds.has(s.taskId)))
+      .reduce((sum, s) => sum + s.minutes, 0);
+    let budget = Math.max(0, capacity - usedByKept - extraStudied);
 
-    const minimumStart = day === todayDate ? roundUpToStep(currentMinutesInTimeZone(now), 5) : null;
-    const slots = freeSlotsOn(state, day)
-      .map((slot) => (minimumStart === null ? slot : { ...slot, start: Math.max(slot.start, minimumStart) }))
+    // 固定予定に加えて、確定済みタスクが占有する時間帯にも新規タスクを重ねない
+    const slots = subtractBusySlots(trimmedFree, taskBusySlots(dayKept))
       .filter((slot) => slot.end - slot.start >= state.settings.sessionMinMinutes);
     let slotIdx = 0;
     let slotCursor = slots.length > 0 ? slots[0].start : hmToMinutes(DAY_START);
+    // 直前の科目・教材の文脈は、その日すでに確定しているタスク(完了済み含む)から引き継ぐ
     let lastSubject: string | null = null;
+    let lastMaterialId: string | null = null;
     let sameSubjectStreak = 0;
+    for (const t of [...dayKept].sort((a, b) => (a.scheduledStart ?? '99:99').localeCompare(b.scheduledStart ?? '99:99'))) {
+      if (t.subjectId === lastSubject) sameSubjectStreak += 1;
+      else {
+        lastSubject = t.subjectId;
+        sameSubjectStreak = 1;
+      }
+      lastMaterialId = t.materialId;
+    }
     // 1科目/1教材が1日を占有しないための上限。
     // ただし、候補が他にない場合は後続のフォールバックで超過を許す。
     const subjectDayCap = Math.max(state.settings.sessionMaxMinutes, Math.round(capacity * 0.5));
@@ -417,8 +491,12 @@ export function generatePlan(
 
       if (candidates.length === 0) break;
 
-      // 同一科目/教材の使いすぎを避けた候補を優先し、該当候補がない場合だけ制約を緩める。
+      // インターリービング: 優先度が高くても同じ教材を連続させず、同一科目は
+      // 最大MAX_SAME_SUBJECT_STREAKブロックまで。代替候補がない場合のみ段階的に緩める。
+      // (交互練習+分散は長期記憶に有利: Taylor & Rohrer 2010 等)
       const subjectOf = (c: (typeof candidates)[number]) => (c.kind === 'existing' ? c.task.subjectId : c.material.subjectId);
+      const materialIdOf = (c: (typeof candidates)[number]) => (c.kind === 'existing' ? c.task.materialId : c.material.id);
+      const keyOf = (c: (typeof candidates)[number]) => (c.kind === 'existing' ? `t:${c.task.id}` : `m:${c.material.id}`);
       const fitsDailyBalance = (c: (typeof candidates)[number]) => {
         const subj = subjectOf(c);
         if ((minutesBySubject.get(subj) ?? 0) + c.minutes > subjectDayCap) return false;
@@ -429,23 +507,28 @@ export function generatePlan(
         }
         return true;
       };
-      const penaltyOf = (c: (typeof candidates)[number]) => {
-        const subj = subjectOf(c);
-        let pen = 0;
-        if (subj === lastSubject && sameSubjectStreak >= MAX_SAME_SUBJECT_STREAK) pen += 40;
-        if ((minutesBySubject.get(subj) ?? 0) + c.minutes > subjectDayCap) pen += 60;
-        if (c.kind === 'chunk') {
-          const rem = remaining.get(c.material.id) ?? 0;
-          const cap = materialDailyMinuteCap(c.material, rem, state, day, capacity);
-          if ((minutesByMaterial.get(c.material.id) ?? 0) + c.minutes > cap) pen += 50;
-        }
-        return pen;
+      const differentMaterial = (c: (typeof candidates)[number]) => {
+        const mid = materialIdOf(c);
+        return !mid || mid !== lastMaterialId;
       };
-      const balancedCandidates = candidates.filter(fitsDailyBalance);
-      const sortableCandidates = balancedCandidates.length > 0 ? balancedCandidates : candidates;
-      sortableCandidates.sort((a, b) => b.score - penaltyOf(b) - (a.score - penaltyOf(a)));
+      const withinSubjectStreak = (c: (typeof candidates)[number]) =>
+        subjectOf(c) !== lastSubject || sameSubjectStreak < MAX_SAME_SUBJECT_STREAK;
+      const tiers = [
+        candidates.filter((c) => fitsDailyBalance(c) && withinSubjectStreak(c) && differentMaterial(c)),
+        candidates.filter((c) => fitsDailyBalance(c) && withinSubjectStreak(c)),
+        candidates.filter(fitsDailyBalance),
+        candidates,
+      ];
+      const pool = tiers.find((tier) => tier.length > 0) ?? candidates;
+      // スコア降順。同点はその日の配分が少ない科目を優先し、最後はIDで決定的に。
+      pool.sort(
+        (a, b) =>
+          b.score - a.score ||
+          (minutesBySubject.get(subjectOf(a)) ?? 0) - (minutesBySubject.get(subjectOf(b)) ?? 0) ||
+          keyOf(a).localeCompare(keyOf(b)),
+      );
 
-      const best = sortableCandidates[0];
+      const best = pool[0];
       const bestSubject = best.kind === 'existing' ? best.task.subjectId : best.material.subjectId;
       const bestMaterialId = best.kind === 'existing' ? best.task.materialId : best.material.id;
       const window = advanceSlot(best.minutes);
@@ -488,6 +571,7 @@ export function generatePlan(
         lastSubject = bestSubject;
         sameSubjectStreak = 1;
       }
+      lastMaterialId = bestMaterialId;
     }
 
     day = addDays(day, 1);

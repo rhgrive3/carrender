@@ -164,12 +164,13 @@ body {
 
 .bottom-nav {
   position: fixed;
+  top: auto;
   bottom: 0;
-  left: 0;
-  right: 0;
-  width: min(100%, 760px);
+  left: 50%;
+  right: auto;
+  width: min(100vw, 760px);
   max-width: 760px;
-  margin: 0 auto;
+  margin: 0;
   height: calc(var(--nav-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   background: var(--bg-glass);
@@ -178,12 +179,13 @@ body {
   border-top: 1px solid var(--border);
   display: flex;
   z-index: 50;
+  transform: translateX(-50%);
 }
 
 @media (min-width: 768px) {
   .bottom-nav {
     bottom: 0;
-    width: min(100%, 760px);
+    width: min(100vw, 760px);
     border: 1px solid var(--border);
     border-bottom: none;
     border-radius: 18px 18px 0 0;
