@@ -8,9 +8,10 @@ import { generateReviewTasks } from '../src/lib/review';
 import { computeAnalytics } from '../src/lib/analytics';
 import { computeAchievements, unlockedCount } from '../src/lib/achievements';
 import { addDays, today } from '../src/lib/date';
+import { normalizeState } from '../src/lib/storage';
 import { normalizeTaskSchedule } from '../src/lib/taskSchedule';
 import { appReducer, emptyState } from '../src/state/AppContext';
-import type { StudySession } from '../src/types';
+import type { AppState, Material, StudySession } from '../src/types';
 
 const t = today();
 let failures = 0;
@@ -134,19 +135,125 @@ console.log(`  サマリー: ${result.summaryText}`);
   check('当日の再計算は現在時刻以降から組む', firstTask?.scheduledStart === '11:35', firstTask);
 }
 
+{
+  const fixedNow = new Date('2026-07-08T00:00:00.000Z');
+  const base = emptyState();
+  const subject = { id: 'subj_balance', name: '数学', color: '#4f7cff', importance: 3, weakness: 3 } as const;
+  const makeMaterial = (id: string, name: string): Material => ({
+    id,
+    subjectId: subject.id,
+    name,
+    unit: '問題',
+    totalAmount: 30,
+    doneAmount: 0,
+    startDate: '2026-07-10',
+    targetDate: '2026-07-20',
+    priority: 3,
+    difficulty: 3,
+    minutesPerUnit: 30,
+    dailyTarget: null,
+    weeklyTarget: null,
+    phase: 'first',
+    deadlinePolicy: 'normal',
+    examRelevance: 3,
+    reviewEnabled: true,
+    reviewIntervals: [1, 3, 7],
+    paused: false,
+    round: 1,
+    lastStudiedAt: null,
+    nextReviewAt: null,
+    archived: false,
+    createdAt: fixedNow.toISOString(),
+  });
+  const balanceState: AppState = {
+    ...base,
+    onboarded: true,
+    goal: { id: 'goal_balance', name: 'テスト', examDate: '2026-08-01', createdAt: fixedNow.toISOString() },
+    subjects: [subject],
+    materials: [makeMaterial('mat_a', 'A問題集'), makeMaterial('mat_b', 'B問題集'), makeMaterial('mat_c', 'C問題集')],
+    availability: ([0, 1, 2, 3, 4, 5, 6] as const).map((weekday) => ({
+      weekday,
+      minutes: 270,
+      windows: [{ start: '09:00', end: '13:30' }],
+    })),
+    settings: { ...base.settings, sessionMinMinutes: 30, sessionMaxMinutes: 90, maxDailyMinutes: 270 },
+  };
+  const balanced = generatePlan(balanceState, '2026-07-10', '配分テスト', { now: fixedNow }).state;
+  const firstDay = balanced.tasks.filter((task) => task.scheduledDate === '2026-07-10' && task.status === 'planned');
+  const materialCount = new Set(firstDay.map((task) => task.materialId)).size;
+  const maxMaterialMinutes = Math.max(
+    0,
+    ...balanceState.materials.map((material) =>
+      firstDay.filter((task) => task.materialId === material.id).reduce((sum, task) => sum + task.estimatedMinutes, 0),
+    ),
+  );
+  check('同条件の教材は初日から複数教材に分散される', materialCount === 3 && maxMaterialMinutes <= 90, {
+    materialCount,
+    maxMaterialMinutes,
+    firstDay: firstDay.map((task) => `${task.title} ${task.estimatedMinutes}分`),
+  });
+}
+
 console.log('--- 復習タスク生成 ---');
-const doneTask = todayTasks[0];
+const doneTask = todayTasks.find((task) => task.type === 'new') ?? todayTasks[0];
+const reviewSeedTask = { ...doneTask, type: 'review' as const, reviewStage: 0, rangeLabel: `復習1回目 ${doneTask.rangeLabel}` };
 const session: StudySession = {
-  id: 'test', taskId: doneTask.id, subjectId: doneTask.subjectId, materialId: doneTask.materialId,
+  id: 'test', taskId: reviewSeedTask.id, subjectId: reviewSeedTask.subjectId, materialId: reviewSeedTask.materialId,
   date: t, startedAt: new Date().toISOString(), minutes: 30, amountDone: 5, rangeLabel: '',
   accuracy: 50, focus: 3, difficulty: 3, memo: '', source: 'timer',
 };
-const reviews = generateReviewTasks(state, doneTask, session, t);
+const reviewDisabledState = {
+  ...state,
+  materials: state.materials.map((material) =>
+    material.id === reviewSeedTask.materialId ? { ...material, reviewEnabled: false } : material,
+  ),
+};
+const disabledReviews = generateReviewTasks(reviewDisabledState, reviewSeedTask, session, t);
+check('復習オフの教材では低正答率でも復習/間違い直しを生成しない', disabledReviews.length === 0, disabledReviews);
+const missingMaterialReviews = generateReviewTasks(
+  state,
+  { ...reviewSeedTask, materialId: 'missing_material' },
+  session,
+  t,
+);
+check('教材が明示的に復習オンでない場合は復習/間違い直しを生成しない', missingMaterialReviews.length === 0, missingMaterialReviews);
+const reviews = generateReviewTasks(state, reviewSeedTask, session, t);
 check('正答率50% → 復習+間違い直しが生成される', reviews.length === 2, reviews.map((r) => r.rangeLabel));
 for (const r of reviews) console.log(`   ${r.type}: ${r.rangeLabel} due=${r.dueDate}`);
 const session2 = { ...session, accuracy: 95 };
-const reviews2 = generateReviewTasks(state, doneTask, session2, t);
+const reviews2 = generateReviewTasks(state, reviewSeedTask, session2, t);
 check('正答率95% → 復習のみ・間隔が伸びる', reviews2.length === 1 && reviews2[0].dueDate! > reviews[0].dueDate!, reviews2.map((r) => r.dueDate));
+
+{
+  const onboarded = appReducer(emptyState(), {
+    type: 'COMPLETE_ONBOARDING',
+    input: {
+      goalName: '復習デフォルトテスト',
+      examDate: addDays(t, 60),
+      subjects: [{ name: '数学', color: '#4f7cff', importance: 3, weakness: 3 }],
+      weekdayMinutes: 60,
+      weekendMinutes: 60,
+      materials: [
+        {
+          subjectIndex: 0,
+          name: '初期教材',
+          unit: '問題',
+          totalAmount: 10,
+          targetDate: addDays(t, 30),
+          minutesPerUnit: 10,
+        },
+      ],
+    },
+  });
+  check('オンボーディング教材は復習オフで作成される', onboarded.materials.every((material) => material.reviewEnabled === false));
+}
+
+{
+  const legacyMaterial = { ...state.materials[0] };
+  delete (legacyMaterial as Partial<Material>).reviewEnabled;
+  const normalized = normalizeState({ ...state, materials: [legacyMaterial as Material] });
+  check('古い保存データに復習設定が無い場合も復習オフで補完される', normalized.materials[0]?.reviewEnabled === false);
+}
 
 console.log('--- 分析 ---');
 const a = computeAnalytics(state, t);

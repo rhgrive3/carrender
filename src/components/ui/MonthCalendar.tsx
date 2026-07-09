@@ -48,7 +48,8 @@ export function MonthCalendar({
               className={cls}
               style={cellStyle?.(d)}
               onClick={() => onSelectDay?.(d)}
-              aria-label={`${Number(month.slice(5))}月${Number(d.slice(8))}日`}
+              aria-label={`${Number(month.slice(5))}月${Number(d.slice(8))}日${d === t ? ' 今日' : ''}`}
+              aria-pressed={onSelectDay ? selectedDate === d : undefined}
               disabled={!onSelectDay}
             >
               <span className={`cal-daynum ${wd === 0 ? 'cal-sun' : wd === 6 ? 'cal-sat' : ''}`}>{Number(d.slice(8))}</span>

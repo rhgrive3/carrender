@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, CloudRain, Coffee, Pause, Play, SkipForward, Trash2, VolumeX, Wind, X } from 'lucide-react';
 import { useTimer, type TimerTarget } from './TimerContext';
 import { useApp } from '../../state/AppContext';
@@ -21,6 +21,12 @@ export function TimerOverlay() {
 
   const active = timer.target !== null;
   const isBreak = timer.mode === 'pomodoro' && timer.phase !== 'work';
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // 全画面ダイアログなのでフォーカスを背後の画面に残さない
+  useEffect(() => {
+    if (active) overlayRef.current?.focus();
+  }, [active]);
 
   // 画面を消灯させない(設定でオフ可能)
   useWakeLock(active && timer.running && state.settings.timer.keepScreenOn);
@@ -88,7 +94,7 @@ export function TimerOverlay() {
   const cyclesUntilLong = timer.pomodoro.cyclesUntilLongBreak;
 
   return (
-    <div className="timer-overlay" role="dialog" aria-label="学習タイマー">
+    <div className="timer-overlay" role="dialog" aria-label="学習タイマー" ref={overlayRef} tabIndex={-1}>
       <div className="timer-topbar">
         <Segmented
           ariaLabel="タイマーの種類"

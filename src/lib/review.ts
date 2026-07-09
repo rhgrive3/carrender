@@ -6,6 +6,8 @@ import { addDays, genId } from './date';
  *
  * - 新規タスク完了 → stage 0 の復習を interval[0] 日後に生成
  * - 復習タスク完了 → 次の stage を生成 (最終stageで終了)
+ * 教材で復習を明示的に有効化した場合だけ生成する。
+ *
  * - 正答率が低い → 間隔を短縮
  * - 正答率が高い → 間隔を延長
  * - 難易度が高い教材 → stage を1つ追加(30日後をもう一度)
@@ -23,7 +25,7 @@ export function generateReviewTasks(
 
   // 対象外: 過去問演習・模試復習は自動連鎖しない
   if (completedTask.type === 'pastExam' || completedTask.type === 'mockReview') return created;
-  if (material && !material.reviewEnabled) return created;
+  if (!material?.reviewEnabled) return created;
 
   const nextStage = completedTask.type === 'review' ? (completedTask.reviewStage ?? 0) + 1 : 0;
   // 「復習N回目」「間違い直し」の接頭辞を除いた元の範囲名

@@ -166,7 +166,7 @@ export function normalizeState(input: AppState): AppState {
       phase: m.phase ?? (m.round && m.round >= 2 ? 'second' : 'first'),
       deadlinePolicy: m.deadlinePolicy ?? 'normal',
       examRelevance: m.examRelevance ?? m.priority ?? 3,
-      reviewEnabled: m.reviewEnabled ?? true,
+      reviewEnabled: m.reviewEnabled ?? false,
       reviewIntervals:
         Array.isArray(m.reviewIntervals) && m.reviewIntervals.length > 0
           ? m.reviewIntervals

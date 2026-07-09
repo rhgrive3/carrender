@@ -95,9 +95,11 @@ export function RecordsScreen() {
 
   const totalActual = sumRange(minutesByDay, days);
   const totalPlanned = days.filter((d) => d <= t).reduce((s, d) => s + (plannedByDay.get(d) ?? 0), 0);
-  const prevActual = sumRange(minutesByDay, prevDays);
   const studyDays = days.filter((d) => (minutesByDay.get(d) ?? 0) > 0).length;
   const elapsedDays = days.filter((d) => d <= t).length;
+  // 進行中の期間は前期間の「同じ日数分まで」と比べる(週の途中で丸ごと前週と比べると常にマイナスに見えるため)
+  const partial = elapsedDays < days.length;
+  const prevActual = sumRange(minutesByDay, partial ? prevDays.slice(0, elapsedDays) : prevDays);
   const dailyAvg = elapsedDays > 0 ? totalActual / elapsedDays : 0;
   const delta = deltaLabel(totalActual, prevActual);
 
@@ -164,8 +166,8 @@ export function RecordsScreen() {
         <div><b>{formatMinutesTile(Math.round(dailyAvg))}</b><span>日平均</span></div>
         <div><b>{studyDays}/{days.length}日</b><span>学習日</span></div>
         <div>
-          <b style={{ color: delta.positive ? 'var(--ok, var(--accent))' : 'var(--danger)' }}>{delta.text}</b>
-          <span>{period === 'week' ? '前週比' : '前月比'}</span>
+          <b style={{ color: delta.positive ? 'var(--ok)' : 'var(--danger)' }}>{delta.text}</b>
+          <span>{period === 'week' ? (partial ? '前週同時点' : '前週比') : partial ? '前月同時点' : '前月比'}</span>
         </div>
       </div>
 
@@ -208,7 +210,21 @@ export function RecordsScreen() {
             const subject = state.subjects.find((s) => s.id === sid);
             return (
               <div key={sid} className="row" style={{ marginBottom: 9 }}>
-                <span style={{ width: 46, fontSize: 12.5, fontWeight: 700, color: subject?.color, flexShrink: 0 }}>{subject?.name}</span>
+                <span
+                  style={{
+                    minWidth: 46,
+                    maxWidth: 88,
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    color: subject?.color,
+                    flexShrink: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {subject?.name}
+                </span>
                 <div style={{ flex: 1, height: 9, background: 'var(--bg-elev3)', borderRadius: 100 }}>
                   <div
                     style={{

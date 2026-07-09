@@ -56,10 +56,13 @@ export function scoreMaterialChunk(
   // 試験が近いほど全体的に切迫
   const examUrgency = Math.min(1, 30 / daysToExam);
 
-  // 目標完了日への切迫度: 残り量を残り日数でこなせるか
+  // 目標完了日への切迫度: 必要ペースが教材本来のペースをどれだけ上回るか。
+  // 残量同士の比で計算すると、計画に入れて残量が減ってもスコアが下がらず、
+  // 先に選ばれた教材がそのまま選ばれ続けるため、基準ペースと比較する。
   const requiredPerDay = remainingAmount / daysToTarget;
-  const comfortablePerDay = remainingAmount / Math.max(daysToTarget, 30);
-  const targetUrgency = Math.min(1.35, requiredPerDay / Math.max(comfortablePerDay * 3, 0.01) + overdueDays / 14);
+  const baselinePace = baselineMaterialPacePerDay(material);
+  const targetPressure = requiredPerDay / Math.max(baselinePace, 0.01);
+  const targetUrgency = Math.min(1.35, targetPressure / 3 + overdueDays / 14);
 
   // 遅れ具合: 経過時間に対して進捗が足りない度合い
   const totalSpan = Math.max(1, diffDays(toCreatedDate(material), material.targetDate));
@@ -121,6 +124,13 @@ export function scoreExistingTask(task: StudyTask, ctx: ScoreContext): number {
 
 function toCreatedDate(material: Material): ISODate {
   return material.startDate ?? material.createdAt.slice(0, 10);
+}
+
+function baselineMaterialPacePerDay(material: Material): number {
+  if (material.dailyTarget && material.dailyTarget > 0) return material.dailyTarget;
+  if (material.weeklyTarget && material.weeklyTarget > 0) return material.weeklyTarget / 7;
+  const totalSpan = Math.max(1, diffDays(toCreatedDate(material), material.targetDate));
+  return material.totalAmount / totalSpan;
 }
 
 // ============================================================
@@ -224,6 +234,24 @@ export function availableMinutesOn(state: AppState, date: ISODate): number {
 const HORIZON_DAYS = 120;
 const MAX_SAME_SUBJECT_STREAK = 2; // 同一科目の連続ブロック数上限
 
+function materialDailyMinuteCap(
+  material: Material,
+  remainingAmount: number,
+  state: AppState,
+  date: ISODate,
+  dayCapacity: number,
+): number {
+  const daysLeft = Math.max(1, diffDays(date, material.targetDate) + 1);
+  const requiredDailyMinutes = (remainingAmount * material.minutesPerUnit) / daysLeft;
+  const baselineDailyMinutes = baselineMaterialPacePerDay(material) * material.minutesPerUnit;
+  const paceCap = roundUpToStep(Math.max(requiredDailyMinutes, baselineDailyMinutes) * 1.5, 5);
+  const balanceCap = Math.round(dayCapacity * 0.35);
+  return Math.min(
+    dayCapacity,
+    Math.max(state.settings.sessionMaxMinutes, state.settings.sessionMinMinutes, paceCap, balanceCap),
+  );
+}
+
 /**
  * fromDate以降の自動生成タスクを全消しして全体を再計算する。
  * 未達成(期限切れplanned/postponed)タスクも翌日に積むのではなく、
@@ -297,9 +325,8 @@ export function generatePlan(
   while (day <= horizonEnd) {
     const capacity = availableMinutesOn(state, day);
     // その日にすでに確定している分(doing/done)を差し引く
-    const usedByKept = kept
-      .filter((t) => t.scheduledDate === day && t.status !== 'skipped')
-      .reduce((s, t) => s + t.estimatedMinutes, 0);
+    const dayKept = kept.filter((t) => t.scheduledDate === day && t.status !== 'skipped');
+    const usedByKept = dayKept.reduce((s, t) => s + t.estimatedMinutes, 0);
     let budget = Math.max(0, capacity - usedByKept);
 
     const minimumStart = day === todayDate ? roundUpToStep(currentMinutesInTimeZone(now), 5) : null;
@@ -310,9 +337,15 @@ export function generatePlan(
     let slotCursor = slots.length > 0 ? slots[0].start : hmToMinutes(DAY_START);
     let lastSubject: string | null = null;
     let sameSubjectStreak = 0;
-    // 1科目が1日を占有しないための上限(1日の55%か90分の大きい方)
-    const subjectDayCap = Math.max(90, Math.round(capacity * 0.55));
+    // 1科目/1教材が1日を占有しないための上限。
+    // ただし、候補が他にない場合は後続のフォールバックで超過を許す。
+    const subjectDayCap = Math.max(state.settings.sessionMaxMinutes, Math.round(capacity * 0.5));
     const minutesBySubject = new Map<string, number>();
+    const minutesByMaterial = new Map<string, number>();
+    for (const t of dayKept) {
+      minutesBySubject.set(t.subjectId, (minutesBySubject.get(t.subjectId) ?? 0) + t.estimatedMinutes);
+      if (t.materialId) minutesByMaterial.set(t.materialId, (minutesByMaterial.get(t.materialId) ?? 0) + t.estimatedMinutes);
+    }
 
     const advanceSlot = (need: number): { start: number; end: number } | null => {
       while (slotIdx < slots.length) {
@@ -358,8 +391,9 @@ export function generatePlan(
           // 期限がまだ先の復習は期限日以降に配置
           if (due > day) continue;
         }
+        if (t.estimatedMinutes > gap) continue;
         const score = scoreExistingTask(t, { ...ctx, date: day });
-        candidates.push({ kind: 'existing', task: t, score, minutes: Math.min(t.estimatedMinutes, gap) });
+        candidates.push({ kind: 'existing', task: t, score, minutes: t.estimatedMinutes });
       }
 
       for (const m of state.materials) {
@@ -383,19 +417,37 @@ export function generatePlan(
 
       if (candidates.length === 0) break;
 
-      // 同一科目の連続・使いすぎを抑制するペナルティを適用しつつ最高スコアを選ぶ
+      // 同一科目/教材の使いすぎを避けた候補を優先し、該当候補がない場合だけ制約を緩める。
       const subjectOf = (c: (typeof candidates)[number]) => (c.kind === 'existing' ? c.task.subjectId : c.material.subjectId);
+      const fitsDailyBalance = (c: (typeof candidates)[number]) => {
+        const subj = subjectOf(c);
+        if ((minutesBySubject.get(subj) ?? 0) + c.minutes > subjectDayCap) return false;
+        if (c.kind === 'chunk') {
+          const rem = remaining.get(c.material.id) ?? 0;
+          const cap = materialDailyMinuteCap(c.material, rem, state, day, capacity);
+          if ((minutesByMaterial.get(c.material.id) ?? 0) + c.minutes > cap) return false;
+        }
+        return true;
+      };
       const penaltyOf = (c: (typeof candidates)[number]) => {
         const subj = subjectOf(c);
         let pen = 0;
         if (subj === lastSubject && sameSubjectStreak >= MAX_SAME_SUBJECT_STREAK) pen += 40;
         if ((minutesBySubject.get(subj) ?? 0) + c.minutes > subjectDayCap) pen += 60;
+        if (c.kind === 'chunk') {
+          const rem = remaining.get(c.material.id) ?? 0;
+          const cap = materialDailyMinuteCap(c.material, rem, state, day, capacity);
+          if ((minutesByMaterial.get(c.material.id) ?? 0) + c.minutes > cap) pen += 50;
+        }
         return pen;
       };
-      candidates.sort((a, b) => b.score - penaltyOf(b) - (a.score - penaltyOf(a)));
+      const balancedCandidates = candidates.filter(fitsDailyBalance);
+      const sortableCandidates = balancedCandidates.length > 0 ? balancedCandidates : candidates;
+      sortableCandidates.sort((a, b) => b.score - penaltyOf(b) - (a.score - penaltyOf(a)));
 
-      const best = candidates[0];
+      const best = sortableCandidates[0];
       const bestSubject = best.kind === 'existing' ? best.task.subjectId : best.material.subjectId;
+      const bestMaterialId = best.kind === 'existing' ? best.task.materialId : best.material.id;
       const window = advanceSlot(best.minutes);
       if (!window) break;
 
@@ -430,6 +482,7 @@ export function generatePlan(
 
       budget -= best.minutes;
       minutesBySubject.set(bestSubject, (minutesBySubject.get(bestSubject) ?? 0) + best.minutes);
+      if (bestMaterialId) minutesByMaterial.set(bestMaterialId, (minutesByMaterial.get(bestMaterialId) ?? 0) + best.minutes);
       if (bestSubject === lastSubject) sameSubjectStreak += 1;
       else {
         lastSubject = bestSubject;

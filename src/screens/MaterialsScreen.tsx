@@ -167,7 +167,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
   const [phase, setPhase] = useState<Material['phase']>(material?.phase ?? 'first');
   const [deadlinePolicy, setDeadlinePolicy] = useState<Material['deadlinePolicy']>(material?.deadlinePolicy ?? 'normal');
   const [examRelevance, setExamRelevance] = useState<Material['examRelevance']>(material?.examRelevance ?? 3);
-  const [reviewEnabled, setReviewEnabled] = useState(material?.reviewEnabled ?? true);
+  const [reviewEnabled, setReviewEnabled] = useState(material?.reviewEnabled ?? false);
   const [reviewIntervalsText, setReviewIntervalsText] = useState((material?.reviewIntervals ?? state.settings.reviewRule.intervals).join(', '));
   const [paused, setPaused] = useState(material?.paused ?? false);
   const [archived, setArchived] = useState(material?.archived ?? false);
@@ -347,7 +347,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
           <Rating value={priority} onChange={(v) => setPriority(v)} icon={<Flag size={17} strokeWidth={2.2} />} label="優先度" />
         </div>
         <div className="field">
-          <label>難易度(高いほど復習を増やします)</label>
+          <label>難易度(復習オン時は高いほど復習を増やします)</label>
           <Rating value={difficulty} onChange={(v) => setDifficulty(v)} icon={<Dumbbell size={17} strokeWidth={2.2} />} label="難易度" />
         </div>
         <div className="field">
@@ -357,7 +357,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
         <div className="field">
           <label className="check-row">
             <input type="checkbox" checked={reviewEnabled} onChange={(e) => setReviewEnabled(e.target.checked)} />
-            復習タスクを自動生成する
+            復習タスクを自動生成する(明示的にオン)
           </label>
         </div>
         {reviewEnabled && (

@@ -128,7 +128,7 @@ export function appReducer(state: AppState, action: Action): AppState {
         phase: 'first',
         deadlinePolicy: 'normal',
         examRelevance: 3,
-        reviewEnabled: true,
+        reviewEnabled: false,
         reviewIntervals: defaultSettings().reviewRule.intervals,
         paused: false,
         round: 1,

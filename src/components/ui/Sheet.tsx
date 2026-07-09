@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
@@ -12,10 +12,15 @@ interface SheetProps {
 
 /** モバイル向けボトムシート */
 export function Sheet({ open, onClose, title, children }: SheetProps) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    // フォーカスをシートへ移し、閉じたら開いた元のボタンへ戻す
+    const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    sheetRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -23,6 +28,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener('keydown', onKey);
+      prevFocus?.focus();
     };
   }, [open, onClose]);
 
@@ -38,7 +44,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
       aria-modal="true"
       aria-label={title}
     >
-      <div className="sheet">
+      <div className="sheet" ref={sheetRef} tabIndex={-1}>
         <div className="sheet-grabber" />
         <div className="sheet-title-row">
           {title && <div className="sheet-title">{title}</div>}

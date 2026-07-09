@@ -168,8 +168,9 @@ export function PlanScreen() {
                       key={task.id}
                       className="mini-block"
                       style={{ width: '100%', border: 'none', textAlign: 'left', fontFamily: 'var(--font)', color: 'var(--text)', opacity: done ? 0.5 : 1 }}
+                      disabled={done}
                       onClick={() => !done && setSelected(task)}
-                      aria-label={`${task.title} ${task.rangeLabel} を編集`}
+                      aria-label={done ? `${task.title} ${task.rangeLabel} (完了済み)` : `${task.title} ${task.rangeLabel} を編集`}
                     >
                       <span style={{ width: 4, alignSelf: 'stretch', borderRadius: 4, background: subject?.color, flexShrink: 0 }} />
                       <span style={{ minWidth: 0, flex: 1 }}>
@@ -463,7 +464,21 @@ function DayDetailPanel({
           const subject = state.subjects.find((s) => s.id === subjectId);
           return (
             <div key={subjectId} className="row" style={{ marginBottom: 8 }}>
-              <span style={{ width: 54, fontSize: 12.5, fontWeight: 800, color: subject?.color }}>{subject?.name}</span>
+              <span
+                style={{
+                  minWidth: 54,
+                  maxWidth: 88,
+                  fontSize: 12.5,
+                  fontWeight: 800,
+                  color: subject?.color,
+                  flexShrink: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {subject?.name}
+              </span>
               <div style={{ flex: 1, height: 8, background: 'var(--bg-elev3)', borderRadius: 100 }}>
                 <div style={{ width: `${planned > 0 ? (minutes / planned) * 100 : 0}%`, height: '100%', borderRadius: 100, background: subject?.color ?? 'var(--accent)' }} />
               </div>

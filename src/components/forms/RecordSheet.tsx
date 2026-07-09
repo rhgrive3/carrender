@@ -70,7 +70,11 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
         completedTask: !!preset?.taskId && completed,
       },
     });
-    toast(accuracy !== null && accuracy < state.settings.reviewRule.correctionThreshold ? '保存しました。間違い直しを計画に追加します' : '記録を保存しました 🎉');
+    toast(
+      material?.reviewEnabled && accuracy !== null && accuracy < state.settings.reviewRule.correctionThreshold
+        ? '保存しました。間違い直しを計画に追加します'
+        : '記録を保存しました 🎉',
+    );
     onDone?.();
     onClose();
   };
