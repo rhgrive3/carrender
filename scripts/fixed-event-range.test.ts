@@ -1,6 +1,11 @@
-import assert from 'node:assert/strict';
 import { fixedEventsOn } from '../src/lib/scheduler';
 import type { AppState, FixedEvent } from '../src/types';
+
+const assertEqual = <T>(actual: T, expected: T, message: string) => {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`${message}\nactual: ${JSON.stringify(actual)}\nexpected: ${JSON.stringify(expected)}`);
+  }
+};
 
 const event: FixedEvent = {
   id: 'ev-range',
@@ -17,8 +22,8 @@ const state = {
   fixedEvents: [event],
 } as AppState;
 
-assert.deepEqual(fixedEventsOn(state, '2026-07-20').map((item) => item.id), ['ev-range']);
-assert.deepEqual(fixedEventsOn(state, '2026-07-23').map((item) => item.id), ['ev-range']);
-assert.deepEqual(fixedEventsOn(state, '2026-07-24').map((item) => item.id), []);
+assertEqual(fixedEventsOn(state, '2026-07-20').map((item) => item.id), ['ev-range'], '開始日では予定が見つかること');
+assertEqual(fixedEventsOn(state, '2026-07-23').map((item) => item.id), ['ev-range'], '終了日では予定が見つかること');
+assertEqual(fixedEventsOn(state, '2026-07-24').map((item) => item.id), [], '期間外では予定が見つからないこと');
 
 console.log('fixed event range test passed');
