@@ -1,10 +1,14 @@
-import { useMemo } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import { CircleCheck, Lightbulb, TriangleAlert } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { computeAnalytics } from '../lib/analytics';
 import { diffDays, formatDateShort, formatHoursShort, formatMinutes, formatMinutesTile, today } from '../lib/date';
 import { ProgressRing } from '../components/ui/ProgressRing';
 import { ProgressBar, EmptyState } from '../components/ui/bits';
+
+const GoalProgressChart = lazy(() =>
+  import('../components/charts/GoalProgressChart').then((module) => ({ default: module.GoalProgressChart })),
+);
 
 export function AnalyticsScreen() {
   const { state } = useApp();
@@ -144,6 +148,12 @@ export function AnalyticsScreen() {
           <div className="faint">復習の滞留</div>
         </div>
       </div>
+
+      {/* 課題ごとの目標達成率と実績達成率 */}
+      <div className="section-label">達成率の推移</div>
+      <Suspense fallback={<div className="card faint">達成率グラフを読み込み中...</div>}>
+        <GoalProgressChart state={state} refDate={t} />
+      </Suspense>
 
       {/* 科目バランス */}
       <div className="section-label">科目バランス(14日)</div>

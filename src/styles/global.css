@@ -1069,6 +1069,168 @@ body {
   min-width: 9px;
 }
 
+/* ---------- 達成率チャート ---------- */
+
+.progress-chart-card {
+  padding: 14px 12px 12px;
+  overflow: hidden;
+}
+
+.progress-chart-head {
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0 4px 8px;
+}
+
+.progress-chart-title {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.progress-chart-kpi {
+  min-width: 58px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--bg-elev2);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.progress-chart-kpi span {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.progress-chart-kpi small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.progress-chart-wrap {
+  width: 100%;
+  height: 330px;
+  min-height: 330px;
+}
+
+.progress-chart-tooltip {
+  min-width: 220px;
+  max-width: min(340px, calc(100vw - 42px));
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-float);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.progress-chart-tooltip-date {
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.progress-chart-tooltip-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.progress-chart-tooltip-row + .progress-chart-tooltip-row {
+  margin-top: 5px;
+}
+
+.progress-chart-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.progress-chart-tooltip-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-sub);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-chart-tooltip-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
+.progress-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 10px;
+  justify-content: center;
+  padding: 2px 8px 0;
+}
+
+.progress-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  gap: 5px;
+  color: var(--text-sub);
+  font-size: 10.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-chart-legend-line,
+.progress-chart-legend-dash {
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.progress-chart-legend-dash {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--text-faint) 0,
+    var(--text-faint) 6px,
+    transparent 6px,
+    transparent 10px
+  );
+}
+
+.progress-chart-legend-line.solid {
+  background: var(--text-faint);
+}
+
+.progress-chart-legend-item.muted-legend {
+  color: var(--text-faint);
+}
+
+@media (max-width: 420px) {
+  .progress-chart-wrap {
+    height: 290px;
+    min-height: 290px;
+  }
+
+  .progress-chart-head {
+    flex-direction: column;
+  }
+
+  .progress-chart-kpi {
+    align-self: flex-start;
+  }
+}
+
 /* ---------- 月カレンダー ---------- */
 
 .cal-grid {
