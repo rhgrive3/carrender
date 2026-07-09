@@ -225,7 +225,12 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
             <Tooltip
               allowEscapeViewBox={{ x: true, y: true }}
               content={<ProgressTooltip series={chart.series} />}
-              wrapperStyle={{ zIndex: 30 }}
+              wrapperStyle={{
+                zIndex: 30,
+                maxHeight: 'calc(100dvh - var(--safe-top) - var(--safe-bottom) - 96px)',
+                overflowY: 'auto',
+                WebkitOverflowScrolling: 'touch',
+              }}
             />
             <Legend content={<ProgressLegend series={chart.series} />} />
             {chart.series.map((item) => (

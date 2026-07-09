@@ -163,14 +163,12 @@ body {
 /* ---------- 下部ナビ ---------- */
 
 .bottom-nav {
-  position: sticky;
-  top: auto;
+  position: fixed;
+  left: 50%;
   bottom: 0;
-  left: auto;
-  right: auto;
+  transform: translateX(-50%);
   width: min(100vw, 760px);
   max-width: 760px;
-  margin: auto auto 0;
   height: calc(var(--nav-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   background: var(--bg-glass);
@@ -1317,6 +1315,7 @@ select {
   backdrop-filter: blur(18px);
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .progress-chart-tooltip-date {
