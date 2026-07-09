@@ -11,6 +11,8 @@ import { useToast } from '../components/ui/Toast';
 import { useTimer } from '../components/timer/TimerContext';
 import { RecordSheet } from '../components/forms/RecordSheet';
 
+const MIN_START_BUFFER_MIN = 5;
+
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => (typeof window === 'undefined' ? false : window.matchMedia(query).matches));
   useEffect(() => {
@@ -21,6 +23,49 @@ function useMediaQuery(query: string): boolean {
     return () => media.removeEventListener('change', update);
   }, [query]);
   return matches;
+}
+
+function currentMinutesJst(): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+  return (hour % 24) * 60 + minute;
+}
+
+function roundUpToStep(min: number, step: number): number {
+  return Math.ceil(min / step) * step;
+}
+
+function normalizeTaskSchedule(date: string, startTime: string, minutes: number): { date: string; startTime: string; endTime: string } {
+  let normalizedDate = date;
+  const now = today();
+  if (!startTime) return { date: date < now ? now : date, startTime: '', endTime: '' };
+
+  let startMin = hmToMinutes(startTime);
+  const minimumStart = roundUpToStep(currentMinutesJst() + MIN_START_BUFFER_MIN, 5);
+
+  if (date < now) {
+    normalizedDate = now;
+    startMin = Math.max(startMin, minimumStart);
+  } else if (date === now && startMin < minimumStart) {
+    startMin = minimumStart;
+  }
+
+  if (startMin >= 24 * 60 || startMin + minutes > 24 * 60 - 1) {
+    normalizedDate = addDays(normalizedDate, 1);
+    startMin = 9 * 60;
+  }
+
+  return {
+    date: normalizedDate,
+    startTime: minutesToHM(startMin),
+    endTime: minutesToHM(startMin + minutes),
+  };
 }
 
 export function PlanScreen() {
@@ -544,25 +589,49 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
   const endTime = startTime ? minutesToHM(hmToMinutes(startTime) + minutes) : '';
 
   const moveTo = (date: string) => {
+    if (task.status === 'done') {
+      toast('完了済みタスクの予定は変更できません');
+      return;
+    }
+    if (task.dueDate && task.dueDate >= t && date > task.dueDate) {
+      toast(`期限(${formatDateShort(task.dueDate)})を過ぎる日には移動できません`);
+      return;
+    }
     dispatch({ type: 'MOVE_TASK', taskId: task.id, date });
     toast(`${formatDateShort(date)}に移動しました`);
     onClose();
   };
 
   const applyChanges = () => {
+    if (task.status === 'done') {
+      toast('完了済みタスクの予定は変更できません');
+      onClose();
+      return;
+    }
+
+    const normalized = normalizeTaskSchedule(date, startTime, minutes);
+    if (task.dueDate && task.dueDate >= t && normalized.date > task.dueDate) {
+      toast(`期限(${formatDateShort(task.dueDate)})を過ぎる予定にはできません`);
+      return;
+    }
+
     dispatch({
       type: 'UPDATE_TASK',
       task: {
         ...task,
-        scheduledDate: date,
-        scheduledStart: startTime || null,
-        scheduledEnd: startTime ? endTime : null,
+        scheduledDate: normalized.date,
+        scheduledStart: normalized.startTime || null,
+        scheduledEnd: normalized.endTime || null,
         estimatedMinutes: minutes,
         memo,
         generatedBy: 'manual',
       },
     });
-    toast('タスクを更新しました');
+    if (normalized.date !== date || normalized.startTime !== startTime) {
+      toast(`${formatDateShort(normalized.date)} ${normalized.startTime}〜に直して保存しました`);
+    } else {
+      toast('タスクを更新しました');
+    }
     onClose();
   };
 

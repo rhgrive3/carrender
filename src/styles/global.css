@@ -910,12 +910,15 @@ body {
   font-size: clamp(58px, 19vw, 88px);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
+  font-feature-settings: "tnum";
+  letter-spacing: 0;
   line-height: 1;
+  min-width: 6.8ch;
+  text-align: center;
 }
 
 .timer-pulse {
-  animation: timer-breathe 3.2s ease-in-out infinite;
+  opacity: 1;
 }
 
 .timer-topbar {
