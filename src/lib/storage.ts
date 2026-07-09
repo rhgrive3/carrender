@@ -79,14 +79,14 @@ export function exportSessionsCSV(state: AppState): string {
     const s = v === null ? '' : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const header = ['日付', '開始時刻', '科目', '教材', '学習時間(分)', '進んだ量', '単位', '正答率(%)', '集中度', '記録方法', 'メモ'];
+  const header = ['日付', '開始時刻', '科目', '教材', '学習時間(分)', '進んだ量', '単位', '集中度', '記録方法', 'メモ'];
   const rows = [...state.sessions]
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
     .map((s) => {
       const subject = state.subjects.find((x) => x.id === s.subjectId);
       const material = state.materials.find((x) => x.id === s.materialId);
       const time = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(s.startedAt));
-      return [s.date, time, subject?.name ?? '', material?.name ?? '', s.minutes, s.amountDone || '', material?.unit ?? '', s.accuracy ?? '', s.focus ?? '', s.source === 'timer' ? 'タイマー' : '手入力', s.memo]
+      return [s.date, time, subject?.name ?? '', material?.name ?? '', s.minutes, s.amountDone || '', material?.unit ?? '', s.focus ?? '', s.source === 'timer' ? 'タイマー' : '手入力', s.memo]
         .map(esc)
         .join(',');
     });

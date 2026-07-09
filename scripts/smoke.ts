@@ -200,7 +200,7 @@ const reviewSeedTask = { ...doneTask, type: 'review' as const, reviewStage: 0, r
 const session: StudySession = {
   id: 'test', taskId: reviewSeedTask.id, subjectId: reviewSeedTask.subjectId, materialId: reviewSeedTask.materialId,
   date: t, startedAt: new Date().toISOString(), minutes: 30, amountDone: 5, rangeLabel: '',
-  accuracy: 50, focus: 3, difficulty: 3, memo: '', source: 'timer',
+  accuracy: null, focus: 3, difficulty: 3, memo: '', source: 'timer',
 };
 const reviewDisabledState = {
   ...state,
@@ -209,20 +209,17 @@ const reviewDisabledState = {
   ),
 };
 const disabledReviews = generateReviewTasks(reviewDisabledState, reviewSeedTask, session, t);
-check('復習オフの教材では低正答率でも復習/間違い直しを生成しない', disabledReviews.length === 0, disabledReviews);
+check('復習オフの教材では復習を生成しない', disabledReviews.length === 0, disabledReviews);
 const missingMaterialReviews = generateReviewTasks(
   state,
   { ...reviewSeedTask, materialId: 'missing_material' },
   session,
   t,
 );
-check('教材が明示的に復習オンでない場合は復習/間違い直しを生成しない', missingMaterialReviews.length === 0, missingMaterialReviews);
+check('教材が明示的に復習オンでない場合は復習を生成しない', missingMaterialReviews.length === 0, missingMaterialReviews);
 const reviews = generateReviewTasks(state, reviewSeedTask, session, t);
-check('正答率50% → 復習+間違い直しが生成される', reviews.length === 2, reviews.map((r) => r.rangeLabel));
+check('復習オンの教材では次の復習だけが生成される', reviews.length === 1 && reviews[0].type === 'review', reviews.map((r) => r.rangeLabel));
 for (const r of reviews) console.log(`   ${r.type}: ${r.rangeLabel} due=${r.dueDate}`);
-const session2 = { ...session, accuracy: 95 };
-const reviews2 = generateReviewTasks(state, reviewSeedTask, session2, t);
-check('正答率95% → 復習のみ・間隔が伸びる', reviews2.length === 1 && reviews2[0].dueDate! > reviews[0].dueDate!, reviews2.map((r) => r.dueDate));
 
 {
   const onboarded = appReducer(emptyState(), {
@@ -265,7 +262,7 @@ console.log(`  青チャート: status=${mathForecast?.status} 見込み=${mathF
 check('数学(遅れ設定)がbehind/riskと判定される', mathForecast?.status === 'behind' || mathForecast?.status === 'risk', mathForecast?.status);
 console.log('  コメント:');
 for (const c of a.comments) console.log(`   ・${c}`);
-check('分析コメントが生成される', a.comments.length >= 2);
+check('分析コメントが生成される', a.comments.length >= 1);
 
 {
   const ref = '2026-07-10';

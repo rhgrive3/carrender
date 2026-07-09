@@ -21,8 +21,6 @@ export interface ScoreContext {
   date: ISODate;
   /** 科目ごとの直近の予定達成率 0-1 (低いほどブースト) */
   subjectAchievement: Map<string, number>;
-  /** 教材ごとの直近の平均正答率 0-100 */
-  materialAccuracy: Map<string, number | null>;
 }
 
 const WEIGHTS = {
@@ -33,7 +31,6 @@ const WEIGHTS = {
   materialPriority: 8,
   behind: 26,
   reviewUrgency: 40,
-  lowAccuracy: 12,
   lowAchievement: 10,
 } as const;
 
@@ -71,9 +68,6 @@ export function scoreMaterialChunk(
   const actualProgress = material.totalAmount > 0 ? material.doneAmount / material.totalAmount : 1;
   const behind = Math.max(0, expectedProgress - actualProgress); // 0-1
 
-  const accuracy = ctx.materialAccuracy.get(material.id) ?? null;
-  const lowAccuracyBoost = accuracy !== null && accuracy < 70 ? (70 - accuracy) / 70 : 0;
-
   const achievement = ctx.subjectAchievement.get(material.subjectId) ?? 1;
   const lowAchievementBoost = Math.max(0, 0.8 - achievement);
   const customPaceBoost =
@@ -91,7 +85,6 @@ export function scoreMaterialChunk(
     WEIGHTS.materialPriority * (material.priority / 5) +
     WEIGHTS.materialPriority * (material.examRelevance / 5) +
     WEIGHTS.behind * behind +
-    WEIGHTS.lowAccuracy * lowAccuracyBoost +
     WEIGHTS.lowAchievement * lowAchievementBoost +
     WEIGHTS.targetUrgency * customPaceBoost
   );
@@ -117,8 +110,6 @@ export function scoreExistingTask(task: StudyTask, ctx: ScoreContext): number {
     score += WEIGHTS.reviewUrgency * urgency;
   }
   if (task.type === 'correction') score += 15;
-  const accuracy = task.materialId ? (ctx.materialAccuracy.get(task.materialId) ?? null) : null;
-  if (accuracy !== null && accuracy < 70) score += WEIGHTS.lowAccuracy * ((70 - accuracy) / 70);
   return score;
 }
 
@@ -169,10 +160,18 @@ export function fixedEventsOn(state: AppState, date: ISODate): FixedEvent[] {
   const wd = weekdayOf(date);
   return state.fixedEvents.filter((e) => {
     if (e.date) return e.date === date;
-    if (e.weekday !== wd) return false;
-    if (e.startDate && date < e.startDate) return false;
-    if (e.endDate && date > e.endDate) return false;
-    return true;
+    if (e.weekday !== null) {
+      if (e.weekday !== wd) return false;
+      if (e.startDate && date < e.startDate) return false;
+      if (e.endDate && date > e.endDate) return false;
+      return true;
+    }
+    if (e.startDate || e.endDate) {
+      if (e.startDate && date < e.startDate) return false;
+      if (e.endDate && date > e.endDate) return false;
+      return true;
+    }
+    return false;
   });
 }
 
@@ -329,7 +328,6 @@ export function generatePlan(
     state,
     date: fromDate,
     subjectAchievement: subjectAchievementMap(state, fromDate),
-    materialAccuracy: materialAccuracyMap(state),
   };
 
   // --- 3. 教材ごとの残量シミュレーション ---
@@ -698,22 +696,6 @@ export function subjectAchievementMap(state: AppState, ref: ISODate): Map<string
   const map = new Map<string, number>();
   for (const [sid, p] of planned) {
     map.set(sid, p > 0 ? (done.get(sid) ?? 0) / p : 1);
-  }
-  return map;
-}
-
-/** 教材別 直近の平均正答率 */
-export function materialAccuracyMap(state: AppState): Map<string, number | null> {
-  const map = new Map<string, number | null>();
-  for (const m of state.materials) {
-    const recs = state.sessions
-      .filter((s) => s.materialId === m.id && s.accuracy !== null)
-      .slice(-5);
-    if (recs.length === 0) {
-      map.set(m.id, null);
-    } else {
-      map.set(m.id, recs.reduce((sum, r) => sum + (r.accuracy ?? 0), 0) / recs.length);
-    }
   }
   return map;
 }

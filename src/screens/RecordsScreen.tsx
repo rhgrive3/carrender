@@ -454,7 +454,6 @@ function SessionLog({ sessions, state, t }: { sessions: StudySession[]; state: A
           <div className="task-range">
             {formatMinutes(s.minutes)}
             {s.amountDone > 0 && material && ` ・ ${s.amountDone}${material.unit}`}
-            {s.accuracy !== null && ` ・ 正答率${s.accuracy}%`}
             {s.focus !== null && ` ・ 🔥${s.focus}`}
           </div>
           {s.memo && <div className="faint mt-8">{s.memo}</div>}

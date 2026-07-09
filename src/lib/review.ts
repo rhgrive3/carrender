@@ -8,15 +8,12 @@ import { addDays, genId } from './date';
  * - 復習タスク完了 → 次の stage を生成 (最終stageで終了)
  * 教材で復習を明示的に有効化した場合だけ生成する。
  *
- * - 正答率が低い → 間隔を短縮
- * - 正答率が高い → 間隔を延長
  * - 難易度が高い教材 → stage を1つ追加(30日後をもう一度)
- * - 正答率が閾値未満 → 間違い直しタスクを翌日に生成
  */
 export function generateReviewTasks(
   state: AppState,
   completedTask: StudyTask,
-  session: StudySession,
+  _session: StudySession,
   refDate: ISODate,
 ): StudyTask[] {
   const rule = state.settings.reviewRule;
@@ -39,11 +36,6 @@ export function generateReviewTasks(
 
   if (nextStage < intervals.length) {
     let interval = intervals[nextStage];
-    const acc = session.accuracy;
-    if (acc !== null) {
-      if (acc < rule.lowAccuracyThreshold) interval = Math.max(1, Math.round(interval * 0.6));
-      else if (acc >= rule.highAccuracyThreshold) interval = Math.round(interval * 1.4);
-    }
     const due = addDays(refDate, interval);
     const estimated = Math.max(15, Math.round(completedTask.estimatedMinutes * 0.4));
     created.push({
@@ -70,46 +62,5 @@ export function generateReviewTasks(
     });
   }
 
-  // 間違い直し: 正答率が低いとき翌日に
-  if (session.accuracy !== null && session.accuracy < rule.correctionThreshold && completedTask.type !== 'correction') {
-    const due = addDays(refDate, 1);
-    created.push({
-      id: genId('task'),
-      subjectId: completedTask.subjectId,
-      materialId: completedTask.materialId,
-      title: completedTask.title,
-      rangeLabel: `間違い直し ${baseRange}`,
-      rangeStart: completedTask.rangeStart,
-      rangeEnd: completedTask.rangeEnd,
-      amount: completedTask.amount,
-      estimatedMinutes: Math.max(20, Math.round(completedTask.estimatedMinutes * 0.5)),
-      priority: 0,
-      dueDate: due,
-      type: 'correction',
-      status: 'planned',
-      scheduledDate: due,
-      scheduledStart: null,
-      scheduledEnd: null,
-      generatedBy: 'auto',
-      reviewStage: null,
-      createdAt: new Date().toISOString(),
-      completedAt: null,
-    });
-  }
-
   return created;
-}
-
-/** 期限切れ・期限間近の復習タスク */
-export function dueReviews(state: AppState, date: ISODate): { overdue: StudyTask[]; upcoming: StudyTask[] } {
-  const reviews = state.tasks.filter(
-    (t) => (t.type === 'review' || t.type === 'correction') && t.status === 'planned' && t.dueDate !== null,
-  );
-  return {
-    overdue: reviews.filter((t) => (t.dueDate as string) < date),
-    upcoming: reviews.filter((t) => {
-      const d = t.dueDate as string;
-      return d >= date && d <= addDays(date, 2);
-    }),
-  };
 }

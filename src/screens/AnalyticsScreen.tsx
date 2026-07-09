@@ -21,15 +21,11 @@ export function AnalyticsScreen() {
       ? Math.min(1, a.capacity.totalRemainingMinutes / a.capacity.totalAvailableMinutes)
       : 0;
 
-  // 苦手科目ランキング: 達成率×正答率が低い順
+  // 要注意科目ランキング: 予定達成率が低い順
   const weakRanking = useMemo(() => {
     return a.subjectStats
       .filter((s) => s.plannedMinutes > 0 || s.actualMinutes > 0)
-      .map((s) => {
-        const acc = s.avgAccuracy ?? 75;
-        const score = s.completionRate * 0.5 + (acc / 100) * 0.5;
-        return { ...s, weakScore: score };
-      })
+      .map((s) => ({ ...s, weakScore: s.completionRate }))
       .sort((x, y) => x.weakScore - y.weakScore)
       .slice(0, 3);
   }, [a.subjectStats]);
@@ -141,12 +137,6 @@ export function AnalyticsScreen() {
           <div style={{ fontSize: 21, fontWeight: 800 }}>🔥 {a.streakDays}日</div>
           <div className="faint">連続(最高{a.bestStreakDays}日)</div>
         </div>
-        <div className="card" style={{ flex: 1, textAlign: 'center', padding: 13, margin: 0 }}>
-          <div style={{ fontSize: 21, fontWeight: 800, color: a.overdueReviewCount > 0 ? 'var(--warn)' : undefined }}>
-            {a.overdueReviewCount}件
-          </div>
-          <div className="faint">復習の滞留</div>
-        </div>
       </div>
 
       {/* 課題ごとの目標達成率と実績達成率 */}
@@ -169,7 +159,6 @@ export function AnalyticsScreen() {
                   <span style={{ fontSize: 13, fontWeight: 800, color: subject?.color }}>{subject?.name}</span>
                   <span className="faint">
                     達成率{Math.round(s.completionRate * 100)}%
-                    {s.avgAccuracy !== null && ` ・ 正答率${Math.round(s.avgAccuracy)}%`}
                   </span>
                 </div>
                 <div style={{ display: 'grid', gap: 4 }}>
@@ -203,7 +192,7 @@ export function AnalyticsScreen() {
                   <span style={{ fontSize: 19 }}>{['🥇', '🥈', '🥉'][i]}</span>
                   <span style={{ fontWeight: 800, fontSize: 14.5, color: subject?.color }}>{subject?.name}</span>
                   <span className="faint" style={{ marginLeft: 'auto', textAlign: 'right' }}>
-                    達成率{Math.round(s.completionRate * 100)}%{s.avgAccuracy !== null && ` / 正答率${Math.round(s.avgAccuracy)}%`}
+                    達成率{Math.round(s.completionRate * 100)}%
                   </span>
                 </div>
               );

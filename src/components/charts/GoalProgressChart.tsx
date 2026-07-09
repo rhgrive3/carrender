@@ -55,7 +55,7 @@ function materialStartDate(material: Material): ISODate {
   return material.startDate || material.createdAt.slice(0, 10);
 }
 
-function buildDateRange(materials: Material[], refDate: ISODate): ISODate[] {
+function buildDateRange(materials: Material[], refDate: ISODate, plannedDates: ISODate[]): ISODate[] {
   const start = materials.reduce<ISODate>((min, material) => {
     const d = materialStartDate(material);
     return d < min ? d : min;
@@ -75,6 +75,9 @@ function buildDateRange(materials: Material[], refDate: ISODate): ISODate[] {
     dates.add(materialStartDate(material));
     dates.add(material.targetDate);
   }
+  for (const date of plannedDates) {
+    dates.add(date);
+  }
   return [...dates].sort();
 }
 
@@ -88,7 +91,19 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       return { points: [] as ChartPoint[], series: [] as Series[], materials: [] as Material[] };
     }
 
-    const dates = buildDateRange(activeMaterials, refDate);
+    const plannedByMaterial = new Map<string, { date: ISODate; amount: number }[]>();
+    for (const task of state.tasks) {
+      if (!task.materialId || task.type !== 'new' || task.status === 'skipped' || task.amount <= 0) continue;
+      const list = plannedByMaterial.get(task.materialId) ?? [];
+      list.push({ date: task.scheduledDate, amount: task.amount });
+      plannedByMaterial.set(task.materialId, list);
+    }
+    for (const list of plannedByMaterial.values()) {
+      list.sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    const plannedDates = [...plannedByMaterial.values()].flatMap((list) => list.map((item) => item.date));
+    const dates = buildDateRange(activeMaterials, refDate, plannedDates);
     const sessionsByMaterial = new Map<string, { date: ISODate; amount: number }[]>();
     for (const session of state.sessions) {
       if (!session.materialId || session.amountDone <= 0) continue;
@@ -132,9 +147,14 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
 
       activeMaterials.forEach((material, index) => {
         const start = materialStartDate(material);
-        const targetSpan = Math.max(1, diffDays(start, material.targetDate));
-        const targetElapsed = diffDays(start, date);
-        point[`m${index}Target`] = clampPercent((targetElapsed / targetSpan) * 100);
+        const baseline = Math.max(0, material.doneAmount - (totalRecordedByMaterial.get(material.id) ?? 0));
+        const planned = plannedByMaterial.get(material.id) ?? [];
+        const plannedByDate =
+          baseline +
+          planned.reduce((sum, item) => {
+            return item.date <= date ? sum + item.amount : sum;
+          }, 0);
+        point[`m${index}Target`] = date < start ? 0 : clampPercent((plannedByDate / material.totalAmount) * 100);
 
         if (date > refDate) {
           point[`m${index}Actual`] = null;
@@ -142,7 +162,6 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
         }
 
         const recorded = sessionsByMaterial.get(material.id) ?? [];
-        const baseline = Math.max(0, material.doneAmount - (totalRecordedByMaterial.get(material.id) ?? 0));
         const doneByDate =
           baseline +
           recorded.reduce((sum, item) => {
@@ -155,7 +174,7 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
     });
 
     return { points, series, materials: activeMaterials };
-  }, [refDate, state.materials, state.sessions, state.subjects]);
+  }, [refDate, state.materials, state.sessions, state.tasks]);
 
   if (chart.points.length === 0) {
     return (
@@ -203,12 +222,16 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
             />
             <ReferenceLine y={100} stroke="var(--ok)" strokeDasharray="4 4" strokeOpacity={0.6} />
             <ReferenceLine x={refDate} stroke="var(--warn)" strokeDasharray="4 4" strokeOpacity={0.65} />
-            <Tooltip content={<ProgressTooltip series={chart.series} />} />
+            <Tooltip
+              allowEscapeViewBox={{ x: true, y: true }}
+              content={<ProgressTooltip series={chart.series} />}
+              wrapperStyle={{ zIndex: 30 }}
+            />
             <Legend content={<ProgressLegend series={chart.series} />} />
             {chart.series.map((item) => (
               <Line
                 key={item.key}
-                type="monotone"
+                type={item.kind === 'target' ? 'stepAfter' : 'monotone'}
                 dataKey={item.key}
                 name={item.name}
                 stroke={item.color}
@@ -246,17 +269,26 @@ function ProgressTooltip({
     .map((item) => ({ item, meta: byKey.get(String(item.dataKey)) }))
     .filter((row): row is { item: { value: number; color?: string }; meta: Series } => Boolean(row.meta))
     .sort((a, b) => a.meta.materialName.localeCompare(b.meta.materialName) || a.meta.kind.localeCompare(b.meta.kind));
+  const grouped = new Map<string, { color: string; target: number | null; actual: number | null }>();
+  for (const { item, meta } of rows) {
+    const current = grouped.get(meta.materialName) ?? { color: meta.color, target: null, actual: null };
+    current[meta.kind] = item.value;
+    grouped.set(meta.materialName, current);
+  }
 
   return (
     <div className="progress-chart-tooltip">
       <div className="progress-chart-tooltip-date">{label}</div>
-      {rows.map(({ item, meta }) => (
-        <div key={`${meta.key}-${item.value}`} className="progress-chart-tooltip-row">
-          <span className="progress-chart-tooltip-dot" style={{ background: meta.color }} />
-          <span className="progress-chart-tooltip-name">
-            {meta.materialName} {meta.kind === 'target' ? '目標' : '実績'}
-          </span>
-          <span className="progress-chart-tooltip-value">{Math.round(Number(item.value))}%</span>
+      {[...grouped.entries()].map(([name, values]) => (
+        <div key={name} className="progress-chart-tooltip-item">
+          <div className="progress-chart-tooltip-material">
+            <span className="progress-chart-tooltip-dot" style={{ background: values.color }} />
+            <span className="progress-chart-tooltip-name">{name}</span>
+          </div>
+          <div className="progress-chart-tooltip-values">
+            <span>目標 {values.target === null ? '-' : `${Math.round(values.target)}%`}</span>
+            <span>実績 {values.actual === null ? '-' : `${Math.round(values.actual)}%`}</span>
+          </div>
         </div>
       ))}
     </div>

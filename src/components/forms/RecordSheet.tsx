@@ -24,7 +24,7 @@ interface RecordSheetProps {
 }
 
 /**
- * 勉強記録シート。タイマー終了直後は最小限の入力(進んだ量・正答率・集中度)で保存できる。
+ * 勉強記録シート。タイマー終了直後は最小限の入力(進んだ量・集中度)で保存できる。
  */
 export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps) {
   const { state, dispatch } = useApp();
@@ -36,7 +36,6 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
   const task = preset?.taskId ? state.tasks.find((t) => t.id === preset.taskId) : undefined;
   const [amountDone, setAmountDone] = useState(() => task?.amount ?? 0);
   const [completed, setCompleted] = useState(true);
-  const [accuracy, setAccuracy] = useState<number | null>(null);
   const [focus, setFocus] = useState<1 | 2 | 3 | 4 | 5 | null>(null);
   const [memo, setMemo] = useState('');
   const [showMemo, setShowMemo] = useState(false);
@@ -61,7 +60,7 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
         materialId: preset?.materialId ?? (materialId || null),
         minutes: Math.max(1, minutes),
         amountDone,
-        accuracy,
+        accuracy: null,
         focus,
         difficulty: material?.difficulty ?? null,
         memo,
@@ -70,11 +69,7 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
         completedTask: !!preset?.taskId && completed,
       },
     });
-    toast(
-      material?.reviewEnabled && accuracy !== null && accuracy < state.settings.reviewRule.correctionThreshold
-        ? '保存しました。間違い直しを計画に追加します'
-        : '記録を保存しました 🎉',
-    );
+    toast('記録を保存しました 🎉');
     onDone?.();
     onClose();
   };
@@ -164,24 +159,6 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
           />
         </div>
       )}
-
-      <div className="field">
-        <label>正答率(任意)</label>
-        <div className="segmented" role="radiogroup" aria-label="正答率">
-          {[null, 40, 60, 80, 100].map((v) => (
-            <button
-              key={String(v)}
-              type="button"
-              role="radio"
-              aria-checked={accuracy === v}
-              className={accuracy === v ? 'active' : ''}
-              onClick={() => setAccuracy(v)}
-            >
-              {v === null ? 'なし' : v === 40 ? '〜50%' : v === 60 ? '〜70%' : v === 80 ? '〜90%' : '90%+'}
-            </button>
-          ))}
-        </div>
-      </div>
 
       <div className="field">
         <label>集中度</label>

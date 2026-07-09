@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Lightbulb, Play, RefreshCw, Repeat, Settings, Timer, TriangleAlert, X } from 'lucide-react';
+import { Lightbulb, Play, RefreshCw, Settings, Timer, TriangleAlert, X } from 'lucide-react';
 import { QuickStartSheet } from '../components/timer/QuickStartSheet';
 import { useApp } from '../state/AppContext';
 import { useTimer } from '../components/timer/TimerContext';
 import { computeAnalytics } from '../lib/analytics';
 import { computeDayStatus } from '../lib/scheduler';
-import { dueReviews } from '../lib/review';
 import { diffDays, formatDateJa, formatMinutes, today } from '../lib/date';
 import { ProgressRing } from '../components/ui/ProgressRing';
 import { SubjectChip, TaskTypeChip, EmptyState } from '../components/ui/bits';
@@ -30,7 +29,6 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
 
   const analytics = useMemo(() => computeAnalytics(state, t), [state, t]);
   const dayStatus = useMemo(() => computeDayStatus(state, t), [state, t]);
-  const reviews = useMemo(() => dueReviews(state, t), [state, t]);
 
   const todayTasks = useMemo(
     () =>
@@ -248,24 +246,6 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
         </EmptyState>
       ) : (
         todayTasks.map((task) => <TaskRow key={task.id} task={task} onCelebrate={() => setCelebrate((c) => c + 1)} />)
-      )}
-
-      {/* 復習期限 */}
-      {(reviews.overdue.length > 0 || reviews.upcoming.length > 0) && (
-        <>
-          <div className="section-label">
-            <span className="iflex">
-              <Repeat size={14} strokeWidth={2.4} aria-hidden="true" style={{ color: 'var(--accent)' }} />
-              復習期限
-            </span>
-          </div>
-          {[...reviews.overdue, ...reviews.upcoming]
-            .filter((x) => x.scheduledDate !== t)
-            .slice(0, 4)
-            .map((task) => (
-              <TaskRow key={task.id} task={task} showDate onCelebrate={() => setCelebrate((c) => c + 1)} />
-            ))}
-        </>
       )}
 
       {/* 今日の一言分析 */}

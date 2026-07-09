@@ -163,14 +163,14 @@ body {
 /* ---------- 下部ナビ ---------- */
 
 .bottom-nav {
-  position: fixed;
+  position: sticky;
   top: auto;
   bottom: 0;
-  left: 50%;
+  left: auto;
   right: auto;
   width: min(100vw, 760px);
   max-width: 760px;
-  margin: 0;
+  margin: auto auto 0;
   height: calc(var(--nav-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   background: var(--bg-glass);
@@ -179,7 +179,6 @@ body {
   border-top: 1px solid var(--border);
   display: flex;
   z-index: 50;
-  transform: translateX(-50%);
 }
 
 @media (min-width: 768px) {
@@ -1261,7 +1260,7 @@ select {
 
 .progress-chart-card {
   padding: 14px 12px 12px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .progress-chart-head {
@@ -1308,6 +1307,7 @@ select {
 .progress-chart-tooltip {
   min-width: 220px;
   max-width: min(340px, calc(100vw - 42px));
+  max-height: min(320px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 96px));
   padding: 10px 12px;
   border-radius: 12px;
   background: var(--bg-glass);
@@ -1315,6 +1315,8 @@ select {
   box-shadow: var(--shadow-float);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .progress-chart-tooltip-date {
@@ -1324,17 +1326,25 @@ select {
   font-weight: 800;
 }
 
-.progress-chart-tooltip-row {
-  display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  font-size: 11.5px;
-  line-height: 1.35;
+.progress-chart-tooltip-item {
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
 }
 
-.progress-chart-tooltip-row + .progress-chart-tooltip-row {
-  margin-top: 5px;
+.progress-chart-tooltip-item:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.progress-chart-tooltip-item:last-child {
+  padding-bottom: 0;
+}
+
+.progress-chart-tooltip-material {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
 }
 
 .progress-chart-tooltip-dot {
@@ -1349,10 +1359,16 @@ select {
   color: var(--text-sub);
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 800;
 }
 
-.progress-chart-tooltip-value {
+.progress-chart-tooltip-values {
+  display: flex;
+  gap: 12px;
+  margin: 4px 0 0 16px;
   color: var(--text);
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   font-weight: 800;
 }

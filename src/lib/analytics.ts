@@ -74,14 +74,12 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
     const planned = sTasks.reduce((sum, t) => sum + t.estimatedMinutes, 0);
     const actual = sSessions.reduce((sum, s) => sum + s.minutes, 0);
     const done = sTasks.filter((t) => t.status === 'done').reduce((sum, t) => sum + t.estimatedMinutes, 0);
-    const withAcc = sSessions.filter((s) => s.accuracy !== null);
     return {
       subjectId: subj.id,
       plannedMinutes: planned,
       actualMinutes: actual,
       completionRate: planned > 0 ? Math.min(1, done / planned) : 1,
-      avgAccuracy:
-        withAcc.length > 0 ? withAcc.reduce((sum, s) => sum + (s.accuracy ?? 0), 0) / withAcc.length : null,
+      avgAccuracy: null,
     };
   });
 
@@ -252,15 +250,7 @@ function generateComments(state: AppState, a: AnalyticsSummary, ref: ISODate): s
     comments.push(`期限を過ぎた復習が${a.overdueReviewCount}件たまっています。記憶が薄れる前に、今日は復習を優先しましょう。`);
   }
 
-  // 5. 正答率が低い教材
-  const lowAcc = a.subjectStats.filter((s) => s.avgAccuracy !== null && s.avgAccuracy < 60);
-  if (lowAcc.length > 0) {
-    comments.push(
-      `${lowAcc.map((s) => name(s.subjectId)).join('・')}の正答率が60%を下回っています。新規を進めるより、間違い直しに時間を使う方が効果的です。`,
-    );
-  }
-
-  // 6. ポジティブ要素
+  // 5. ポジティブ要素
   if (a.streakDays >= 3) {
     comments.push(`${a.streakDays}日連続で学習中です。${a.streakDays >= 7 ? '素晴らしい継続力です。' : 'この調子で続けましょう。'}`);
   }

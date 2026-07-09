@@ -31,7 +31,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   const [settingsDraft, setSettingsDraft] = useState(state.settings);
   const [newEvent, setNewEvent] = useState<{
     title: string;
-    mode: 'weekly' | 'date';
+    mode: 'weekly' | 'date' | 'range';
     weekday: Weekday;
     date: string;
     startDate: string;
@@ -121,13 +121,17 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       toast('固定予定の有効期間を正しく入力してください');
       return;
     }
+    if (newEvent.mode === 'range' && (!newEvent.startDate || !newEvent.endDate || newEvent.startDate > newEvent.endDate)) {
+      toast('期間指定の開始日と終了日を正しく入力してください');
+      return;
+    }
     const ev: FixedEvent = {
       id: genId('ev'),
       title: newEvent.title.trim(),
       weekday: newEvent.mode === 'weekly' ? newEvent.weekday : null,
       date: newEvent.mode === 'date' ? newEvent.date : null,
-      startDate: newEvent.mode === 'weekly' && newEvent.startDate ? newEvent.startDate : null,
-      endDate: newEvent.mode === 'weekly' && newEvent.endDate ? newEvent.endDate : null,
+      startDate: newEvent.mode === 'weekly' || newEvent.mode === 'range' ? newEvent.startDate || null : null,
+      endDate: newEvent.mode === 'weekly' || newEvent.mode === 'range' ? newEvent.endDate || null : null,
       start: newEvent.start,
       end: newEvent.end,
     };
@@ -174,7 +178,13 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           : '';
       return `毎週${WEEKDAY_LABELS[ev.weekday]}${period}`;
     }
-    return ev.date ? formatDateShort(ev.date) : '';
+    if (ev.date) return formatDateShort(ev.date);
+    if (ev.startDate || ev.endDate) {
+      const start = ev.startDate ? formatDateShort(ev.startDate) : '開始未定';
+      const end = ev.endDate ? formatDateShort(ev.endDate) : '終了未定';
+      return `${start}〜${end}`;
+    }
+    return '';
   };
 
   const doExport = () => {
@@ -528,6 +538,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           options={[
             { value: 'weekly', label: '毎週' },
             { value: 'date', label: '1日だけ' },
+            { value: 'range', label: '期間' },
           ]}
           value={newEvent.mode}
           onChange={(mode) => setNewEvent({ ...newEvent, mode })}
@@ -555,8 +566,25 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
                 </option>
               ))}
             </select>
-          ) : (
+          ) : newEvent.mode === 'date' ? (
             <input aria-label="日付" type="date" value={newEvent.date} onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })} />
+          ) : (
+            <div className="row" style={{ gap: 8 }}>
+              <input
+                aria-label="期間開始日"
+                type="date"
+                value={newEvent.startDate}
+                onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+              />
+              <span className="faint">〜</span>
+              <input
+                aria-label="期間終了日"
+                type="date"
+                value={newEvent.endDate}
+                min={newEvent.startDate || undefined}
+                onChange={(e) => setNewEvent({ ...newEvent, endDate: e.target.value })}
+              />
+            </div>
           )}
         </div>
       </div>
