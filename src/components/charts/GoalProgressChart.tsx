@@ -32,7 +32,20 @@ type Series = {
   kind: 'target' | 'actual';
 };
 
-const FALLBACK_COLORS = ['#4f7cff', '#00b894', '#9a5cff', '#ff7043', '#e84393', '#00a8cc', '#fbc531', '#2ecc8f'];
+const MATERIAL_LINE_COLORS = [
+  '#2f80ed',
+  '#00a676',
+  '#f2994a',
+  '#eb5757',
+  '#9b51e0',
+  '#00a8cc',
+  '#f2c94c',
+  '#27ae60',
+  '#ff5c8a',
+  '#56ccf2',
+  '#bb6bd9',
+  '#6fcf97',
+];
 
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value * 10) / 10));
@@ -89,8 +102,7 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
 
     const series: Series[] = [];
     activeMaterials.forEach((material, index) => {
-      const subject = state.subjects.find((s) => s.id === material.subjectId);
-      const color = subject?.color ?? FALLBACK_COLORS[index % FALLBACK_COLORS.length];
+      const color = MATERIAL_LINE_COLORS[index % MATERIAL_LINE_COLORS.length];
       series.push({
         key: `m${index}Target`,
         name: `${material.name} 目標`,
@@ -200,8 +212,9 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
                 dataKey={item.key}
                 name={item.name}
                 stroke={item.color}
-                strokeWidth={item.kind === 'actual' ? 2.4 : 1.7}
+                strokeWidth={item.kind === 'actual' ? 2.8 : 1.6}
                 strokeDasharray={item.kind === 'target' ? '7 6' : undefined}
+                strokeOpacity={item.kind === 'target' ? 0.48 : 0.96}
                 dot={false}
                 activeDot={item.kind === 'actual' ? { r: 4, strokeWidth: 0 } : { r: 3, strokeWidth: 0 }}
                 connectNulls={false}

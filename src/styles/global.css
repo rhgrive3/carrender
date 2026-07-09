@@ -150,10 +150,11 @@ body {
 .bottom-nav {
   position: fixed;
   bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100%;
+  left: 0;
+  right: 0;
+  width: min(100%, 760px);
   max-width: 760px;
+  margin: 0 auto;
   height: calc(var(--nav-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   background: var(--bg-glass);
@@ -166,10 +167,11 @@ body {
 
 @media (min-width: 768px) {
   .bottom-nav {
-    width: min(calc(100% - 48px), 760px);
-    bottom: 10px;
+    bottom: 0;
+    width: min(100%, 760px);
     border: 1px solid var(--border);
-    border-radius: 18px;
+    border-bottom: none;
+    border-radius: 18px 18px 0 0;
     overflow: hidden;
     box-shadow: var(--shadow-float);
   }
@@ -1067,6 +1069,151 @@ body {
   border-radius: 3.5px;
   background: var(--bg-elev3);
   min-width: 9px;
+}
+
+/* ---------- 記録: Studyplus風 週チャート ---------- */
+
+.studyplus-chart-card {
+  padding: 13px 12px 12px;
+}
+
+.studyplus-chart-head {
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.studyplus-chart {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  height: 176px;
+}
+
+.studyplus-day {
+  display: grid;
+  grid-template-rows: 18px minmax(0, 1fr) 18px;
+  min-width: 0;
+  opacity: 1;
+}
+
+.studyplus-day.future {
+  opacity: 0.42;
+}
+
+.studyplus-total {
+  color: var(--text-sub);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.studyplus-bar-area {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+}
+
+.studyplus-plan-rail {
+  position: absolute;
+  bottom: 0;
+  width: min(30px, 72%);
+  min-height: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px 7px 3px 3px;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--text-faint), transparent 78%) 0,
+      color-mix(in srgb, var(--text-faint), transparent 78%) 4px,
+      transparent 4px,
+      transparent 8px
+    ),
+    var(--bg-elev2);
+}
+
+.studyplus-actual-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  width: min(24px, 58%);
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 7px 7px 3px 3px;
+  background: var(--bg-elev3);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg), transparent 72%);
+}
+
+.studyplus-stack {
+  flex-shrink: 0;
+  min-height: 4px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.studyplus-weekday {
+  display: block;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+}
+
+.studyplus-weekday.today {
+  color: var(--accent);
+}
+
+.studyplus-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 10px;
+  justify-content: center;
+  margin-top: 10px;
+  padding: 0 4px;
+}
+
+.studyplus-legend-item {
+  display: inline-flex;
+  align-items: center;
+  max-width: 112px;
+  min-width: 0;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--text-sub);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studyplus-legend-dot,
+.studyplus-legend-rail {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.studyplus-legend-rail {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev2);
+}
+
+@media (max-width: 420px) {
+  .studyplus-chart {
+    gap: 5px;
+    height: 166px;
+  }
+
+  .studyplus-total {
+    font-size: 9.5px;
+  }
 }
 
 /* ---------- 達成率チャート ---------- */

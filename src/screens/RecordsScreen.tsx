@@ -24,7 +24,7 @@ import { computeAnalytics } from '../lib/analytics';
 import { RecordSheet } from '../components/forms/RecordSheet';
 import { EmptyState } from '../components/ui/bits';
 import { MonthCalendar } from '../components/ui/MonthCalendar';
-import type { AppState, StudySession } from '../types';
+import type { AppState, StudySession, Subject } from '../types';
 
 type Period = 'week' | 'month';
 
@@ -187,7 +187,15 @@ export function RecordsScreen() {
       )}
 
       {period === 'week' ? (
-        <WeekChart days={days} minutesByDay={minutesByDay} plannedByDay={plannedByDay} totalPlanned={totalPlanned} totalActual={totalActual} />
+        <WeekChart
+          days={days}
+          sessions={sessions}
+          subjects={state.subjects}
+          minutesByDay={minutesByDay}
+          plannedByDay={plannedByDay}
+          totalPlanned={totalPlanned}
+          totalActual={totalActual}
+        />
       ) : (
         <MonthHeatCalendar month={addMonths(monthKeyOf(t), offset)} minutesByDay={minutesByDay} />
       )}
@@ -263,12 +271,16 @@ export function RecordsScreen() {
 
 function WeekChart({
   days,
+  sessions,
+  subjects,
   minutesByDay,
   plannedByDay,
   totalPlanned,
   totalActual,
 }: {
   days: string[];
+  sessions: StudySession[];
+  subjects: Subject[];
   minutesByDay: Map<string, number>;
   plannedByDay: Map<string, number>;
   totalPlanned: number;
@@ -277,58 +289,80 @@ function WeekChart({
   const t = today();
   const maxDay = Math.max(60, ...days.map((d) => Math.max(minutesByDay.get(d) ?? 0, plannedByDay.get(d) ?? 0)));
   const achievement = totalPlanned > 0 ? Math.min(999, Math.round((totalActual / totalPlanned) * 100)) : null;
+  const subjectById = new Map(subjects.map((subject) => [subject.id, subject]));
+  const subjectMinutes = new Map<string, Map<string, number>>();
+  for (const session of sessions) {
+    const map = subjectMinutes.get(session.date) ?? new Map<string, number>();
+    map.set(session.subjectId, (map.get(session.subjectId) ?? 0) + session.minutes);
+    subjectMinutes.set(session.date, map);
+  }
+  const visibleSubjects = subjects
+    .map((subject) => ({
+      subject,
+      minutes: days.reduce((sum, day) => sum + (subjectMinutes.get(day)?.get(subject.id) ?? 0), 0),
+    }))
+    .filter((item) => item.minutes > 0)
+    .sort((a, b) => b.minutes - a.minutes);
 
   return (
-    <div className="card mt-12">
-      <div className="row spread" style={{ marginBottom: 12 }}>
+    <div className="card mt-12 studyplus-chart-card">
+      <div className="row spread studyplus-chart-head">
         <div className="section-label" style={{ margin: 0 }}>予定 vs 実績</div>
         {achievement !== null && <span className="faint" style={{ fontWeight: 700 }}>達成率 {achievement}%</span>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 130 }}>
+      <div className="studyplus-chart">
         {days.map((d) => {
           const actual = minutesByDay.get(d) ?? 0;
           const planned = plannedByDay.get(d) ?? 0;
           const future = d > t;
+          const stacks = [...(subjectMinutes.get(d)?.entries() ?? [])]
+            .sort((a, b) => b[1] - a[1])
+            .map(([subjectId, minutes]) => ({ subject: subjectById.get(subjectId), minutes }));
           return (
-            <div key={d} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, height: '100%', opacity: future ? 0.45 : 1 }}>
-              <div style={{ flex: 1, width: '100%', display: 'flex', gap: 3, alignItems: 'flex-end', justifyContent: 'center' }}>
+            <div key={d} className={`studyplus-day ${future ? 'future' : ''}`}>
+              <div className="studyplus-total">{actual > 0 ? formatMinutesCompact(actual) : ''}</div>
+              <div className="studyplus-bar-area">
                 <div
+                  className="studyplus-plan-rail"
                   title={`予定 ${formatMinutes(planned)}`}
-                  style={{
-                    width: '34%',
-                    height: `${Math.min(100, (planned / maxDay) * 100)}%`,
-                    background: 'var(--bg-elev3)',
-                    borderRadius: 5,
-                    minHeight: planned > 0 ? 4 : 0,
-                  }}
+                  style={{ height: `${Math.min(100, (planned / maxDay) * 100)}%` }}
                 />
                 <div
+                  className="studyplus-actual-bar"
                   title={`実績 ${formatMinutes(actual)}`}
-                  style={{
-                    width: '34%',
-                    height: `${Math.min(100, (actual / maxDay) * 100)}%`,
-                    background: 'var(--accent-grad)',
-                    borderRadius: 5,
-                    minHeight: actual > 0 ? 4 : 0,
-                  }}
-                />
+                  style={{ height: `${Math.min(100, (actual / maxDay) * 100)}%` }}
+                >
+                  {stacks.map(({ subject, minutes }) => (
+                    <div
+                      key={subject?.id ?? 'unknown'}
+                      className="studyplus-stack"
+                      title={`${subject?.name ?? '不明'} ${formatMinutes(minutes)}`}
+                      style={{
+                        height: `${Math.max(8, (minutes / Math.max(1, actual)) * 100)}%`,
+                        background: subject?.color ?? 'var(--accent)',
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
-              <span className="faint" style={{ fontSize: 10.5, fontWeight: 700, color: d === t ? 'var(--accent)' : undefined }}>
+              <span className={`studyplus-weekday ${d === t ? 'today' : ''}`}>
                 {WEEKDAY_LABELS[weekdayOf(d)]}
               </span>
             </div>
           );
         })}
       </div>
-      <div className="row mt-8" style={{ gap: 14, justifyContent: 'center' }}>
-        <span className="faint">
-          <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: 'var(--bg-elev3)', marginRight: 5 }} />
+      <div className="studyplus-legend">
+        <span className="studyplus-legend-item muted-legend">
+          <span className="studyplus-legend-rail" />
           予定
         </span>
-        <span className="faint">
-          <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: 'var(--accent)', marginRight: 5 }} />
-          実績
-        </span>
+        {visibleSubjects.map(({ subject }) => (
+          <span key={subject.id} className="studyplus-legend-item">
+            <span className="studyplus-legend-dot" style={{ background: subject.color }} />
+            {subject.name}
+          </span>
+        ))}
       </div>
     </div>
   );
