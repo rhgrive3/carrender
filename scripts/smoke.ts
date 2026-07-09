@@ -249,6 +249,18 @@ for (const r of reviews) console.log(`   ${r.type}: ${r.rangeLabel} due=${r.dueD
     '復習オンのままなら生成済みの復習タスクは残る',
     onState.tasks.some((task) => task.id === plannedReview.id),
   );
+
+  // 設定のグローバルスイッチ: オフなら教材設定に関わらず生成せず、生成済みも外す
+  const globalOff = {
+    ...withReview,
+    settings: { ...withReview.settings, reviewRule: { ...withReview.settings.reviewRule, enabled: false } },
+  };
+  check('全体の復習自動生成オフでは新規生成されない', generateReviewTasks(globalOff, reviewSeedTask, session, t).length === 0);
+  const { state: globalOffState } = generatePlan(globalOff, t, '復習の自動生成をオフ');
+  check(
+    '全体の復習自動生成オフで生成済みの復習タスクも計画から外れる',
+    !globalOffState.tasks.some((task) => task.id === plannedReview.id),
+  );
 }
 
 {
@@ -278,8 +290,15 @@ for (const r of reviews) console.log(`   ${r.type}: ${r.rangeLabel} due=${r.dueD
 {
   const legacyMaterial = { ...state.materials[0] };
   delete (legacyMaterial as Partial<Material>).reviewEnabled;
-  const normalized = normalizeState({ ...state, materials: [legacyMaterial as Material] });
+  const legacyRule = { ...state.settings.reviewRule } as Partial<AppState['settings']['reviewRule']>;
+  delete legacyRule.enabled;
+  const normalized = normalizeState({
+    ...state,
+    materials: [legacyMaterial as Material],
+    settings: { ...state.settings, reviewRule: legacyRule as AppState['settings']['reviewRule'] },
+  });
   check('古い保存データに復習設定が無い場合も復習オフで補完される', normalized.materials[0]?.reviewEnabled === false);
+  check('古い保存データの復習ルールは自動生成オンで補完される', normalized.settings.reviewRule.enabled === true);
 }
 
 console.log('--- 分析 ---');

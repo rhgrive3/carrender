@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { AlarmClock, BookOpen, CalendarCog, Database, Download, FileDown, Pin, Target, Timer, Trophy, Upload, X } from 'lucide-react';
+import { AlarmClock, BookOpen, CalendarCog, Database, Download, FileDown, Pin, Repeat, Target, Timer, Trophy, Upload, X } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../state/AuthContext';
 import { Sheet } from '../components/ui/Sheet';
@@ -94,6 +94,13 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     const next = { ...settingsDraft, timer: { ...settingsDraft.timer, [key]: value } };
     setSettingsDraft(next);
     dispatch({ type: 'UPDATE_SETTINGS', settings: next });
+  };
+
+  const setReviewAutoEnabled = (enabled: boolean) => {
+    const next = { ...settingsDraft, reviewRule: { ...settingsDraft.reviewRule, enabled } };
+    setSettingsDraft(next);
+    dispatch({ type: 'UPDATE_SETTINGS', settings: next });
+    toast(enabled ? '復習の自動生成をオンにしました' : '復習の自動生成をオフにし、生成済みの復習タスクを計画から外しました');
   };
 
   const saveWeeklyGoal = () => {
@@ -396,6 +403,26 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       <button className="btn btn-secondary btn-sm btn-block" onClick={saveStudySettings}>
         上限を保存して再計算
       </button>
+      </Disclosure>
+
+      {/* 復習の自動生成 */}
+      <Disclosure
+        title="復習の自動生成"
+        icon={<Repeat size={16} strokeWidth={2.2} />}
+        iconColor="var(--ok)"
+        summary={state.settings.reviewRule.enabled ? 'オン(教材ごとに設定)' : 'オフ'}
+      >
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={settingsDraft.reviewRule.enabled}
+            onChange={(e) => setReviewAutoEnabled(e.target.checked)}
+          />
+          完了した範囲の復習タスク(1・3・7日後など)を自動で作る
+        </label>
+        <p className="field-hint">
+          オフにすると、教材の設定に関わらず復習タスクは自動生成されず、生成済みの未着手の復習タスクも計画から外れます。復習したい範囲は手動タスクで自由に追加できます
+        </p>
       </Disclosure>
 
       {/* 週間目標 */}

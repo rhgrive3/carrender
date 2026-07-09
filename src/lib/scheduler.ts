@@ -321,9 +321,9 @@ export function generatePlan(
       continue;
     }
     if (t.generatedBy === 'auto' && t.type === 'review') {
-      // 教材の復習をオフにしたら、生成済みの未着手復習タスクも計画から外す
+      // 復習(全体または教材)をオフにしたら、生成済みの未着手復習タスクも計画から外す
       const m = state.materials.find((x) => x.id === t.materialId);
-      if (!m?.reviewEnabled) continue;
+      if (!state.settings.reviewRule.enabled || !m?.reviewEnabled) continue;
     }
     toPlace.push({ ...t, status: 'planned' });
   }

@@ -142,6 +142,7 @@ export interface DayPlanOverride {
 
 // ---------- 復習ルール ----------
 export interface ReviewRule {
+  enabled: boolean; // 復習タスクの自動生成そのもののオン/オフ(オフなら教材設定に関わらず生成しない)
   intervals: number[]; // 完了からの日数
   lowAccuracyThreshold: number; // これ未満なら早める
   highAccuracyThreshold: number; // これ以上なら伸ばす

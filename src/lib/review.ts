@@ -20,6 +20,8 @@ export function generateReviewTasks(
   const material = state.materials.find((m) => m.id === completedTask.materialId);
   const created: StudyTask[] = [];
 
+  // 自動生成そのものがオフなら何も作らない
+  if (!rule.enabled) return created;
   // 対象外: 過去問演習・模試復習は自動連鎖しない
   if (completedTask.type === 'pastExam' || completedTask.type === 'mockReview') return created;
   if (!material?.reviewEnabled) return created;

@@ -115,6 +115,7 @@ export function normalizeState(input: AppState): AppState {
     ...(input.settings ?? {}),
     // v2以前の保存データにはtimer/weeklyTargetMinutesがないため深いレベルで補完する
     weeklyTargetMinutes: Math.max(0, input.settings?.weeklyTargetMinutes ?? 0),
+    reviewRule: { ...defaultSettings().reviewRule, ...(input.settings?.reviewRule ?? {}) },
     timer: {
       ...timerDefaults,
       ...(input.settings?.timer ?? {}),

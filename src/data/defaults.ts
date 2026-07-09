@@ -23,6 +23,7 @@ export function defaultSettings(): AppSettings {
     sessionMinMinutes: 25,
     sessionMaxMinutes: 90,
     reviewRule: {
+      enabled: true,
       intervals: [1, 3, 7, 14, 30],
       lowAccuracyThreshold: 60,
       highAccuracyThreshold: 90,

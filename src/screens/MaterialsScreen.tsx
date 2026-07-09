@@ -354,17 +354,23 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
           <label>試験への重要度</label>
           <Rating value={examRelevance} onChange={(v) => setExamRelevance(v)} icon={<Star size={17} strokeWidth={2.2} />} label="試験への重要度" />
         </div>
-        <div className="field">
-          <label className="check-row">
-            <input type="checkbox" checked={reviewEnabled} onChange={(e) => setReviewEnabled(e.target.checked)} />
-            復習タスクを自動生成する(明示的にオン)
-          </label>
-        </div>
-        {reviewEnabled && (
-          <div className="field">
-            <label htmlFor="mf-review-intervals">復習間隔(日・カンマ区切り)</label>
-            <input id="mf-review-intervals" value={reviewIntervalsText} onChange={(e) => setReviewIntervalsText(e.target.value)} placeholder="例: 1, 3, 7, 14, 30" />
-          </div>
+        {state.settings.reviewRule.enabled ? (
+          <>
+            <div className="field">
+              <label className="check-row">
+                <input type="checkbox" checked={reviewEnabled} onChange={(e) => setReviewEnabled(e.target.checked)} />
+                復習タスクを自動生成する(明示的にオン)
+              </label>
+            </div>
+            {reviewEnabled && (
+              <div className="field">
+                <label htmlFor="mf-review-intervals">復習間隔(日・カンマ区切り)</label>
+                <input id="mf-review-intervals" value={reviewIntervalsText} onChange={(e) => setReviewIntervalsText(e.target.value)} placeholder="例: 1, 3, 7, 14, 30" />
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="field-hint">復習の自動生成は設定でオフになっています(設定から再開できます)</p>
         )}
         <div className="field">
           <label>周回</label>
