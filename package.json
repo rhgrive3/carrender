@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "vite-node scripts/smoke.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "icons": "node scripts/generate-icons.mjs",

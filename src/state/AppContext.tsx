@@ -58,7 +58,7 @@ export interface OnboardingInput {
   }[];
 }
 
-type Action =
+export type Action =
   | { type: 'LOAD_DEMO' }
   | { type: 'RESET_ALL' }
   | { type: 'IMPORT_STATE'; state: AppState }
@@ -90,7 +90,7 @@ type Action =
 // Reducer
 // ============================================================
 
-function reducer(state: AppState, action: Action): AppState {
+export function appReducer(state: AppState, action: Action): AppState {
   const t = today();
   switch (action.type) {
     case 'LOAD_DEMO':
@@ -273,7 +273,7 @@ function reducer(state: AppState, action: Action): AppState {
       let tasks = state.tasks;
       let newReviews: StudyTask[] = [];
       const task = inp.taskId ? state.tasks.find((x) => x.id === inp.taskId) : undefined;
-      if (task && inp.completedTask) {
+      if (task && inp.completedTask && task.status !== 'done') {
         tasks = tasks.map((x) =>
           x.id === task.id ? { ...x, status: 'done' as const, completedAt: new Date().toISOString() } : x,
         );
@@ -306,7 +306,7 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'POSTPONE_TASK': {
       const task = state.tasks.find((x) => x.id === action.taskId);
-      if (!task) return state;
+      if (!task || task.status === 'done') return state;
       const next = {
         ...state,
         tasks: state.tasks.map((x) =>
@@ -317,6 +317,9 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'MOVE_TASK': {
+      const task = state.tasks.find((x) => x.id === action.taskId);
+      if (!task || task.status === 'done') return state;
+      if (task.dueDate && task.dueDate >= t && action.date > task.dueDate) return state;
       const tasks = state.tasks.map((x) =>
         x.id === action.taskId
           ? { ...x, scheduledDate: action.date, scheduledStart: null, scheduledEnd: null, generatedBy: 'manual' as const }
@@ -410,7 +413,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // タグ付けされていない=アカウント制導入前からの既存データ)時だけローカルキャッシュを使う。
   // ログアウト時にキャッシュとタグは必ず一緒に消えるため、別ユーザーのデータが
   // 新しいユーザーに混ざることはない(共用端末でも安全)。
-  const [state, dispatch] = useReducer(reducer, undefined, () => {
+  const [state, dispatch] = useReducer(appReducer, undefined, () => {
     const savedOwner = getStateOwner();
     if (owner && (savedOwner === null || savedOwner === owner)) {
       return loadState() ?? emptyState();

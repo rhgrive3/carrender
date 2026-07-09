@@ -960,6 +960,13 @@ body {
   gap: 7px;
 }
 
+.timer-status-slot {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .timer-cycle-dot {
   width: 10px;
   height: 10px;
@@ -1325,6 +1332,11 @@ body {
 
 .line-icon-btn:active {
   background: var(--bg-elev3);
+}
+
+.line-icon-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 
 .line-icon-btn.danger {

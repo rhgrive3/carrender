@@ -10,8 +10,7 @@ import { Segmented, Stepper, TASK_TYPE_LABEL } from '../components/ui/bits';
 import { useToast } from '../components/ui/Toast';
 import { useTimer } from '../components/timer/TimerContext';
 import { RecordSheet } from '../components/forms/RecordSheet';
-
-const MIN_START_BUFFER_MIN = 5;
+import { normalizeTaskSchedule } from '../lib/taskSchedule';
 
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => (typeof window === 'undefined' ? false : window.matchMedia(query).matches));
@@ -23,49 +22,6 @@ function useMediaQuery(query: string): boolean {
     return () => media.removeEventListener('change', update);
   }, [query]);
   return matches;
-}
-
-function currentMinutesJst(): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Tokyo',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date());
-  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
-  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
-  return (hour % 24) * 60 + minute;
-}
-
-function roundUpToStep(min: number, step: number): number {
-  return Math.ceil(min / step) * step;
-}
-
-function normalizeTaskSchedule(date: string, startTime: string, minutes: number): { date: string; startTime: string; endTime: string } {
-  let normalizedDate = date;
-  const now = today();
-  if (!startTime) return { date: date < now ? now : date, startTime: '', endTime: '' };
-
-  let startMin = hmToMinutes(startTime);
-  const minimumStart = roundUpToStep(currentMinutesJst() + MIN_START_BUFFER_MIN, 5);
-
-  if (date < now) {
-    normalizedDate = now;
-    startMin = Math.max(startMin, minimumStart);
-  } else if (date === now && startMin < minimumStart) {
-    startMin = minimumStart;
-  }
-
-  if (startMin >= 24 * 60 || startMin + minutes > 24 * 60 - 1) {
-    normalizedDate = addDays(normalizedDate, 1);
-    startMin = 9 * 60;
-  }
-
-  return {
-    date: normalizedDate,
-    startTime: minutesToHM(startMin),
-    endTime: minutesToHM(startMin + minutes),
-  };
 }
 
 export function PlanScreen() {
@@ -536,12 +492,18 @@ function DayDetailPanel({
 
 function TaskListBlock({ title, tasks, onTaskSelect }: { title: string; tasks: StudyTask[]; onTaskSelect: (task: StudyTask) => void }) {
   const { state, dispatch } = useApp();
+  const t = today();
   if (tasks.length === 0) return null;
   return (
     <>
       <div className="section-label compact">{title}</div>
       {tasks.map((task) => {
         const subject = state.subjects.find((s) => s.id === task.subjectId);
+        const isDone = task.status === 'done';
+        const nextDate = addDays(task.scheduledDate, 1);
+        const moveDate = nextDate < t ? t : nextDate;
+        const blockedByDueDate = !!task.dueDate && task.dueDate >= t && moveDate > task.dueDate;
+        const moveDisabled = isDone || blockedByDueDate;
         return (
           <div key={task.id} className="mini-block task-detail-line">
             <span style={{ width: 4, alignSelf: 'stretch', borderRadius: 4, background: subject?.color, flexShrink: 0 }} />
@@ -550,13 +512,19 @@ function TaskListBlock({ title, tasks, onTaskSelect }: { title: string; tasks: S
               <span>{task.rangeLabel || '詳細なし'} ・ {task.scheduledStart ?? '--:--'}〜{task.scheduledEnd ?? '--:--'} ・ {task.estimatedMinutes}分</span>
             </button>
             <div className="task-line-actions">
-              <button className="line-icon-btn" aria-label={`${task.title}を上へ移動`} onClick={() => dispatch({ type: 'REORDER_TASK', taskId: task.id, direction: 'up' })}>
+              <button className="line-icon-btn" aria-label={`${task.title}を上へ移動`} disabled={isDone} onClick={() => dispatch({ type: 'REORDER_TASK', taskId: task.id, direction: 'up' })}>
                 <ChevronUp size={16} strokeWidth={2.2} aria-hidden="true" />
               </button>
-              <button className="line-icon-btn" aria-label={`${task.title}を下へ移動`} onClick={() => dispatch({ type: 'REORDER_TASK', taskId: task.id, direction: 'down' })}>
+              <button className="line-icon-btn" aria-label={`${task.title}を下へ移動`} disabled={isDone} onClick={() => dispatch({ type: 'REORDER_TASK', taskId: task.id, direction: 'down' })}>
                 <ChevronDown size={16} strokeWidth={2.2} aria-hidden="true" />
               </button>
-              <button className="line-icon-btn" aria-label={`${task.title}を翌日へ移動`} onClick={() => dispatch({ type: 'MOVE_TASK', taskId: task.id, date: addDays(task.scheduledDate, 1) })}>
+              <button
+                className="line-icon-btn"
+                aria-label={`${task.title}を翌日へ移動`}
+                title={blockedByDueDate ? '期限を過ぎるため移動できません' : undefined}
+                disabled={moveDisabled}
+                onClick={() => dispatch({ type: 'MOVE_TASK', taskId: task.id, date: moveDate })}
+              >
                 <SkipForward size={15} strokeWidth={2.2} aria-hidden="true" />
               </button>
               <button className="line-icon-btn danger" aria-label={`${task.title}を削除`} onClick={() => dispatch({ type: 'DELETE_TASK', taskId: task.id })}>
@@ -586,10 +554,11 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
   const [recordOpen, setRecordOpen] = useState(false);
   const subject = state.subjects.find((s) => s.id === task.subjectId);
   const material = state.materials.find((m) => m.id === task.materialId);
+  const isDone = task.status === 'done';
   const endTime = startTime ? minutesToHM(hmToMinutes(startTime) + minutes) : '';
 
   const moveTo = (date: string) => {
-    if (task.status === 'done') {
+    if (isDone) {
       toast('完了済みタスクの予定は変更できません');
       return;
     }
@@ -603,7 +572,7 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
   };
 
   const applyChanges = () => {
-    if (task.status === 'done') {
+    if (isDone) {
       toast('完了済みタスクの予定は変更できません');
       onClose();
       return;
@@ -699,6 +668,7 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
         <button
           className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
+          disabled={isDone}
           onClick={() => {
             timer.start({
               taskId: task.id,
@@ -712,12 +682,13 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
         >
           <Play size={13} strokeWidth={2.4} fill="currentColor" aria-hidden="true" /> 開始
         </button>
-        <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => setRecordOpen(true)}>
+        <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} disabled={isDone} onClick={() => setRecordOpen(true)}>
           <Check size={14} strokeWidth={2.8} aria-hidden="true" /> 完了
         </button>
         <button
           className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
+          disabled={isDone}
           onClick={() => {
             dispatch({ type: 'POSTPONE_TASK', taskId: task.id });
             toast('明日以降に再配置しました');

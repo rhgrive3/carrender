@@ -145,7 +145,9 @@ export function TimerOverlay() {
           </>
         )}
 
-        {!timer.running && <span className="status-badge status-warn">一時停止中</span>}
+        <div className="timer-status-slot" aria-live="polite">
+          {!timer.running && <span className="status-badge status-warn">一時停止中</span>}
+        </div>
 
         <button className={`noise-toggle ${noise !== 'off' ? 'on' : ''}`} onClick={cycleNoise} aria-label={`環境音を切り替え(現在: ${NOISE_LABEL[noise]})`}>
           {noise === 'off' ? (

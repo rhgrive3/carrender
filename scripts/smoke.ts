@@ -8,6 +8,8 @@ import { generateReviewTasks } from '../src/lib/review';
 import { computeAnalytics } from '../src/lib/analytics';
 import { computeAchievements, unlockedCount } from '../src/lib/achievements';
 import { addDays, today } from '../src/lib/date';
+import { normalizeTaskSchedule } from '../src/lib/taskSchedule';
+import { appReducer } from '../src/state/AppContext';
 import type { StudySession } from '../src/types';
 
 const t = today();
@@ -148,6 +150,61 @@ console.log('--- 記録後も今日の残りタスクが維持される ---');
     if (claimed > rem) check(`${m.name}: 配置量${claimed} > 残量${rem} (二重配置)`, false);
   }
   console.log('  ✅ 教材範囲の二重配置なし');
+}
+
+console.log('--- タスク予定変更の不変条件 ---');
+{
+  const plannedTask = todayTasks[0];
+  const doneTask = { ...plannedTask, status: 'done' as const, completedAt: new Date().toISOString(), dueDate: addDays(t, 2) };
+  const base = { ...state, tasks: state.tasks.map((x) => (x.id === plannedTask.id ? doneTask : x)) };
+
+  const movedDone = appReducer(base, { type: 'MOVE_TASK', taskId: doneTask.id, date: addDays(t, 1) });
+  const movedDoneTask = movedDone.tasks.find((x) => x.id === doneTask.id);
+  check('完了済みタスクはMOVE_TASKで動かない', movedDoneTask?.scheduledDate === doneTask.scheduledDate);
+
+  const postponedDone = appReducer(base, { type: 'POSTPONE_TASK', taskId: doneTask.id });
+  const postponedDoneTask = postponedDone.tasks.find((x) => x.id === doneTask.id);
+  check('完了済みタスクはPOSTPONE_TASKで延期されない', postponedDoneTask?.scheduledDate === doneTask.scheduledDate && postponedDoneTask?.status === 'done');
+
+  const dueTask = { ...todayTasks[1], dueDate: t };
+  const dueBase = { ...state, tasks: state.tasks.map((x) => (x.id === dueTask.id ? dueTask : x)) };
+  const movedPastDue = appReducer(dueBase, { type: 'MOVE_TASK', taskId: dueTask.id, date: addDays(t, 1) });
+  const movedPastDueTask = movedPastDue.tasks.find((x) => x.id === dueTask.id);
+  check('未来期限を越えるMOVE_TASKは拒否される', movedPastDueTask?.scheduledDate === dueTask.scheduledDate);
+
+  const reviewCountBefore = base.tasks.filter((x) => (x.type === 'review' || x.type === 'correction') && x.rangeLabel === doneTask.rangeLabel).length;
+  const afterRepeatCompletion = appReducer(base, {
+    type: 'RECORD_SESSION',
+    input: {
+      taskId: doneTask.id,
+      subjectId: doneTask.subjectId,
+      materialId: doneTask.materialId,
+      minutes: doneTask.estimatedMinutes,
+      amountDone: 0,
+      accuracy: 50,
+      focus: 3,
+      difficulty: 3,
+      memo: '',
+      source: 'manual',
+      rangeLabel: doneTask.rangeLabel,
+      completedTask: true,
+    },
+  });
+  const reviewCountAfter = afterRepeatCompletion.tasks.filter((x) => (x.type === 'review' || x.type === 'correction') && x.rangeLabel === doneTask.rangeLabel).length;
+  check('完了済みタスクの再記録で復習タスクが重複しない', reviewCountAfter === reviewCountBefore, { reviewCountBefore, reviewCountAfter });
+}
+
+console.log('--- タスク時刻補正 ---');
+{
+  const fixedNow = new Date('2026-07-09T03:02:00.000Z'); // Asia/Tokyo 12:02
+  const pastTime = normalizeTaskSchedule('2026-07-09', '11:00', 30, { now: fixedNow });
+  check('今日の過去時刻は現在+5分を5分刻みに丸める', pastTime.date === '2026-07-09' && pastTime.startTime === '12:10' && pastTime.endTime === '12:40', pastTime);
+
+  const pastDate = normalizeTaskSchedule('2026-07-08', '10:00', 30, { now: fixedNow });
+  check('過去日の予定は今日の未来時刻に丸める', pastDate.date === '2026-07-09' && pastDate.startTime === '12:10', pastDate);
+
+  const overMidnight = normalizeTaskSchedule('2026-07-09', '23:40', 30, { now: fixedNow });
+  check('日跨ぎになる予定は翌日9:00へ送る', overMidnight.date === '2026-07-10' && overMidnight.startTime === '09:00' && overMidnight.endTime === '09:30', overMidnight);
 }
 
 console.log(failures === 0 ? '\n🎉 ALL PASS' : `\n💥 ${failures} FAILURES`);
