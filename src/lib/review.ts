@@ -1,4 +1,4 @@
-import type { AppState, ISODate, StudySession, StudyTask } from '../types';
+import type { AppState, ISODate, StudyTask } from '../types';
 import { addDays, genId } from './date';
 
 /**
@@ -13,7 +13,6 @@ import { addDays, genId } from './date';
 export function generateReviewTasks(
   state: AppState,
   completedTask: StudyTask,
-  _session: StudySession,
   refDate: ISODate,
 ): StudyTask[] {
   const rule = state.settings.reviewRule;
@@ -27,8 +26,8 @@ export function generateReviewTasks(
   if (!material?.reviewEnabled) return created;
 
   const nextStage = completedTask.type === 'review' ? (completedTask.reviewStage ?? 0) + 1 : 0;
-  // 「復習N回目」「間違い直し」の接頭辞を除いた元の範囲名
-  const baseRange = completedTask.rangeLabel.replace(/^(復習\d+回目|間違い直し)\s*/, '');
+  // 「復習N回目」の接頭辞を除いた元の範囲名
+  const baseRange = completedTask.rangeLabel.replace(/^復習\d+回目\s*/, '');
 
   let intervals = material?.reviewIntervals?.length ? [...material.reviewIntervals] : [...rule.intervals];
   // 難易度が高い教材は復習回数を増やす(最終間隔をもう一度)
@@ -37,8 +36,7 @@ export function generateReviewTasks(
   }
 
   if (nextStage < intervals.length) {
-    let interval = intervals[nextStage];
-    const due = addDays(refDate, interval);
+    const due = addDays(refDate, intervals[nextStage]);
     const estimated = Math.max(15, Math.round(completedTask.estimatedMinutes * 0.4));
     created.push({
       id: genId('task'),

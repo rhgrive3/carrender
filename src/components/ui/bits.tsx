@@ -15,14 +15,12 @@ export function SubjectChip({ subject }: { subject: Subject | undefined }) {
 export const TASK_TYPE_LABEL: Record<StudyTask['type'], string> = {
   new: '新規',
   review: '復習',
-  correction: '間違い直し',
   mockReview: '模試復習',
   pastExam: '過去問',
 };
 
 export function TaskTypeChip({ type }: { type: StudyTask['type'] }) {
-  const cls = type === 'review' ? 'review' : type === 'correction' ? 'correction' : '';
-  return <span className={`task-type-chip ${cls}`}>{TASK_TYPE_LABEL[type]}</span>;
+  return <span className={`task-type-chip ${type === 'review' ? 'review' : ''}`}>{TASK_TYPE_LABEL[type]}</span>;
 }
 
 export function ProgressBar({ value, color }: { value: number; color?: string }) {
@@ -43,7 +41,6 @@ export function NumericInput({
   onChange,
   min,
   max,
-  step,
   decimal = false,
   placeholder,
   ariaLabel,
@@ -54,7 +51,6 @@ export function NumericInput({
   onChange: (value: number) => void;
   min?: number;
   max?: number;
-  step?: number;
   decimal?: boolean;
   placeholder?: string;
   ariaLabel?: string;
@@ -90,9 +86,6 @@ export function NumericInput({
       inputMode={decimal ? 'decimal' : 'numeric'}
       pattern={decimal ? undefined : '[0-9]*'}
       value={text}
-      min={min}
-      max={max}
-      step={step}
       aria-label={ariaLabel}
       placeholder={placeholder}
       onFocus={() => {

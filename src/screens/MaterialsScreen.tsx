@@ -4,7 +4,7 @@ import { useApp } from '../state/AppContext';
 import type { Material } from '../types';
 import { addDays, diffDays, formatDateShort, genId, today } from '../lib/date';
 import { computeMaterialForecast, todayQuotaFor } from '../lib/analytics';
-import { ProgressBar, EmptyState, Rating, NumericInput, Segmented, Disclosure } from '../components/ui/bits';
+import { ProgressBar, EmptyState, Rating, NumericInput, Disclosure } from '../components/ui/bits';
 import { Sheet } from '../components/ui/Sheet';
 import { useToast } from '../components/ui/Toast';
 import { UNIT_OPTIONS } from '../data/defaults';
@@ -16,31 +16,21 @@ const FORECAST_UI = {
   risk: { label: '危険', cls: 'status-danger' },
 } as const;
 
-const PHASE_LABEL: Record<Material['phase'], string> = {
-  first: '1周目',
-  second: '2周目',
-  correction: '間違い直し',
-  review: '復習',
-};
-
 export function MaterialsScreen() {
   const { state } = useApp();
   const t = today();
   const [editTarget, setEditTarget] = useState<Material | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
-  const materials = useMemo(
-    () =>
-      [...state.materials]
-        .filter((m) => !m.archived)
-        .sort((a, b) => {
-          const fa = computeMaterialForecast(state, a.id, t);
-          const fb = computeMaterialForecast(state, b.id, t);
-          const order = { risk: 0, behind: 1, onTrack: 2, ahead: 3 };
-          return order[fa?.status ?? 'onTrack'] - order[fb?.status ?? 'onTrack'];
-        }),
-    [state, t],
-  );
+  const materials = useMemo(() => {
+    const order = { risk: 0, behind: 1, onTrack: 2, ahead: 3 };
+    const rank = new Map(
+      state.materials.map((m) => [m.id, order[computeMaterialForecast(state, m.id, t)?.status ?? 'onTrack']]),
+    );
+    return state.materials
+      .filter((m) => !m.archived)
+      .sort((a, b) => (rank.get(a.id) ?? 2) - (rank.get(b.id) ?? 2));
+  }, [state, t]);
 
   return (
     <div className="screen">
@@ -164,7 +154,6 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
   const [difficulty, setDifficulty] = useState<Material['difficulty']>(material?.difficulty ?? 3);
   const [dailyTarget, setDailyTarget] = useState(material?.dailyTarget ?? 0);
   const [weeklyTarget, setWeeklyTarget] = useState(material?.weeklyTarget ?? 0);
-  const [phase, setPhase] = useState<Material['phase']>(material?.phase ?? 'first');
   const [deadlinePolicy, setDeadlinePolicy] = useState<Material['deadlinePolicy']>(material?.deadlinePolicy ?? 'normal');
   const [examRelevance, setExamRelevance] = useState<Material['examRelevance']>(material?.examRelevance ?? 3);
   const [reviewEnabled, setReviewEnabled] = useState(material?.reviewEnabled ?? false);
@@ -196,15 +185,12 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       minutesPerUnit: Math.max(0.1, minutesPerUnit),
       dailyTarget: dailyTarget > 0 ? dailyTarget : null,
       weeklyTarget: weeklyTarget > 0 ? weeklyTarget : null,
-      phase,
       deadlinePolicy,
       examRelevance,
       reviewEnabled,
       reviewIntervals: reviewIntervals.length > 0 ? reviewIntervals : state.settings.reviewRule.intervals,
       paused,
-      round: phase === 'second' ? 2 : phase === 'first' ? 1 : round,
-      lastStudiedAt: material?.lastStudiedAt ?? null,
-      nextReviewAt: material?.nextReviewAt ?? null,
+      round,
       archived,
       createdAt: material?.createdAt ?? new Date().toISOString(),
     };
@@ -288,7 +274,6 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
             <NumericInput
               id="mf-mpu"
               decimal
-              step={0.5}
               value={minutesPerUnit}
               min={0.1}
               placeholder="例: 12"
@@ -327,20 +312,6 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
             <option value="normal">できれば守りたい</option>
             <option value="flexible">余裕があれば</option>
           </select>
-        </div>
-        <div className="field">
-          <label>フェーズ</label>
-          <Segmented
-            ariaLabel="教材フェーズ"
-            options={[
-              { value: 'first', label: PHASE_LABEL.first },
-              { value: 'second', label: PHASE_LABEL.second },
-              { value: 'correction', label: PHASE_LABEL.correction },
-              { value: 'review', label: PHASE_LABEL.review },
-            ]}
-            value={phase}
-            onChange={setPhase}
-          />
         </div>
         <div className="field">
           <label>優先度(高いほど先に配置)</label>

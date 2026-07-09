@@ -48,15 +48,12 @@ export function buildDemoState(): AppState {
     minutesPerUnit,
     dailyTarget: null,
     weeklyTarget: null,
-    phase: 'first',
     deadlinePolicy: targetOffsetDays <= 95 && priority >= 4 ? 'strict' : 'normal',
     examRelevance: priority,
     reviewEnabled: true,
     reviewIntervals: defaultSettings().reviewRule.intervals,
     paused: false,
     round: 1,
-    lastStudiedAt: null,
-    nextReviewAt: null,
     archived: false,
     createdAt,
   });
@@ -79,26 +76,26 @@ export function buildDemoState(): AppState {
 
   // 曜日で濃淡をつけたリアルな学習パターン(2日前は休んだ)
   // 数学(mat_chart)と国語(mat_gendai)は必要ペースに届かず「遅れ」、他は概ね順調になる量にしてある
-  const pattern: { offset: number; entries: [string, number, number, number | null, 1 | 2 | 3 | 4 | 5][] }[] = [
-    { offset: -13, entries: [['mat_chart', 60, 5, 62, 3], ['mat_tango', 30, 60, 78, 4]] },
-    { offset: -12, entries: [['mat_phys', 55, 5, 58, 3], ['mat_tango', 25, 55, 82, 4], ['mat_chobun', 40, 1, 70, 3]] },
-    { offset: -11, entries: [['mat_chem', 50, 6, 75, 4], ['mat_gendai', 45, 1, 66, 3]] },
-    { offset: -10, entries: [['mat_chart', 70, 6, 55, 2], ['mat_geo', 30, 3, 80, 4]] },
-    { offset: -9, entries: [['mat_tango', 35, 65, 85, 5], ['mat_chobun', 40, 1, 74, 4], ['mat_info', 30, 2, 88, 4]] },
-    { offset: -8, entries: [['mat_phys', 60, 6, 62, 3], ['mat_chem', 45, 5, 70, 3]] },
-    { offset: -7, entries: [['mat_chart', 55, 4, 60, 3], ['mat_tango', 30, 60, 80, 4], ['mat_gendai', 40, 1, 72, 4]] },
-    { offset: -6, entries: [['mat_chobun', 45, 2, 68, 3], ['mat_geo', 25, 3, 85, 4]] },
-    { offset: -5, entries: [['mat_chem', 55, 6, 78, 4], ['mat_tango', 25, 50, 84, 4], ['mat_phys', 50, 5, 55, 2]] },
-    { offset: -4, entries: [['mat_chart', 65, 5, 58, 3], ['mat_info', 30, 3, 90, 5], ['mat_geo', 25, 3, 82, 4]] },
-    { offset: -3, entries: [['mat_tango', 30, 55, 86, 4], ['mat_gendai', 45, 1, 70, 3], ['mat_chobun', 40, 2, 76, 4]] },
+  const pattern: { offset: number; entries: [string, number, number, 1 | 2 | 3 | 4 | 5][] }[] = [
+    { offset: -13, entries: [['mat_chart', 60, 5, 3], ['mat_tango', 30, 60, 4]] },
+    { offset: -12, entries: [['mat_phys', 55, 5, 3], ['mat_tango', 25, 55, 4], ['mat_chobun', 40, 1, 3]] },
+    { offset: -11, entries: [['mat_chem', 50, 6, 4], ['mat_gendai', 45, 1, 3]] },
+    { offset: -10, entries: [['mat_chart', 70, 6, 2], ['mat_geo', 30, 3, 4]] },
+    { offset: -9, entries: [['mat_tango', 35, 65, 5], ['mat_chobun', 40, 1, 4], ['mat_info', 30, 2, 4]] },
+    { offset: -8, entries: [['mat_phys', 60, 6, 3], ['mat_chem', 45, 5, 3]] },
+    { offset: -7, entries: [['mat_chart', 55, 4, 3], ['mat_tango', 30, 60, 4], ['mat_gendai', 40, 1, 4]] },
+    { offset: -6, entries: [['mat_chobun', 45, 2, 3], ['mat_geo', 25, 3, 4]] },
+    { offset: -5, entries: [['mat_chem', 55, 6, 4], ['mat_tango', 25, 50, 4], ['mat_phys', 50, 5, 2]] },
+    { offset: -4, entries: [['mat_chart', 65, 5, 3], ['mat_info', 30, 3, 5], ['mat_geo', 25, 3, 4]] },
+    { offset: -3, entries: [['mat_tango', 30, 55, 4], ['mat_gendai', 45, 1, 3], ['mat_chobun', 40, 2, 4]] },
     // -2日は勉強できなかった(リアルさのため)
-    { offset: -1, entries: [['mat_chart', 50, 4, 64, 3], ['mat_tango', 25, 50, 82, 4], ['mat_phys', 45, 5, 72, 4]] },
+    { offset: -1, entries: [['mat_chart', 50, 4, 3], ['mat_tango', 25, 50, 4], ['mat_phys', 45, 5, 4]] },
   ];
 
   for (const dayPat of pattern) {
     const date = addDays(t, dayPat.offset);
     let hour = 19;
-    for (const [materialId, minutes, amount, accuracy, focus] of dayPat.entries) {
+    for (const [materialId, minutes, amount, focus] of dayPat.entries) {
       const m = materials.find((x) => x.id === materialId);
       if (!m) continue;
       const startedAt = new Date(`${date}T${String(hour).padStart(2, '0')}:00:00`).toISOString();
@@ -114,9 +111,7 @@ export function buildDemoState(): AppState {
         minutes,
         amountDone: amount,
         rangeLabel: `${m.name}`,
-        accuracy,
         focus,
-        difficulty: m.difficulty,
         memo: '',
         source: 'timer',
       });
@@ -143,7 +138,6 @@ export function buildDemoState(): AppState {
         createdAt: startedAt,
         completedAt: startedAt,
       });
-      m.lastStudiedAt = date;
     }
   }
 

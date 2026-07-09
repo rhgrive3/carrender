@@ -489,11 +489,6 @@ body {
   background: var(--warn-soft);
 }
 
-.task-type-chip.correction {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-
 .task-title {
   font-size: 14.5px;
   font-weight: 700;

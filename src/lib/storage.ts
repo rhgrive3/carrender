@@ -115,7 +115,13 @@ export function normalizeState(input: AppState): AppState {
     ...(input.settings ?? {}),
     // v2以前の保存データにはtimer/weeklyTargetMinutesがないため深いレベルで補完する
     weeklyTargetMinutes: Math.max(0, input.settings?.weeklyTargetMinutes ?? 0),
-    reviewRule: { ...defaultSettings().reviewRule, ...(input.settings?.reviewRule ?? {}) },
+    reviewRule: {
+      enabled: input.settings?.reviewRule?.enabled ?? defaultSettings().reviewRule.enabled,
+      intervals:
+        Array.isArray(input.settings?.reviewRule?.intervals) && input.settings.reviewRule.intervals.length > 0
+          ? input.settings.reviewRule.intervals
+          : defaultSettings().reviewRule.intervals,
+    },
     timer: {
       ...timerDefaults,
       ...(input.settings?.timer ?? {}),
@@ -170,7 +176,6 @@ export function normalizeState(input: AppState): AppState {
       startDate: m.startDate ?? m.createdAt?.slice(0, 10) ?? toISODate(new Date()),
       dailyTarget: m.dailyTarget ?? null,
       weeklyTarget: m.weeklyTarget ?? null,
-      phase: m.phase ?? (m.round && m.round >= 2 ? 'second' : 'first'),
       deadlinePolicy: m.deadlinePolicy ?? 'normal',
       examRelevance: m.examRelevance ?? m.priority ?? 3,
       reviewEnabled: m.reviewEnabled ?? false,
@@ -181,6 +186,8 @@ export function normalizeState(input: AppState): AppState {
       paused: m.paused ?? false,
       archived: m.archived ?? false,
     })),
+    // 廃止した「間違い直し」タスクは復習タスクとして読み替える
+    tasks: (input.tasks ?? []).map((t) => ((t.type as string) === 'correction' ? { ...t, type: 'review' as const } : t)),
   };
 }
 

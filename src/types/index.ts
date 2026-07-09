@@ -1,10 +1,9 @@
 // ---------- 基本単位 ----------
 export type MaterialUnit = 'ページ' | '問題' | '講義' | '単語' | '年度' | 'セクション' | 'テーマ' | '題';
 
-export type TaskType = 'new' | 'review' | 'correction' | 'mockReview' | 'pastExam';
+export type TaskType = 'new' | 'review' | 'mockReview' | 'pastExam';
 export type TaskStatus = 'planned' | 'doing' | 'done' | 'skipped' | 'postponed';
 export type GeneratedBy = 'auto' | 'manual';
-export type MaterialPhase = 'first' | 'second' | 'correction' | 'review';
 export type DeadlinePolicy = 'strict' | 'normal' | 'flexible';
 export type DayLoad = 'normal' | 'light' | 'heavy' | 'rest';
 
@@ -51,15 +50,12 @@ export interface Material {
   minutesPerUnit: number; // 1単位あたりの推定分
   dailyTarget: number | null;
   weeklyTarget: number | null;
-  phase: MaterialPhase;
   deadlinePolicy: DeadlinePolicy;
   examRelevance: 1 | 2 | 3 | 4 | 5;
   reviewEnabled: boolean;
   reviewIntervals: number[];
   paused: boolean;
   round: number; // 1周目=1, 2周目=2...
-  lastStudiedAt: ISODate | null;
-  nextReviewAt: ISODate | null;
   archived: boolean;
   createdAt: string;
 }
@@ -101,21 +97,12 @@ export interface StudySession {
   minutes: number;
   amountDone: number;
   rangeLabel: string;
-  accuracy: number | null; // 0-100
   focus: 1 | 2 | 3 | 4 | 5 | null;
-  difficulty: 1 | 2 | 3 | 4 | 5 | null;
   memo: string;
   source: 'timer' | 'manual';
 }
 
 // ---------- スケジュール ----------
-export interface ScheduleBlock {
-  taskId: string;
-  date: ISODate;
-  start: string; // "HH:mm"
-  end: string;
-}
-
 export interface AvailabilitySlot {
   weekday: Weekday;
   minutes: number; // その曜日に勉強できる分数
@@ -144,9 +131,6 @@ export interface DayPlanOverride {
 export interface ReviewRule {
   enabled: boolean; // 復習タスクの自動生成そのもののオン/オフ(オフなら教材設定に関わらず生成しない)
   intervals: number[]; // 完了からの日数
-  lowAccuracyThreshold: number; // これ未満なら早める
-  highAccuracyThreshold: number; // これ以上なら伸ばす
-  correctionThreshold: number; // これ未満なら間違い直しタスク生成
 }
 
 // ---------- 分析 ----------
@@ -155,7 +139,6 @@ export interface SubjectStat {
   plannedMinutes: number;
   actualMinutes: number;
   completionRate: number; // 0-1
-  avgAccuracy: number | null;
 }
 
 export interface MaterialForecast {

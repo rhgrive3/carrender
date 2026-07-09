@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 interface ProgressRingProps {
   /** 0-1 */
   value: number;
@@ -13,7 +15,8 @@ export function ProgressRing({ value, size = 104, stroke = 9, label, sublabel, c
   const clamped = Math.max(0, Math.min(1, value));
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const gradId = 'ring-grad';
+  // 同一画面に複数のリングが並んでもグラデーション定義が衝突しないようにする
+  const gradId = useId();
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label ? `${label} ${sublabel ?? ''}` : `進捗 ${Math.round(clamped * 100)}%`}>

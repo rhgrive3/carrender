@@ -28,7 +28,8 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
   const t = today();
 
   const analytics = useMemo(() => computeAnalytics(state, t), [state, t]);
-  const dayStatus = useMemo(() => computeDayStatus(state, t), [state, t]);
+  // computeAnalytics内で計算済みのキャパシティを渡して二重計算を避ける
+  const dayStatus = useMemo(() => computeDayStatus(state, t, analytics.capacity), [state, t, analytics.capacity]);
 
   const todayTasks = useMemo(
     () =>
@@ -50,7 +51,7 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
     [state.tasks, t],
   );
 
-  const topTask = pending.sort((a, b) => b.priority - a.priority)[0] ?? null;
+  const topTask = [...pending].sort((a, b) => b.priority - a.priority)[0] ?? null;
   const plannedMinutes = todayTasks.filter((x) => x.status !== 'skipped').reduce((s, x) => s + x.estimatedMinutes, 0);
   const doneRate = plannedMinutes > 0 ? Math.min(1, analytics.todayMinutes / plannedMinutes) : analytics.todayMinutes > 0 ? 1 : 0;
   const daysLeft = state.goal ? diffDays(t, state.goal.examDate) : null;

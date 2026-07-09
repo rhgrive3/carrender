@@ -260,7 +260,6 @@ export function OnboardingScreen() {
                   <NumericInput
                     id={`ob-mmpu-${i}`}
                     decimal
-                    step={0.5}
                     value={m.minutesPerUnit}
                     min={0.1}
                     placeholder="例: 12"

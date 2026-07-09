@@ -43,6 +43,7 @@ export function PlanScreen() {
     const map = new Map<string, StudyTask[]>();
     for (const d of days) map.set(d, []);
     for (const task of state.tasks) {
+      if (task.status === 'skipped') continue;
       if (map.has(task.scheduledDate)) map.get(task.scheduledDate)!.push(task);
     }
     for (const list of map.values()) {
@@ -134,7 +135,7 @@ export function PlanScreen() {
             const tasks = tasksByDay.get(d) ?? [];
             const events = fixedEventsOn(state, d);
             const capacity = availableMinutesOn(state, d);
-            const planned = tasks.filter((x) => x.status !== 'skipped').reduce((s, x) => s + x.estimatedMinutes, 0);
+            const planned = tasks.reduce((s, x) => s + x.estimatedMinutes, 0);
             const isToday = d === t;
             const selectedCls = selectedDay === d ? 'selected-col' : '';
             return (
@@ -177,7 +178,6 @@ export function PlanScreen() {
                         <span style={{ display: 'block', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {done && <Check size={12} strokeWidth={3} aria-label="完了" style={{ color: 'var(--ok)', verticalAlign: '-0.1em', marginRight: 2 }} />}
                           {task.type === 'review' && <Repeat size={12} strokeWidth={2.6} aria-label="復習" style={{ color: 'var(--accent)', verticalAlign: '-0.1em', marginRight: 2 }} />}
-                          {task.type === 'correction' && '✍️ '}
                           {task.title}
                         </span>
                         <span className="faint">{task.rangeLabel}</span>
@@ -355,8 +355,8 @@ function DayDetailPanel({
   const free = Math.max(0, capacity - planned);
   const events = fixedEventsOn(state, date);
   const slots = freeSlotsOn(state, date);
-  const learningTasks = tasks.filter((task) => task.type === 'new' || task.type === 'pastExam' || task.type === 'mockReview');
-  const reviewTasks = tasks.filter((task) => task.type === 'review' || task.type === 'correction');
+  const learningTasks = tasks.filter((task) => task.type !== 'review');
+  const reviewTasks = tasks.filter((task) => task.type === 'review');
   const missedTasks = state.tasks.filter((task) => task.status === 'planned' && task.scheduledDate < t);
   const subjectMinutes = new Map<string, number>();
   for (const task of tasks) subjectMinutes.set(task.subjectId, (subjectMinutes.get(task.subjectId) ?? 0) + task.estimatedMinutes);

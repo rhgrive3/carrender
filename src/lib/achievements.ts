@@ -71,9 +71,7 @@ export function computeAchievements(state: AppState, ref: ISODate): Achievement[
   const maxDayMinutes = Math.max(0, ...minutesByDate.values());
   const earlySessions = sessions.filter((s) => jstHourOf(s.startedAt) < 6).length;
   const timerSessions = sessions.filter((s) => s.source === 'timer').length;
-  const reviewsDone = state.tasks.filter(
-    (t) => (t.type === 'review' || t.type === 'correction') && t.status === 'done',
-  ).length;
+  const reviewsDone = state.tasks.filter((t) => t.type === 'review' && t.status === 'done').length;
   const completedMaterials = state.materials.filter((m) => m.totalAmount > 0 && m.doneAmount >= m.totalAmount).length;
 
   // 週間目標をどこかの週(日〜土)で達成したか

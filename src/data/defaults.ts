@@ -25,9 +25,6 @@ export function defaultSettings(): AppSettings {
     reviewRule: {
       enabled: true,
       intervals: [1, 3, 7, 14, 30],
-      lowAccuracyThreshold: 60,
-      highAccuracyThreshold: 90,
-      correctionThreshold: 60,
     },
     weeklyTargetMinutes: 0,
     timer: defaultTimerSettings(),

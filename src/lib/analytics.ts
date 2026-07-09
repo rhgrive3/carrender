@@ -79,7 +79,6 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
       plannedMinutes: planned,
       actualMinutes: actual,
       completionRate: planned > 0 ? Math.min(1, done / planned) : 1,
-      avgAccuracy: null,
     };
   });
 
@@ -93,7 +92,7 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
 
   // --- 復習滞留 ---
   const overdueReviewCount = state.tasks.filter(
-    (t) => (t.type === 'review' || t.type === 'correction') && t.status === 'planned' && t.dueDate !== null && t.dueDate < ref,
+    (t) => t.type === 'review' && t.status === 'planned' && t.dueDate !== null && t.dueDate < ref,
   ).length;
 
   // --- ヒートマップ (直近12週 = 84日) ---

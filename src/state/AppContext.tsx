@@ -13,7 +13,7 @@ import type {
   Subject,
   UserGoal,
 } from '../types';
-import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, normalizeState } from '../lib/storage';
+import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, normalizeState, STATE_VERSION } from '../lib/storage';
 import { freeSlotsOn, generatePlan, subtractBusySlots, taskBusySlots } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
 import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
@@ -33,9 +33,7 @@ export interface SessionInput {
   materialId: string | null;
   minutes: number;
   amountDone: number;
-  accuracy: number | null;
   focus: 1 | 2 | 3 | 4 | 5 | null;
-  difficulty: 1 | 2 | 3 | 4 | 5 | null;
   memo: string;
   source: 'timer' | 'manual';
   rangeLabel: string;
@@ -73,7 +71,6 @@ export type Action =
   | { type: 'DELETE_TASK'; taskId: string }
   | { type: 'REORDER_TASK'; taskId: string; direction: 'up' | 'down' }
   | { type: 'RECORD_SESSION'; input: SessionInput }
-  | { type: 'SET_TASK_STATUS'; taskId: string; status: StudyTask['status'] }
   | { type: 'POSTPONE_TASK'; taskId: string }
   | { type: 'MOVE_TASK'; taskId: string; date: ISODate }
   | { type: 'RESCHEDULE'; reason: string }
@@ -125,15 +122,12 @@ export function appReducer(state: AppState, action: Action): AppState {
         minutesPerUnit: m.minutesPerUnit,
         dailyTarget: null,
         weeklyTarget: null,
-        phase: 'first',
         deadlinePolicy: 'normal',
         examRelevance: 3,
         reviewEnabled: false,
         reviewIntervals: defaultSettings().reviewRule.intervals,
         paused: false,
         round: 1,
-        lastStudiedAt: null,
-        nextReviewAt: null,
         archived: false,
         createdAt: new Date().toISOString(),
       }));
@@ -268,9 +262,7 @@ export function appReducer(state: AppState, action: Action): AppState {
         minutes: inp.minutes,
         amountDone: inp.amountDone,
         rangeLabel: inp.rangeLabel,
-        accuracy: inp.accuracy,
         focus: inp.focus,
-        difficulty: inp.difficulty,
         memo: inp.memo,
         source: inp.source,
       };
@@ -280,11 +272,7 @@ export function appReducer(state: AppState, action: Action): AppState {
       if (inp.materialId && inp.amountDone > 0) {
         materials = state.materials.map((m) =>
           m.id === inp.materialId
-            ? {
-                ...m,
-                doneAmount: Math.min(m.totalAmount, m.doneAmount + inp.amountDone),
-                lastStudiedAt: t,
-              }
+            ? { ...m, doneAmount: Math.min(m.totalAmount, m.doneAmount + inp.amountDone) }
             : m,
         );
       }
@@ -297,7 +285,7 @@ export function appReducer(state: AppState, action: Action): AppState {
         tasks = tasks.map((x) =>
           x.id === task.id ? { ...x, status: 'done' as const, completedAt: new Date().toISOString() } : x,
         );
-        newReviews = generateReviewTasks({ ...state, materials }, task, session, t);
+        newReviews = generateReviewTasks({ ...state, materials }, task, t);
       }
 
       const next: AppState = {
@@ -313,15 +301,6 @@ export function appReducer(state: AppState, action: Action): AppState {
       return newReviews.length > 0 || (task && !inp.completedTask)
         ? replanned.state
         : { ...replanned.state, lastReschedule: null };
-    }
-
-    case 'SET_TASK_STATUS': {
-      const tasks = state.tasks.map((x) =>
-        x.id === action.taskId
-          ? { ...x, status: action.status, completedAt: action.status === 'done' ? new Date().toISOString() : x.completedAt }
-          : x,
-      );
-      return { ...state, tasks };
     }
 
     case 'POSTPONE_TASK': {
@@ -392,7 +371,7 @@ export function appReducer(state: AppState, action: Action): AppState {
 
 export function emptyState(): AppState {
   return {
-    version: 2,
+    version: STATE_VERSION,
     isDemo: false,
     onboarded: false,
     goal: null,

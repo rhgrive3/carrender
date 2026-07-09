@@ -90,7 +90,7 @@ export function scoreMaterialChunk(
   );
 }
 
-/** 既存タスク(復習・間違い直し・手動)の優先度スコア */
+/** 既存タスク(復習・手動)の優先度スコア */
 export function scoreExistingTask(task: StudyTask, ctx: ScoreContext): number {
   const { state, date } = ctx;
   const subject = state.subjects.find((s) => s.id === task.subjectId);
@@ -109,7 +109,6 @@ export function scoreExistingTask(task: StudyTask, ctx: ScoreContext): number {
     const urgency = overdue >= 0 ? 1 + Math.min(1, overdue / 7) : Math.max(0, 1 + overdue / 5);
     score += WEIGHTS.reviewUrgency * urgency;
   }
-  if (task.type === 'correction') score += 15;
   return score;
 }
 
@@ -300,7 +299,7 @@ export function generatePlan(
   // 「進行中の当日計画」としてそのまま維持する(記録するたびに今日が崩れないように)
   const keepStart = todayDate < fromDate ? todayDate : fromDate;
   const kept: StudyTask[] = [];
-  const toPlace: StudyTask[] = []; // 復習・間違い直し・手動・未達成 → 再配置
+  const toPlace: StudyTask[] = []; // 復習・手動・未達成 → 再配置
   for (const t of state.tasks) {
     if (t.status === 'done' || t.status === 'skipped' || t.status === 'doing') {
       kept.push(t);
@@ -470,10 +469,8 @@ export function generatePlan(
         const material = t.materialId ? state.materials.find((m) => m.id === t.materialId) : null;
         if (material?.paused || material?.archived) continue;
         const due = t.dueDate ?? day;
-        if (due > day && t.type !== 'new') {
-          // 期限がまだ先の復習は期限日以降に配置
-          if (due > day) continue;
-        }
+        // 期限がまだ先の復習は期限日以降に配置
+        if (due > day && t.type !== 'new') continue;
         if (t.estimatedMinutes > gap) continue;
         const score = scoreExistingTask(t, { ...ctx, date: day });
         candidates.push({ kind: 'existing', task: t, score, minutes: t.estimatedMinutes });
@@ -786,8 +783,8 @@ function buildSummaryText(
 
 export type DayStatus = 'ahead' | 'onTrack' | 'slightlyBehind' | 'danger';
 
-export function computeDayStatus(state: AppState, date: ISODate): DayStatus {
-  const cap = computeCapacity(state, date);
+export function computeDayStatus(state: AppState, date: ISODate, capacity?: CapacityWarning): DayStatus {
+  const cap = capacity ?? computeCapacity(state, date);
   if (!cap.ok && cap.deficitMinutes > 600) return 'danger';
 
   const overdueTasks = state.tasks.filter(
