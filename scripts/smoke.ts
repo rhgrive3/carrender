@@ -222,6 +222,36 @@ check('復習オンの教材では次の復習だけが生成される', reviews
 for (const r of reviews) console.log(`   ${r.type}: ${r.rangeLabel} due=${r.dueDate}`);
 
 {
+  // 復習オフに変更したら、生成済みの未着手復習タスクが再計算で計画から消える
+  const plannedReview: StudyTask = {
+    ...reviews[0],
+    id: 'task_review_off_test',
+    status: 'planned',
+    scheduledDate: addDays(t, 1),
+  };
+  const withReview = { ...state, tasks: [...state.tasks, plannedReview] };
+  const { state: offState } = generatePlan(
+    {
+      ...withReview,
+      materials: withReview.materials.map((material) =>
+        material.id === plannedReview.materialId ? { ...material, reviewEnabled: false } : material,
+      ),
+    },
+    t,
+    '復習オフの反映',
+  );
+  check(
+    '復習オフにすると生成済みの復習タスクが計画から外れる',
+    !offState.tasks.some((task) => task.id === plannedReview.id),
+  );
+  const { state: onState } = generatePlan(withReview, t, '復習オンのまま再計算');
+  check(
+    '復習オンのままなら生成済みの復習タスクは残る',
+    onState.tasks.some((task) => task.id === plannedReview.id),
+  );
+}
+
+{
   const onboarded = appReducer(emptyState(), {
     type: 'COMPLETE_ONBOARDING',
     input: {

@@ -320,6 +320,11 @@ export function generatePlan(
       // 自動生成の新規学習タスクは作り直す(教材残量から再生成)
       continue;
     }
+    if (t.generatedBy === 'auto' && t.type === 'review') {
+      // 教材の復習をオフにしたら、生成済みの未着手復習タスクも計画から外す
+      const m = state.materials.find((x) => x.id === t.materialId);
+      if (!m?.reviewEnabled) continue;
+    }
     toPlace.push({ ...t, status: 'planned' });
   }
 
