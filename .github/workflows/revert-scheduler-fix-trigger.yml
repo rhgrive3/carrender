@@ -1,0 +1,12 @@
+name: Trigger revert scheduler slot fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo trigger
