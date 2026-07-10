@@ -1,9 +1,10 @@
-import type { AppState } from '../types';
+import type { AppState, ValidationIssue } from '../types';
 import { defaultAvailability, defaultSettings, defaultTimerSettings } from '../data/defaults';
 import { toISODate } from './date';
 
 const KEY = 'studycommander_state_v1';
 const OWNER_KEY = 'studycommander_owner_v1';
+const BACKUP_KEY = 'studycommander_state_migration_backup';
 export const STATE_VERSION = 2;
 
 /** どのアカウントのデータがlocalStorageにキャッシュされているかを記録する(別ユーザーへの誤流用を防止) */
@@ -30,7 +31,18 @@ export function loadState(): AppState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppState;
     if (typeof parsed !== 'object' || parsed === null) return null;
-    return normalizeState(parsed);
+    try {
+      const migration = migrateState(parsed);
+      if (!migration.ok) {
+        localStorage.setItem(BACKUP_KEY, raw);
+        console.error('一部の保存データに移行エラーがあります', migration.errors);
+      }
+      return migration.state;
+    } catch (error) {
+      localStorage.setItem(BACKUP_KEY, raw);
+      console.error('保存データの移行に失敗しました。元データをバックアップしました', error);
+      return null;
+    }
   } catch {
     return null;
   }
@@ -105,7 +117,26 @@ export function importJSON(json: string): AppState {
   ) {
     throw new Error('不正なデータ形式です');
   }
-  return normalizeState(parsed);
+  const migration = migrateState(parsed);
+  if (!migration.ok) throw new Error(`移行できない項目があります: ${migration.errors.map((error) => `${error.targetId}.${error.field}`).join(', ')}`);
+  return migration.state;
+}
+
+export type MigrationResult =
+  | { ok: true; state: AppState; errors: [] }
+  | { ok: false; state: AppState; errors: ValidationIssue[] };
+
+export function migrateState(input: AppState): MigrationResult {
+  const state = normalizeState(input);
+  const errors: ValidationIssue[] = [];
+  for (const material of state.materials) {
+    const source = input.materials?.find((item) => item.id === material.id);
+    const total = material.totalUnits ?? material.totalAmount;
+    if ((source?.doneAmount ?? 0) > total) {
+      errors.push({ targetId: material.id, field: 'doneAmount', value: source?.doneAmount, reason: '完了量が教材総量を超えています', suggestion: '教材総量または完了量を修正してください' });
+    }
+  }
+  return errors.length > 0 ? { ok: false, state, errors } : { ok: true, state, errors: [] };
 }
 
 export function normalizeState(input: AppState): AppState {
@@ -140,8 +171,8 @@ export function normalizeState(input: AppState): AppState {
       ...slot,
       minutes,
       windows:
-        Array.isArray(slot.windows) && slot.windows.length > 0
-          ? slot.windows.filter((w) => w.start && w.end && w.start < w.end)
+        Array.isArray(slot.windows)
+          ? slot.windows
           : windowsFromMinutes(slot.weekday, minutes),
     };
   });
@@ -149,6 +180,7 @@ export function normalizeState(input: AppState): AppState {
   return {
     ...input,
     version: STATE_VERSION,
+    schemaVersion: STATE_VERSION,
     settings,
     availability,
     dayPlans: Array.isArray(input.dayPlans)
@@ -160,7 +192,7 @@ export function normalizeState(input: AppState): AppState {
             p.availabilityWindows === null
               ? null
               : Array.isArray(p.availabilityWindows)
-                ? p.availabilityWindows.filter((w) => w.start && w.end && w.start < w.end)
+                ? p.availabilityWindows
                 : null,
         }))
       : [],
@@ -173,6 +205,23 @@ export function normalizeState(input: AppState): AppState {
       : [],
     materials: (input.materials ?? []).map((m) => ({
       ...m,
+      totalUnits: m.totalUnits ?? m.totalAmount,
+      completedRanges: normalizeCompletedRanges(
+        Array.isArray(m.completedRanges)
+          ? m.completedRanges
+          : m.doneAmount > 0
+            ? [{ start: 1, end: m.doneAmount }]
+            : [],
+      ),
+      doneAmount: rangeLength(
+        normalizeCompletedRanges(
+          Array.isArray(m.completedRanges)
+            ? m.completedRanges
+            : m.doneAmount > 0
+              ? [{ start: 1, end: m.doneAmount }]
+              : [],
+        ),
+      ),
       startDate: m.startDate ?? m.createdAt?.slice(0, 10) ?? toISODate(new Date()),
       dailyTarget: m.dailyTarget ?? null,
       weeklyTarget: m.weeklyTarget ?? null,
@@ -185,10 +234,46 @@ export function normalizeState(input: AppState): AppState {
           : settings.reviewRule.intervals,
       paused: m.paused ?? false,
       archived: m.archived ?? false,
+      unitStep: m.unitStep ?? 1,
+      splittable: m.splittable ?? true,
+      preferredCadence: m.preferredCadence ?? { type: 'auto' },
+      estimateMode: m.estimateMode ?? 'suggest',
     })),
     // 廃止した「間違い直し」タスクは復習タスクとして読み替える
-    tasks: (input.tasks ?? []).map((t) => ((t.type as string) === 'correction' ? { ...t, type: 'review' as const } : t)),
+    tasks: (input.tasks ?? []).map((rawTask) => {
+      const t = (rawTask.type as string) === 'correction' ? { ...rawTask, type: 'review' as const } : rawTask;
+      const placementLock = t.placementLock ?? (t.generatedBy === 'manual' ? (t.scheduledStart ? 'time' : 'date') : 'none');
+      return {
+        ...t,
+        sourceType: t.sourceType ?? (t.generatedBy === 'manual' ? 'manual' : t.type === 'review' ? 'review' : 'material'),
+        sourceId: t.sourceId ?? t.materialId ?? t.id,
+        placementLock,
+        placementStatus: t.placementStatus ?? (t.scheduledStart && t.scheduledEnd ? 'scheduled' : 'unscheduled'),
+        materialRange:
+          t.materialRange ?? (t.rangeStart !== null && t.rangeEnd !== null ? { start: t.rangeStart, end: t.rangeEnd } : undefined),
+        updatedAt: t.updatedAt ?? t.createdAt,
+      };
+    }),
+    lastScheduleResult: input.lastScheduleResult ?? null,
+    lastPlanReason: input.lastPlanReason ?? null,
   };
+}
+
+function normalizeCompletedRanges(ranges: { start: number; end: number }[]) {
+  const sorted = ranges
+    .map((range) => ({ start: range.start, end: range.end }))
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: { start: number; end: number }[] = [];
+  for (const range of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end + 1) last.end = Math.max(last.end, range.end);
+    else merged.push(range);
+  }
+  return merged;
+}
+
+function rangeLength(ranges: { start: number; end: number }[]) {
+  return ranges.reduce((sum, range) => sum + Math.max(0, range.end - range.start + 1), 0);
 }
 
 function windowsFromMinutes(weekday: number, minutes: number) {

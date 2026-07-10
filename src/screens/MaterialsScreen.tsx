@@ -59,6 +59,7 @@ export function MaterialsScreen() {
           const done = m.doneAmount >= m.totalAmount;
           const daysLeft = diffDays(t, m.targetDate);
           const requiredWeekly = forecast ? Math.ceil(forecast.requiredPacePerDay * 7) : 0;
+          const progressDeficit = state.lastScheduleResult?.progressDeficits.find((item) => item.materialId === m.id);
           return (
             <div className="card" key={m.id}>
               <div className="row spread">
@@ -114,9 +115,20 @@ export function MaterialsScreen() {
                   </span>
                 </div>
               )}
+              {progressDeficit && progressDeficit.units > 0 && (
+                <div className="faint mt-8">進捗負債 {progressDeficit.units}{m.unit} ・ {progressDeficit.minutes}分</div>
+              )}
+              {m.estimatedMinutesPerUnit && m.estimateMode !== 'fixed' && (
+                <div className="faint mt-8">実績ベース見積 {m.estimatedMinutesPerUnit.toFixed(1)}分/{m.unit}</div>
+              )}
               {forecast && forecast.status !== 'ahead' && forecast.status !== 'onTrack' && forecast.projectedFinishDate && (
                 <div className="faint mt-8">
-                  現在ペースの完了見込み {formatDateShort(forecast.projectedFinishDate)}({forecast.delayDays > 0 ? `${forecast.delayDays}日遅れ` : '前倒し'})
+                  現在ペースの完了見込み {formatDateShort(forecast.projectedFinishDate)}
+                  {forecast.delayDays > 0 ? (
+                    <span style={{ color: forecast.status === 'risk' ? 'var(--danger)' : 'var(--warn)', fontWeight: 700 }}>({forecast.delayDays}日遅れ)</span>
+                  ) : (
+                    '(前倒し)'
+                  )}
                 </div>
               )}
             </div>
@@ -149,7 +161,16 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
   const [doneAmount, setDoneAmount] = useState(material?.doneAmount ?? 0);
   const [startDate, setStartDate] = useState(material?.startDate ?? t);
   const [targetDate, setTargetDate] = useState(material?.targetDate ?? (state.goal ? state.goal.examDate : addDays(t, 60)));
+  const [preferredFinishDate, setPreferredFinishDate] = useState(material?.preferredFinishDate ?? '');
   const [minutesPerUnit, setMinutesPerUnit] = useState(material?.minutesPerUnit ?? 10);
+  const [unitStep, setUnitStep] = useState(material?.unitStep ?? 1);
+  const [splittable, setSplittable] = useState(material?.splittable ?? true);
+  const [minimumChunkUnits, setMinimumChunkUnits] = useState(material?.minimumChunkUnits ?? 1);
+  const [maximumChunkUnits, setMaximumChunkUnits] = useState(material?.maximumChunkUnits ?? 0);
+  const [maxUnitsPerDay, setMaxUnitsPerDay] = useState(material?.maxUnitsPerDay ?? 0);
+  const [cadence, setCadence] = useState<'auto' | 'daily' | 'timesPerWeek'>(material?.preferredCadence?.type ?? 'auto');
+  const [cadenceCount, setCadenceCount] = useState(material?.preferredCadence?.type === 'timesPerWeek' ? material.preferredCadence.count : 3);
+  const [estimateMode, setEstimateMode] = useState(material?.estimateMode ?? 'suggest');
   const [priority, setPriority] = useState<Material['priority']>(material?.priority ?? 3);
   const [difficulty, setDifficulty] = useState<Material['difficulty']>(material?.difficulty ?? 3);
   const [dailyTarget, setDailyTarget] = useState(material?.dailyTarget ?? 0);
@@ -178,11 +199,21 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       unit,
       totalAmount,
       doneAmount: Math.min(doneAmount, totalAmount),
+      totalUnits: totalAmount,
+      completedRanges: doneAmount > 0 ? [{ start: 1, end: Math.min(doneAmount, totalAmount) }] : [],
       startDate,
       targetDate,
+      preferredFinishDate: preferredFinishDate || undefined,
       priority,
       difficulty,
       minutesPerUnit: Math.max(0.1, minutesPerUnit),
+      unitStep: Math.max(1, unitStep),
+      splittable,
+      minimumChunkUnits: Math.max(1, minimumChunkUnits),
+      maximumChunkUnits: maximumChunkUnits > 0 ? Math.max(minimumChunkUnits, maximumChunkUnits) : undefined,
+      maxUnitsPerDay: maxUnitsPerDay > 0 ? maxUnitsPerDay : undefined,
+      preferredCadence: cadence === 'timesPerWeek' ? { type: 'timesPerWeek', count: Math.max(1, cadenceCount) } : { type: cadence },
+      estimateMode,
       dailyTarget: dailyTarget > 0 ? dailyTarget : null,
       weeklyTarget: weeklyTarget > 0 ? weeklyTarget : null,
       deadlinePolicy,
@@ -280,6 +311,64 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
               onChange={(v) => setMinutesPerUnit(v)}
             />
           </div>
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="mf-preferred">推奨完了日</label>
+            <input id="mf-preferred" type="date" value={preferredFinishDate} min={startDate} max={targetDate} onChange={(e) => setPreferredFinishDate(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="mf-estimate-mode">見積時間の補正</label>
+            <select id="mf-estimate-mode" value={estimateMode} onChange={(e) => setEstimateMode(e.target.value as 'auto' | 'suggest' | 'fixed')}>
+              <option value="auto">自動補正</option>
+              <option value="suggest">提案のみ</option>
+              <option value="fixed">固定値</option>
+            </select>
+          </div>
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="mf-step">単位刻み</label>
+            <NumericInput id="mf-step" value={unitStep} min={1} onChange={(v) => setUnitStep(Math.max(1, v))} />
+          </div>
+          <div className="field">
+            <label htmlFor="mf-day-cap">1日上限({unit})</label>
+            <NumericInput id="mf-day-cap" value={maxUnitsPerDay} min={0} placeholder="上限なし" onChange={(v) => setMaxUnitsPerDay(Math.max(0, v))} />
+          </div>
+        </div>
+        <div className="field">
+          <label className="check-row">
+            <input type="checkbox" checked={splittable} onChange={(e) => setSplittable(e.target.checked)} />
+            タスクを分割可能にする
+          </label>
+        </div>
+        {splittable && (
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="mf-min-chunk">最小チャンク({unit})</label>
+              <NumericInput id="mf-min-chunk" value={minimumChunkUnits} min={1} onChange={(v) => setMinimumChunkUnits(Math.max(1, v))} />
+            </div>
+            <div className="field">
+              <label htmlFor="mf-max-chunk">最大チャンク({unit})</label>
+              <NumericInput id="mf-max-chunk" value={maximumChunkUnits} min={0} placeholder="自動" onChange={(v) => setMaximumChunkUnits(Math.max(0, v))} />
+            </div>
+          </div>
+        )}
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="mf-cadence">学習頻度</label>
+            <select id="mf-cadence" value={cadence} onChange={(e) => setCadence(e.target.value as typeof cadence)}>
+              <option value="auto">自動</option>
+              <option value="daily">毎日</option>
+              <option value="timesPerWeek">週の回数</option>
+            </select>
+          </div>
+          {cadence === 'timesPerWeek' && (
+            <div className="field">
+              <label htmlFor="mf-cadence-count">週あたり回数</label>
+              <NumericInput id="mf-cadence-count" value={cadenceCount} min={1} onChange={(v) => setCadenceCount(Math.max(1, v))} />
+            </div>
+          )}
         </div>
         <div className="field-row">
           <div className="field">

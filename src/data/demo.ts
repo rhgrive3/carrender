@@ -213,6 +213,7 @@ export function buildDemoState(): AppState {
 
   const base: AppState = {
     version: 2,
+    schemaVersion: 2,
     isDemo: true,
     onboarded: true,
     goal: {

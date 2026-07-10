@@ -11,12 +11,29 @@ export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0=日曜
 
 /** ISO日付 "YYYY-MM-DD" */
 export type ISODate = string;
+export type LocalDate = string;
+export type LocalTime = string;
+export type TimeZoneId = string;
 
 /** 時刻範囲 "HH:mm" */
 export interface TimeRange {
   start: string;
   end: string;
 }
+
+export interface UnitRange {
+  start: number;
+  end: number;
+}
+
+export interface PreferredTimeWindow extends TimeRange {
+  preference: number;
+}
+
+export type PreferredCadence =
+  | { type: 'auto' }
+  | { type: 'daily' }
+  | { type: 'timesPerWeek'; count: number };
 
 // ---------- 目標 ----------
 export interface UserGoal {
@@ -43,11 +60,26 @@ export interface Material {
   unit: MaterialUnit;
   totalAmount: number;
   doneAmount: number;
+  /** V2の正規データ。doneAmountはこの範囲から導出する互換値。 */
+  completedRanges?: UnitRange[];
+  /** V2名。既存UI用のtotalAmountと同じ値。 */
+  totalUnits?: number;
   startDate: ISODate;
   targetDate: ISODate; // 目標完了日
+  preferredFinishDate?: ISODate;
   priority: 1 | 2 | 3 | 4 | 5;
   difficulty: 1 | 2 | 3 | 4 | 5;
   minutesPerUnit: number; // 1単位あたりの推定分
+  unitStep?: number;
+  minimumChunkUnits?: number;
+  maximumChunkUnits?: number;
+  splittable?: boolean;
+  maxUnitsPerDay?: number;
+  maxMinutesPerDay?: number;
+  preferredCadence?: PreferredCadence;
+  preferredTimeWindows?: PreferredTimeWindow[];
+  estimateMode?: 'auto' | 'suggest' | 'fixed';
+  estimatedMinutesPerUnit?: number;
   dailyTarget: number | null;
   weeklyTarget: number | null;
   deadlinePolicy: DeadlinePolicy;
@@ -83,7 +115,27 @@ export interface StudyTask {
   /** 復習タスクの段階(0=初回復習)。復習完了時に次の段階を自動生成する */
   reviewStage: number | null;
   createdAt: string;
+  updatedAt?: string;
   completedAt: string | null;
+  sourceType?: 'material' | 'review' | 'manual';
+  sourceId?: string;
+  placementStatus?: 'scheduled' | 'unscheduled' | 'conflict';
+  placementLock?: 'none' | 'date' | 'time';
+  materialRange?: UnitRange;
+  manualScheduling?: ManualTaskScheduling;
+}
+
+export interface ManualTaskScheduling {
+  placementPolicy: 'fixedTime' | 'fixedDateFlexibleTime' | 'flexibleBeforeDeadline';
+  fixedDate?: LocalDate;
+  fixedStartTime?: LocalTime;
+  deadline?: LocalDate;
+  progressPolicy:
+    | { type: 'independent' }
+    | { type: 'countTowardMaterial'; materialId: string; range?: UnitRange; amount?: number };
+  splittable: boolean;
+  minimumChunkMinutes?: number;
+  maximumChunkMinutes?: number;
 }
 
 // ---------- 勉強セッション(記録) ----------
@@ -100,6 +152,18 @@ export interface StudySession {
   focus: 1 | 2 | 3 | 4 | 5 | null;
   memo: string;
   source: 'timer' | 'manual';
+  pausedMinutes?: number;
+  excludedFromEstimate?: boolean;
+}
+
+export interface EstimateUpdateResult {
+  previousEstimate: number;
+  observedEstimate: number | null;
+  suggestedEstimate: number | null;
+  appliedEstimate: number;
+  sampleCount: number;
+  excludedCount: number;
+  applied: boolean;
 }
 
 // ---------- スケジュール ----------
@@ -220,11 +284,149 @@ export interface AppSettings {
   /** 週間目標学習時間(分)。0なら未設定 */
   weeklyTargetMinutes: number;
   timer: TimerSettings;
+  timezone?: TimeZoneId;
+  taskGenerationHorizonDays?: number;
+  estimateAlpha?: number;
+}
+
+export interface SchedulerContext {
+  now: Date;
+  timezone: TimeZoneId;
+  generationId: string;
+  maxSearchNodes?: number;
+}
+
+export interface WorkItem {
+  id: string;
+  sourceType: 'material' | 'review' | 'manual';
+  sourceId: string;
+  releaseDate: LocalDate;
+  hardDeadline?: LocalDate;
+  preferredFinishDate?: LocalDate;
+  requiredMinutes: number;
+  minimumChunkMinutes: number;
+  maximumChunkMinutes: number;
+  splittable: boolean;
+  maxMinutesPerDay?: number;
+  priorityClass: 'strict' | 'baseline' | 'flexible';
+  placementLock: 'none' | 'date' | 'time';
+  unitMetadata?: {
+    materialId: string;
+    unitStep: number;
+    minutesPerUnit: number;
+    remainingRanges: UnitRange[];
+  };
+}
+
+export type ScheduleGenerationStatus =
+  | 'success'
+  | 'partial'
+  | 'infeasible'
+  | 'indeterminate'
+  | 'invalidInput'
+  | 'conflict';
+
+export interface ValidationIssue {
+  targetId: string;
+  field: string;
+  value: unknown;
+  reason: string;
+  suggestion: string;
+}
+
+export interface UnscheduledWorkItem {
+  workItemId: string;
+  sourceId: string;
+  minutes: number;
+  reason: string;
+}
+
+export interface ScheduleConflict {
+  taskId: string;
+  code: string;
+  message: string;
+}
+
+export interface ScheduleWarning {
+  code: string;
+  message: string;
+  targetId?: string;
+  minutes?: number;
+}
+
+export interface ProgressDeficit {
+  materialId: string;
+  units: number;
+  minutes: number;
+  calculatedForDate: LocalDate;
+}
+
+export interface SuggestedAction {
+  type: 'increaseDailyMinutes' | 'addDayCapacity' | 'extendDeadline' | 'reduceMinimumChunk' | 'allowSplit' | 'pauseMaterial' | 'relaxDeadline' | 'raiseDailyLimit';
+  label: string;
+  value?: number;
+}
+
+export interface CapacityShortage {
+  periodStart: LocalDate;
+  periodEnd: LocalDate;
+  requiredMinutes: number;
+  availableMinutes: number;
+  shortageMinutes: number;
+  affectedWorkItemIds: string[];
+  suggestedActions: SuggestedAction[];
+}
+
+export interface CapacityReport {
+  horizonStart: LocalDate;
+  horizonEnd: LocalDate;
+  requiredMinutes: number;
+  availableMinutes: number;
+  shortages: CapacityShortage[];
+}
+
+export interface DeadlineReport {
+  workItemId: string;
+  policy: DeadlinePolicy;
+  deadline?: LocalDate;
+  feasible: boolean | null;
+  scheduledMinutes: number;
+  requiredMinutes: number;
+  shortageMinutes: number;
+  overdueDays: number;
+}
+
+export interface ObjectiveReport {
+  strictDeadlineViolations: number;
+  lockViolations: number;
+  unscheduledStrictMinutes: number;
+  progressDebtMinutes: number;
+  normalOverdueMinutes: number;
+  unscheduledMinutes: number;
+  subjectImbalance: number;
+  timePreferenceViolations: number;
+  taskSwitches: number;
+}
+
+export interface ScheduleGenerationResult {
+  status: ScheduleGenerationStatus;
+  scheduledTasks: StudyTask[];
+  unscheduledWork: UnscheduledWorkItem[];
+  conflicts: ScheduleConflict[];
+  warnings: ScheduleWarning[];
+  progressDeficits: ProgressDeficit[];
+  capacityReport: CapacityReport;
+  deadlineReports: DeadlineReport[];
+  objectiveReport: ObjectiveReport;
+  validationErrors?: ValidationIssue[];
+  generatedAt: string;
+  generationId: string;
 }
 
 // ---------- アプリ全体 ----------
 export interface AppState {
   version: number;
+  schemaVersion: number;
   isDemo: boolean;
   onboarded: boolean;
   goal: UserGoal | null;
@@ -237,5 +439,7 @@ export interface AppState {
   fixedEvents: FixedEvent[];
   settings: AppSettings;
   lastReschedule: RescheduleResult | null;
-  lastPlannedDate: ISODate | null; // どこまで計画生成済みか
+  lastPlannedDate: ISODate | null; // 最後に計画を生成したローカル日付
+  lastScheduleResult?: ScheduleGenerationResult | null;
+  lastPlanReason?: string | null;
 }

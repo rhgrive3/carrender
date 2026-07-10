@@ -27,6 +27,9 @@ export function defaultSettings(): AppSettings {
       intervals: [1, 3, 7, 14, 30],
     },
     weeklyTargetMinutes: 0,
+    timezone: 'Asia/Tokyo',
+    taskGenerationHorizonDays: 42,
+    estimateAlpha: 0.2,
     timer: defaultTimerSettings(),
   };
 }

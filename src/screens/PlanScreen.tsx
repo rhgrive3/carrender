@@ -43,7 +43,7 @@ export function PlanScreen() {
     const map = new Map<string, StudyTask[]>();
     for (const d of days) map.set(d, []);
     for (const task of state.tasks) {
-      if (task.status === 'skipped') continue;
+      if (task.status === 'skipped' || task.placementStatus === 'conflict' || task.placementStatus === 'unscheduled') continue;
       if (map.has(task.scheduledDate)) map.get(task.scheduledDate)!.push(task);
     }
     for (const list of map.values()) {
@@ -53,6 +53,10 @@ export function PlanScreen() {
   }, [state.tasks, days]);
 
   const overdueCount = state.tasks.filter((x) => x.status === 'planned' && x.scheduledDate < t).length;
+  const schedule = state.lastScheduleResult;
+  const scheduleLabel = schedule
+    ? ({ success: '生成完了', partial: '一部未配置', infeasible: '厳守期限に配置不能', indeterminate: '判定未完了', invalidInput: '入力エラー', conflict: '固定条件が衝突' } as const)[schedule.status]
+    : null;
 
   const openDay = (date: string) => {
     setSelectedDay(date);
@@ -100,6 +104,31 @@ export function PlanScreen() {
           😮‍💨 今日は無理
         </button>
       </div>
+
+      {schedule && (
+        <div className="card mt-12" style={{ borderColor: schedule.status === 'success' ? 'var(--ok)' : schedule.status === 'partial' ? 'var(--warn)' : 'var(--danger)', padding: 13 }}>
+          <div className="row spread">
+            <span className="iflex" style={{ fontSize: 13.5, fontWeight: 800 }}>
+              {schedule.status !== 'success' && <TriangleAlert size={14} strokeWidth={2.4} aria-hidden="true" style={{ color: schedule.status === 'partial' ? 'var(--warn)' : 'var(--danger)' }} />}
+              {scheduleLabel}
+            </span>
+          </div>
+          {(schedule.objectiveReport.unscheduledMinutes > 0 || schedule.objectiveReport.unscheduledStrictMinutes > 0 || schedule.objectiveReport.progressDebtMinutes > 0) && (
+            <div className="material-metrics mt-8">
+              {schedule.objectiveReport.unscheduledMinutes > 0 && <span><i>未配置</i><b>{formatMinutes(schedule.objectiveReport.unscheduledMinutes)}</b></span>}
+              {schedule.objectiveReport.unscheduledStrictMinutes > 0 && <span><i>厳守不足</i><b>{formatMinutes(schedule.objectiveReport.unscheduledStrictMinutes)}</b></span>}
+              {schedule.objectiveReport.progressDebtMinutes > 0 && <span><i>進捗負債</i><b>{formatMinutes(schedule.objectiveReport.progressDebtMinutes)}</b></span>}
+            </div>
+          )}
+          {(schedule.conflicts.length > 0 || schedule.unscheduledWork.length > 0) && (
+            <div className="faint mt-8">固定衝突 {schedule.conflicts.length}件 ・ 未配置 {schedule.unscheduledWork.length}件</div>
+          )}
+          {state.lastPlanReason && <div className="faint mt-8">再計算理由: {state.lastPlanReason}</div>}
+          {schedule.capacityReport.shortages[0]?.suggestedActions[0] && (
+            <div className="faint mt-8">提案: {schedule.capacityReport.shortages[0].suggestedActions[0].label}</div>
+          )}
+        </div>
+      )}
 
       {overdueCount > 0 && (
         <div className="card mt-12" style={{ borderColor: 'var(--warn)', padding: 13 }}>
@@ -343,7 +372,7 @@ function DayDetailPanel({
   const tasks = useMemo(
     () =>
       state.tasks
-        .filter((task) => task.scheduledDate === date && task.status !== 'skipped')
+        .filter((task) => task.scheduledDate === date && task.status !== 'skipped' && task.placementStatus !== 'conflict' && task.placementStatus !== 'unscheduled')
         .sort((a, b) => (a.scheduledStart ?? '99:99').localeCompare(b.scheduledStart ?? '99:99') || b.priority - a.priority),
     [state.tasks, date],
   );
@@ -635,7 +664,9 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
         scheduledEnd: finalEnd || null,
         estimatedMinutes: minutes,
         memo,
-        generatedBy: 'manual',
+        placementLock: 'time',
+        placementStatus: 'scheduled',
+        updatedAt: new Date().toISOString(),
       },
     });
     if (avoidedEvent) {
@@ -789,6 +820,9 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
   const [range, setRange] = useState('');
   const [minutes, setMinutes] = useState(30);
   const [date, setDate] = useState(initialDate);
+  const [placementPolicy, setPlacementPolicy] = useState<'fixedTime' | 'fixedDateFlexibleTime' | 'flexibleBeforeDeadline'>('fixedDateFlexibleTime');
+  const [startTime, setStartTime] = useState('18:00');
+  const [splittable, setSplittable] = useState(false);
   const [memo, setMemo] = useState('');
 
   const save = () => {
@@ -796,10 +830,14 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
       toast('タイトルと科目を入力してください');
       return;
     }
+    const fixedTime = placementPolicy === 'fixedTime';
+    const normalized = fixedTime ? normalizeTaskSchedule(date, startTime, minutes) : null;
+    const taskDate = normalized?.date ?? date;
+    const taskId = genId('task');
     dispatch({
       type: 'ADD_MANUAL_TASK',
       task: {
-        id: genId('task'),
+        id: taskId,
         subjectId,
         materialId: null,
         title: title.trim(),
@@ -809,17 +847,32 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
         amount: 1,
         estimatedMinutes: minutes,
         priority: 60,
-        dueDate: date,
+        dueDate: placementPolicy === 'flexibleBeforeDeadline' ? date : null,
         type: 'new',
         status: 'planned',
-        scheduledDate: date,
-        scheduledStart: null,
-        scheduledEnd: null,
+        scheduledDate: taskDate,
+        scheduledStart: normalized?.startTime ?? null,
+        scheduledEnd: normalized?.endTime ?? null,
         generatedBy: 'manual',
         memo,
         reviewStage: null,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         completedAt: null,
+        sourceType: 'manual',
+        sourceId: taskId,
+        placementStatus: fixedTime ? 'scheduled' : 'unscheduled',
+        placementLock: fixedTime ? 'time' : placementPolicy === 'fixedDateFlexibleTime' ? 'date' : 'none',
+        manualScheduling: {
+          placementPolicy,
+          fixedDate: placementPolicy === 'flexibleBeforeDeadline' ? undefined : taskDate,
+          fixedStartTime: fixedTime ? normalized?.startTime : undefined,
+          deadline: placementPolicy === 'flexibleBeforeDeadline' ? date : undefined,
+          progressPolicy: { type: 'independent' },
+          splittable,
+          minimumChunkMinutes: splittable ? 10 : undefined,
+          maximumChunkMinutes: splittable ? 90 : undefined,
+        },
       },
     });
     toast('タスクを追加しました');
@@ -855,6 +908,26 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
           <label htmlFor="mt-date">日付</label>
           <input id="mt-date" type="date" value={date} min={t} onChange={(e) => setDate(e.target.value)} />
         </div>
+      </div>
+      <div className="field">
+        <label htmlFor="mt-policy">配置方法</label>
+        <select id="mt-policy" value={placementPolicy} onChange={(e) => setPlacementPolicy(e.target.value as typeof placementPolicy)}>
+          <option value="fixedTime">日時を固定</option>
+          <option value="fixedDateFlexibleTime">日付を固定・時刻は自動</option>
+          <option value="flexibleBeforeDeadline">期限までに自動配置</option>
+        </select>
+      </div>
+      {placementPolicy === 'fixedTime' && (
+        <div className="field">
+          <label htmlFor="mt-start">開始時刻</label>
+          <input id="mt-start" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+        </div>
+      )}
+      <div className="field">
+        <label className="check-row">
+          <input type="checkbox" checked={splittable} onChange={(e) => setSplittable(e.target.checked)} />
+          タスクを分割可能にする
+        </label>
       </div>
       <div className="field">
         <label htmlFor="mt-memo">メモ</label>

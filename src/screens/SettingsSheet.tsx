@@ -400,6 +400,23 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           onChange={(v) => setSettingsDraft((prev) => ({ ...prev, sessionMinMinutes: v }))}
         />
       </div>
+      <div className="field-row">
+        <div className="field">
+          <label htmlFor="st-timezone">タイムゾーン</label>
+          <select id="st-timezone" value={settingsDraft.timezone ?? 'Asia/Tokyo'} onChange={(e) => setSettingsDraft((prev) => ({ ...prev, timezone: e.target.value }))}>
+            <option value="Asia/Tokyo">Asia/Tokyo</option>
+            <option value="Asia/Seoul">Asia/Seoul</option>
+            <option value="Asia/Singapore">Asia/Singapore</option>
+            <option value="Europe/London">Europe/London</option>
+            <option value="America/New_York">America/New_York</option>
+            <option value="America/Los_Angeles">America/Los_Angeles</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="st-horizon">具体計画(日)</label>
+          <NumericInput id="st-horizon" value={settingsDraft.taskGenerationHorizonDays ?? 42} min={7} max={90} onChange={(v) => setSettingsDraft((prev) => ({ ...prev, taskGenerationHorizonDays: Math.max(7, Math.min(90, v)) }))} />
+        </div>
+      </div>
       <button className="btn btn-secondary btn-sm btn-block" onClick={saveStudySettings}>
         上限を保存して再計算
       </button>

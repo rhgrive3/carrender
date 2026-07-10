@@ -124,6 +124,10 @@ body {
 
 .screen {
   flex: 1;
+  /* 単カラム画面が広い画面で間延びしないよう、下部ナビ(760px)+余白に合わせて上限を設ける */
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
   padding: calc(var(--safe-top) + 14px) 16px calc(var(--nav-height) + var(--safe-bottom) + 28px);
   animation: screen-in 0.25s ease both;
 }
@@ -364,6 +368,12 @@ body {
 }
 
 @media (min-width: 1024px) and (orientation: landscape) {
+  /* 2カラムレイアウトを持つ画面だけ全幅を使う */
+  .screen:has(.today-layout),
+  .screen:has(.planner-layout) {
+    max-width: 1180px;
+  }
+
   .today-layout {
     grid-template-columns: minmax(0, 0.9fr) minmax(380px, 1.1fr);
     align-items: start;
@@ -514,6 +524,7 @@ body {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .task-action-btn {
@@ -555,6 +566,17 @@ body {
 
 .task-action-btn:active {
   transform: scale(0.92);
+}
+
+/* ロック解除付きでボタンが4つになる行は、狭い画面ではテキストが潰れるため操作列を下段へ折り返す */
+@media (max-width: 520px) {
+  .task-card:has(.task-actions button:nth-child(4)) {
+    flex-wrap: wrap;
+  }
+
+  .task-card:has(.task-actions button:nth-child(4)) .task-main {
+    flex-basis: 60%;
+  }
 }
 
 /* ---------- ボタン ---------- */
@@ -1833,7 +1855,7 @@ button.mini-block:not(:disabled):active {
   margin-bottom: 8px;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 700px) {
   .materials-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;

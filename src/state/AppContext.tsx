@@ -14,7 +14,7 @@ import type {
   UserGoal,
 } from '../types';
 import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, normalizeState, STATE_VERSION } from '../lib/storage';
-import { freeSlotsOn, generatePlan, subtractBusySlots, taskBusySlots } from '../lib/scheduler';
+import { freeSlotsOn, generatePlan, normalizeUnitRanges, remainingUnitRanges, subtractBusySlots, sumRangeLengths, taskBusySlots, updateMinutesPerUnitEstimate } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
 import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
 import { buildDemoState } from '../data/demo';
@@ -73,6 +73,7 @@ export type Action =
   | { type: 'RECORD_SESSION'; input: SessionInput }
   | { type: 'POSTPONE_TASK'; taskId: string }
   | { type: 'MOVE_TASK'; taskId: string; date: ISODate }
+  | { type: 'UNLOCK_TASK'; taskId: string }
   | { type: 'RESCHEDULE'; reason: string }
   | { type: 'RESCHEDULE_FROM'; fromDate: ISODate; reason: string }
   | { type: 'TODAY_IMPOSSIBLE' }
@@ -81,11 +82,24 @@ export type Action =
   | { type: 'UPDATE_DAY_PLAN'; dayPlan: DayPlanOverride }
   | { type: 'UPDATE_FIXED_EVENTS'; fixedEvents: FixedEvent[] }
   | { type: 'UPDATE_SETTINGS'; settings: AppSettings }
-  | { type: 'DISMISS_RESCHEDULE_BANNER' };
+  | { type: 'DISMISS_RESCHEDULE_BANNER' }
+  | { type: 'CHECK_DATE_CHANGE' };
 
 // ============================================================
 // Reducer
 // ============================================================
+
+function takeFirstRemainingRanges(total: number, completed: { start: number; end: number }[], amount: number) {
+  const result: { start: number; end: number }[] = [];
+  let left = amount;
+  for (const range of remainingUnitRanges(total, completed)) {
+    if (left <= 0) break;
+    const take = Math.min(left, range.end - range.start + 1);
+    result.push({ start: range.start, end: range.start + take - 1 });
+    left -= take;
+  }
+  return result;
+}
 
 export function appReducer(state: AppState, action: Action): AppState {
   const t = today();
@@ -97,7 +111,11 @@ export function appReducer(state: AppState, action: Action): AppState {
       return emptyState();
 
     case 'IMPORT_STATE':
-      return { ...action.state };
+      return action.state.lastPlannedDate === null
+        || action.state.lastPlannedDate < t
+        || action.state.tasks.some((task) => task.status === 'planned' && task.scheduledDate < t)
+        ? generatePlan(action.state, t, '保存データ読込時の日付・未達成反映').state
+        : { ...action.state };
 
     case 'COMPLETE_ONBOARDING': {
       const inp = action.input;
@@ -115,11 +133,16 @@ export function appReducer(state: AppState, action: Action): AppState {
         unit: m.unit,
         totalAmount: m.totalAmount,
         doneAmount: 0,
+        completedRanges: [],
+        totalUnits: m.totalAmount,
         startDate: t,
         targetDate: m.targetDate,
         priority: 3,
         difficulty: 3,
         minutesPerUnit: m.minutesPerUnit,
+        unitStep: 1,
+        splittable: true,
+        preferredCadence: { type: 'auto' },
         dailyTarget: null,
         weeklyTarget: null,
         deadlinePolicy: 'normal',
@@ -154,14 +177,22 @@ export function appReducer(state: AppState, action: Action): AppState {
     }
 
     case 'ADD_MATERIAL': {
-      const next = { ...state, materials: [...state.materials, action.material] };
+      const completedRanges = action.material.completedRanges
+        ?? (action.material.doneAmount > 0 ? [{ start: 1, end: action.material.doneAmount }] : []);
+      const material = { ...action.material, totalUnits: action.material.totalUnits ?? action.material.totalAmount, completedRanges };
+      const next = { ...state, materials: [...state.materials, material] };
       return generatePlan(next, t, `教材「${action.material.name}」の追加`).state;
     }
 
     case 'UPDATE_MATERIAL': {
+      const previous = state.materials.find((m) => m.id === action.material.id);
+      const completedRanges = !action.material.completedRanges || previous?.doneAmount !== action.material.doneAmount
+        ? (action.material.doneAmount > 0 ? [{ start: 1, end: action.material.doneAmount }] : [])
+        : action.material.completedRanges;
+      const material = { ...action.material, totalUnits: action.material.totalAmount, completedRanges };
       const next = {
         ...state,
-        materials: state.materials.map((m) => (m.id === action.material.id ? action.material : m)),
+        materials: state.materials.map((m) => (m.id === action.material.id ? material : m)),
       };
       return generatePlan(next, t, `教材「${action.material.name}」の変更`).state;
     }
@@ -187,17 +218,29 @@ export function appReducer(state: AppState, action: Action): AppState {
       return generatePlan(next, t, `科目「${action.subject.name}」設定の変更`).state;
     }
 
-    case 'ADD_MANUAL_TASK':
-      return { ...state, tasks: [...state.tasks, action.task] };
+    case 'ADD_MANUAL_TASK': {
+      const task = {
+        ...action.task,
+        sourceType: 'manual' as const,
+        sourceId: action.task.sourceId ?? action.task.id,
+        placementLock: action.task.placementLock ?? (action.task.scheduledStart ? 'time' as const : 'date' as const),
+        placementStatus: action.task.scheduledStart ? 'scheduled' as const : 'unscheduled' as const,
+        updatedAt: action.task.updatedAt ?? action.task.createdAt,
+      };
+      return generatePlan({ ...state, tasks: [...state.tasks, task] }, t, `手動タスク「${task.title}」の追加`).state;
+    }
 
-    case 'UPDATE_TASK':
-      return {
+    case 'UPDATE_TASK': {
+      const next = {
         ...state,
         tasks: state.tasks.map((x) => (x.id === action.task.id ? action.task : x)),
       };
+      return generatePlan(next, t, `タスク「${action.task.title}」の変更`).state;
+    }
 
     case 'DELETE_TASK': {
-      return { ...state, tasks: state.tasks.filter((x) => x.id !== action.taskId) };
+      const title = state.tasks.find((task) => task.id === action.taskId)?.title ?? '';
+      return generatePlan({ ...state, tasks: state.tasks.filter((x) => x.id !== action.taskId) }, t, `タスク「${title}」の削除`).state;
     }
 
     case 'REORDER_TASK': {
@@ -236,8 +279,7 @@ export function appReducer(state: AppState, action: Action): AppState {
           slotIdx += 1;
           if (slotIdx < slots.length) cursor = Math.max(cursor, slots[slotIdx].start);
         }
-        // 空き枠が尽きたら末尾に連結(従来挙動のフォールバック)
-        if (!placed) placed = { start: cursor, end: cursor + need };
+        if (!placed) return state;
         times.set(item.id, { start: minutesToHM(placed.start), end: minutesToHM(placed.end) });
         cursor = placed.end + 5;
       }
@@ -245,7 +287,7 @@ export function appReducer(state: AppState, action: Action): AppState {
         ...state,
         tasks: state.tasks.map((x) => {
           const time = times.get(x.id);
-          return time ? { ...x, scheduledStart: time.start, scheduledEnd: time.end, generatedBy: 'manual' as const } : x;
+          return time ? { ...x, scheduledStart: time.start, scheduledEnd: time.end, placementLock: 'time' as const, placementStatus: 'scheduled' as const, updatedAt: new Date().toISOString() } : x;
         }),
       };
     }
@@ -270,12 +312,31 @@ export function appReducer(state: AppState, action: Action): AppState {
       // 教材進捗を更新
       let materials = state.materials;
       if (inp.materialId && inp.amountDone > 0) {
-        materials = state.materials.map((m) =>
-          m.id === inp.materialId
-            ? { ...m, doneAmount: Math.min(m.totalAmount, m.doneAmount + inp.amountDone) }
-            : m,
-        );
+        materials = state.materials.map((m) => {
+          if (m.id !== inp.materialId) return m;
+          const completed = m.completedRanges ?? (m.doneAmount > 0 ? [{ start: 1, end: m.doneAmount }] : []);
+          const completedTask = inp.taskId ? state.tasks.find((item) => item.id === inp.taskId) : undefined;
+          const explicit = completedTask?.materialRange
+            ?? (completedTask?.rangeStart !== null && completedTask?.rangeStart !== undefined && completedTask.rangeEnd !== null
+              ? { start: completedTask.rangeStart, end: completedTask.rangeEnd }
+              : undefined);
+          const added = explicit
+            ? [explicit]
+            : takeFirstRemainingRanges(m.totalAmount, completed, inp.amountDone);
+          const merged = normalizeUnitRanges([...completed, ...added], m.totalAmount);
+          return { ...m, completedRanges: merged, doneAmount: sumRangeLengths(merged) };
+        });
       }
+      const sessions = [...state.sessions, session];
+      materials = materials.map((material) => {
+        if (material.id !== inp.materialId) return material;
+        const estimate = updateMinutesPerUnitEstimate(material, sessions, state.settings.estimateAlpha ?? 0.2);
+        return {
+          ...material,
+          minutesPerUnit: estimate.appliedEstimate,
+          estimatedMinutesPerUnit: estimate.suggestedEstimate ?? material.estimatedMinutesPerUnit,
+        };
+      });
 
       // タスク完了処理 + 復習タスク生成
       let tasks = state.tasks;
@@ -292,7 +353,7 @@ export function appReducer(state: AppState, action: Action): AppState {
         ...state,
         materials,
         tasks: [...tasks, ...newReviews],
-        sessions: [...state.sessions, session],
+        sessions,
       };
 
       // 実績とのズレを翌日以降に反映(今日の残りタスクは維持)
@@ -321,10 +382,19 @@ export function appReducer(state: AppState, action: Action): AppState {
       if (task.dueDate && task.dueDate >= t && action.date > task.dueDate) return state;
       const tasks = state.tasks.map((x) =>
         x.id === action.taskId
-          ? { ...x, scheduledDate: action.date, scheduledStart: null, scheduledEnd: null, generatedBy: 'manual' as const }
+          ? { ...x, scheduledDate: action.date, scheduledStart: null, scheduledEnd: null, placementLock: 'date' as const, placementStatus: 'unscheduled' as const, updatedAt: new Date().toISOString() }
           : x,
       );
-      return { ...state, tasks };
+      return generatePlan({ ...state, tasks }, t, `「${task.title}」の日付固定`).state;
+    }
+
+    case 'UNLOCK_TASK': {
+      const task = state.tasks.find((item) => item.id === action.taskId);
+      if (!task || task.status === 'done' || task.status === 'doing') return state;
+      const tasks = state.tasks.map((item) => item.id === action.taskId
+        ? { ...item, placementLock: 'none' as const, generatedBy: item.sourceType === 'manual' ? item.generatedBy : 'auto' as const, updatedAt: new Date().toISOString() }
+        : item);
+      return generatePlan({ ...state, tasks }, t, `「${task.title}」のロック解除`).state;
     }
 
     case 'RESCHEDULE':
@@ -352,7 +422,7 @@ export function appReducer(state: AppState, action: Action): AppState {
     case 'UPDATE_DAY_PLAN': {
       const rest = state.dayPlans.filter((p) => p.date !== action.dayPlan.date);
       const dayPlans = [...rest, action.dayPlan].sort((a, b) => a.date.localeCompare(b.date));
-      return { ...state, dayPlans };
+      return generatePlan({ ...state, dayPlans }, action.dayPlan.date < t ? t : action.dayPlan.date, '日別負荷・利用可能時間の変更').state;
     }
 
     case 'UPDATE_FIXED_EVENTS':
@@ -364,6 +434,13 @@ export function appReducer(state: AppState, action: Action): AppState {
     case 'DISMISS_RESCHEDULE_BANNER':
       return { ...state, lastReschedule: null };
 
+    case 'CHECK_DATE_CHANGE':
+      return state.lastPlannedDate === null
+        || state.lastPlannedDate < t
+        || state.tasks.some((task) => task.status === 'planned' && task.scheduledDate < t)
+        ? generatePlan(state, t, '日付変更').state
+        : state;
+
     default:
       return state;
   }
@@ -372,6 +449,7 @@ export function appReducer(state: AppState, action: Action): AppState {
 export function emptyState(): AppState {
   return {
     version: STATE_VERSION,
+    schemaVersion: STATE_VERSION,
     isDemo: false,
     onboarded: false,
     goal: null,
@@ -385,6 +463,8 @@ export function emptyState(): AppState {
     settings: defaultSettings(),
     lastReschedule: null,
     lastPlannedDate: null,
+    lastScheduleResult: null,
+    lastPlanReason: null,
   };
 }
 
@@ -415,7 +495,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, undefined, () => {
     const savedOwner = getStateOwner();
     if (owner && (savedOwner === null || savedOwner === owner)) {
-      return loadState() ?? emptyState();
+      const loaded = loadState();
+      if (!loaded) return emptyState();
+      const currentDate = today();
+      return loaded.lastPlannedDate === null
+        || loaded.lastPlannedDate < currentDate
+        || loaded.tasks.some((task) => task.status === 'planned' && task.scheduledDate < currentDate)
+        ? generatePlan(loaded, currentDate, '起動時の日付・未達成反映').state
+        : loaded;
     }
     return emptyState();
   });
@@ -432,6 +519,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveState(state);
     setStateOwner(owner);
   }, [state, owner]);
+
+  useEffect(() => {
+    const checkDate = () => dispatch({ type: 'CHECK_DATE_CHANGE' });
+    const timer = window.setInterval(checkDate, 60_000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') checkDate();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   // タブ非表示・終了時に即保存(iOS PWA対策)
   useEffect(() => {

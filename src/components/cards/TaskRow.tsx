@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, CircleCheck, Play, SkipForward } from 'lucide-react';
+import { Check, CircleCheck, Play, SkipForward, Unlock } from 'lucide-react';
 import type { StudyTask } from '../../types';
 import { useApp } from '../../state/AppContext';
 import { useTimer } from '../timer/TimerContext';
@@ -22,6 +22,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
 
   const subject = state.subjects.find((s) => s.id === task.subjectId);
   const isDone = task.status === 'done';
+  const lock = task.placementLock ?? (task.generatedBy === 'manual' ? (task.scheduledStart ? 'time' : 'date') : 'none');
 
   const startTimer = () => {
     timer.start({
@@ -46,6 +47,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
           <div className="task-meta-row">
             <SubjectChip subject={subject} />
             <TaskTypeChip type={task.type} />
+            <span className="task-time">{lock === 'time' ? '時刻固定' : lock === 'date' ? '日付固定' : '自動'}</span>
             {showDate && <span className="task-time">{task.scheduledDate.slice(5).replace('-', '/')}</span>}
           </div>
           <div className="task-title">{task.title}</div>
@@ -57,6 +59,12 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
         </div>
         {!isDone && (
           <div className="task-actions">
+            {lock !== 'none' && (
+              <button className="task-action-btn" aria-label={`${task.title}のロックを解除`} onClick={() => dispatch({ type: 'UNLOCK_TASK', taskId: task.id })}>
+                <span className="ta-icon" aria-hidden="true"><Unlock size={15} strokeWidth={2.4} /></span>
+                <span className="ta-label">解除</span>
+              </button>
+            )}
             <button className="task-action-btn" aria-label={`${task.title}を延期`} onClick={postpone}>
               <span className="ta-icon" aria-hidden="true"><SkipForward size={15} strokeWidth={2.4} /></span>
               <span className="ta-label">延期</span>

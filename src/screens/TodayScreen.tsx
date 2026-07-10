@@ -4,8 +4,8 @@ import { QuickStartSheet } from '../components/timer/QuickStartSheet';
 import { useApp } from '../state/AppContext';
 import { useTimer } from '../components/timer/TimerContext';
 import { computeAnalytics } from '../lib/analytics';
-import { computeDayStatus } from '../lib/scheduler';
-import { diffDays, formatDateJa, formatMinutes, today } from '../lib/date';
+import { availableMinutesOn, computeDayStatus, futureFreeSlotsOn, subtractBusySlots, taskBusySlots } from '../lib/scheduler';
+import { diffDays, formatDateJa, formatMinutes, minutesToHM, today } from '../lib/date';
 import { ProgressRing } from '../components/ui/ProgressRing';
 import { SubjectChip, TaskTypeChip, EmptyState } from '../components/ui/bits';
 import { TaskRow } from '../components/cards/TaskRow';
@@ -34,7 +34,7 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
   const todayTasks = useMemo(
     () =>
       state.tasks
-        .filter((x) => x.scheduledDate === t)
+        .filter((x) => x.scheduledDate === t && x.placementStatus !== 'conflict' && x.placementStatus !== 'unscheduled')
         .sort((a, b) => {
           if ((a.status === 'done') !== (b.status === 'done')) return a.status === 'done' ? 1 : -1;
           return (a.scheduledStart ?? '99').localeCompare(b.scheduledStart ?? '99') || b.priority - a.priority;
@@ -58,6 +58,12 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
   const su = STATUS_UI[dayStatus];
   const topSubject = topTask ? state.subjects.find((s) => s.id === topTask.subjectId) : null;
   const allDoneToday = plannedMinutes > 0 && pending.length === 0;
+  const todayBudget = availableMinutesOn(state, t);
+  const remainingBudget = Math.max(0, todayBudget - plannedMinutes);
+  const todaySlots = subtractBusySlots(futureFreeSlotsOn(state, t, new Date()), taskBusySlots(todayTasks.filter((task) => task.status !== 'done')));
+  const progressDebt = state.lastScheduleResult?.progressDeficits.reduce((sum, item) => sum + item.minutes, 0) ?? 0;
+  const conflictCount = state.tasks.filter((task) => task.placementStatus === 'conflict').length;
+  const unscheduledCount = state.lastScheduleResult?.unscheduledWork.length ?? 0;
 
   return (
     <div className="screen">
@@ -115,6 +121,16 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="card mt-12" style={{ padding: 13 }}>
+        <div className="material-metrics">
+          <span><i>残り予算</i><b>{formatMinutes(remainingBudget)}</b></span>
+          <span><i>進捗負債</i><b>{formatMinutes(progressDebt)}</b></span>
+          <span><i>未配置</i><b>{unscheduledCount}件</b></span>
+        </div>
+        <div className="faint mt-8">空き区間 {todaySlots.map((slot) => `${minutesToHM(slot.start)}〜${minutesToHM(slot.end)}`).join(' / ') || 'なし'}</div>
+        {conflictCount > 0 && <div className="faint mt-8" style={{ color: 'var(--danger)' }}>固定条件の衝突 {conflictCount}件</div>}
       </div>
 
       {/* 再スケジュール通知 */}

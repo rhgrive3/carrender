@@ -11,6 +11,22 @@ import type {
   TimeRange,
 } from '../types';
 import { addDays, APP_TIME_ZONE, diffDays, genId, hmToMinutes, minutesToHM, toISODate, today, weekdayOf, formatMinutes } from './date';
+import { dateInTimeZone, generatePlanV2, mergeMinuteRanges, subtractMinuteRanges } from './schedulerV2';
+export {
+  dateInTimeZone,
+  deterministicTaskId,
+  generatePlanV2,
+  mergeMinuteRanges,
+  mergeTimeRanges,
+  normalizeUnitRanges,
+  preferredFinishDateFor,
+  remainingUnitRanges,
+  subtractMinuteRanges,
+  sumRangeLengths,
+  updateMinutesPerUnitEstimate,
+  validateGeneratedScheduleV2,
+  validateStateV2,
+} from './schedulerV2';
 
 // ============================================================
 // 優先度スコア
@@ -128,7 +144,6 @@ function baselineMaterialPacePerDay(material: Material): number {
 // ============================================================
 
 const DAY_START = '07:00';
-const DAY_END = '23:00';
 
 interface FreeSlot {
   start: number; // 分
@@ -137,6 +152,8 @@ interface FreeSlot {
 
 interface GeneratePlanOptions {
   now?: Date;
+  timezone?: string;
+  generationId?: string;
 }
 
 function currentMinutesInTimeZone(now: Date, timeZone = APP_TIME_ZONE): number {
@@ -194,18 +211,7 @@ export function availabilityWindowsOn(state: AppState, date: ISODate): TimeRange
 
 /** 区間リストからbusy区間を除いた残り */
 export function subtractBusySlots(windows: FreeSlot[], busy: FreeSlot[]): FreeSlot[] {
-  const blocks = [...busy].sort((a, b) => a.start - b.start);
-  const out: FreeSlot[] = [];
-  for (const w of windows) {
-    let cursor = w.start;
-    for (const b of blocks) {
-      if (b.end <= cursor || b.start >= w.end) continue;
-      if (b.start > cursor) out.push({ start: cursor, end: Math.min(b.start, w.end) });
-      cursor = Math.max(cursor, b.end);
-    }
-    if (cursor < w.end) out.push({ start: cursor, end: w.end });
-  }
-  return out;
+  return subtractMinuteRanges(mergeMinuteRanges(windows), mergeMinuteRanges(busy));
 }
 
 /** 固定予定を除いた自由時間帯(分単位の区間リスト) */
@@ -213,12 +219,19 @@ export function freeSlotsOn(state: AppState, date: ISODate): FreeSlot[] {
   const events = fixedEventsOn(state, date).map((e) => ({ start: hmToMinutes(e.start), end: hmToMinutes(e.end) }));
   const baseWindows = availabilityWindowsOn(state, date)
     .map((w) => ({
-      start: Math.max(hmToMinutes(DAY_START), hmToMinutes(w.start)),
-      end: Math.min(hmToMinutes(DAY_END), hmToMinutes(w.end)),
+      start: hmToMinutes(w.start),
+      end: hmToMinutes(w.end),
     }))
-    .filter((w) => w.end - w.start >= 15)
+    .filter((w) => w.end > w.start)
     .sort((a, b) => a.start - b.start);
-  return subtractBusySlots(baseWindows, events).filter((s) => s.end - s.start >= 15);
+  return subtractBusySlots(baseWindows, events).filter((s) => s.end > s.start);
+}
+
+export function futureFreeSlotsOn(state: AppState, date: ISODate, now: Date, timezone = state.settings.timezone ?? APP_TIME_ZONE): FreeSlot[] {
+  const slots = freeSlotsOn(state, date);
+  if (date !== dateInTimeZone(now, timezone)) return slots;
+  const minimumStart = roundUpToStep(currentMinutesInTimeZone(now, timezone), 5);
+  return slots.map((slot) => ({ ...slot, start: Math.max(slot.start, minimumStart) })).filter((slot) => slot.start < slot.end);
 }
 
 /** タスクが占有している時間帯(分単位の区間) */
@@ -242,9 +255,8 @@ export function availableMinutesOn(state: AppState, date: ISODate): number {
   // 日別例外で時間帯を上書きした日は、その時間帯こそが申告値。
   // 曜日の申告分数で頭打ちにすると「この日だけ長く勉強する」上書きが効かない。
   const declared = override?.availabilityWindows ? windowMinutes : slot ? slot.minutes : windowMinutes;
-  const base = Math.min(declared, windowMinutes, state.settings.maxDailyMinutes);
   const factor = override?.load === 'light' ? 0.6 : override?.load === 'heavy' ? 1.2 : 1;
-  return Math.max(0, Math.round(Math.min(windowMinutes, base * factor)));
+  return Math.max(0, Math.round(Math.min(windowMinutes, declared * factor, state.settings.maxDailyMinutes)));
 }
 
 // ============================================================
@@ -253,6 +265,113 @@ export function availableMinutesOn(state: AppState, date: ISODate): number {
 
 const HORIZON_DAYS = 120;
 const MAX_SAME_SUBJECT_STREAK = 2; // 同一科目の連続ブロック数上限
+
+/**
+ * 既存Reducer向けアダプター。計画生成そのものはgeneratePlanV2純粋関数が担い、
+ * ここでは履歴の保持と従来の再計算サマリーだけを組み立てる。
+ */
+export function generatePlan(
+  state: AppState,
+  fromDate: ISODate,
+  reason: string,
+  options: GeneratePlanOptions = {},
+): { state: AppState; result: RescheduleResult } {
+  const now = options.now ?? new Date();
+  const generationId = options.generationId ?? `plan-${fromDate}`;
+  const todayDate = toISODate(now);
+  const protectedTasks = new Map(
+    state.tasks
+      .filter((task) => task.status === 'planned' && task.scheduledDate >= todayDate && task.scheduledDate < fromDate)
+      .map((task) => [task.id, task]),
+  );
+  const planningState = protectedTasks.size === 0
+    ? state
+    : {
+        ...state,
+        tasks: state.tasks.map((task) => protectedTasks.has(task.id) ? { ...task, placementLock: task.scheduledStart ? 'time' as const : 'date' as const } : task),
+      };
+  const rawSchedule = generatePlanV2(planningState, {
+    now,
+    timezone: options.timezone ?? state.settings.timezone ?? APP_TIME_ZONE,
+    generationId,
+  });
+  const schedule = protectedTasks.size === 0
+    ? rawSchedule
+    : {
+        ...rawSchedule,
+        scheduledTasks: rawSchedule.scheduledTasks.map((task) => {
+          const original = protectedTasks.get(task.id);
+          return original ? { ...task, placementLock: original.placementLock, generatedBy: original.generatedBy } : task;
+        }),
+      };
+  const capacity: CapacityWarning = {
+    totalRemainingMinutes: schedule.capacityReport.requiredMinutes,
+    totalAvailableMinutes: schedule.capacityReport.availableMinutes,
+    deficitMinutes: schedule.capacityReport.requiredMinutes - schedule.capacityReport.availableMinutes,
+    ok: schedule.status !== 'infeasible',
+  };
+  const result: RescheduleResult = {
+    at: schedule.generatedAt,
+    reason,
+    changes: schedule.unscheduledWork.slice(0, 8).map((item) => ({
+      kind: 'postponed',
+      taskTitle: state.materials.find((material) => material.id === item.sourceId)?.name
+        ?? state.tasks.find((task) => task.id === item.sourceId)?.title
+        ?? item.sourceId,
+      subjectId: state.materials.find((material) => material.id === item.sourceId)?.subjectId
+        ?? state.tasks.find((task) => task.id === item.sourceId)?.subjectId
+        ?? '',
+      detail: item.reason,
+    })),
+    subjectMinuteDelta: [],
+    capacity,
+    summaryText:
+      schedule.status === 'conflict'
+        ? `${reason}を反映しましたが、固定条件に${schedule.conflicts.length}件の衝突があります。`
+        : schedule.status === 'infeasible'
+          ? `${reason}を反映しましたが、厳守期限までに${formatMinutes(schedule.objectiveReport.unscheduledStrictMinutes)}不足しています。`
+          : schedule.status === 'invalidInput'
+            ? `${reason}を反映できません。入力値を修正してください。`
+            : schedule.status === 'partial'
+              ? `${reason}を反映しました。通常・柔軟課題の一部は未配置です。`
+              : `${reason}のため計画を再設計しました。`,
+  };
+
+  if (schedule.status === 'invalidInput') {
+    return { state: { ...state, lastScheduleResult: schedule, lastPlanReason: reason, lastReschedule: result }, result };
+  }
+
+  const generatedIds = new Set(schedule.scheduledTasks.map((task) => task.id));
+  const conflictIds = new Set(schedule.conflicts.map((conflict) => conflict.taskId));
+  const unscheduledIds = new Set(schedule.unscheduledWork.filter((item) => item.workItemId.startsWith('task:')).map((item) => item.sourceId));
+  const history = state.tasks.filter((task) =>
+    task.status === 'done'
+    || task.status === 'skipped'
+    || task.scheduledDate < todayDate
+    || (task.status === 'doing' && !generatedIds.has(task.id)),
+  ).map((task) => task.scheduledDate < todayDate && task.status !== 'done' && task.status !== 'skipped'
+    ? { ...task, status: 'postponed' as const, placementStatus: 'unscheduled' as const, scheduledStart: null, scheduledEnd: null }
+    : task);
+  const conflicts = state.tasks
+    .filter((task) => conflictIds.has(task.id))
+    .map((task) => ({ ...task, placementStatus: 'conflict' as const }));
+  const unscheduledTasks = state.tasks
+    .filter((task) => unscheduledIds.has(task.id) && !conflictIds.has(task.id))
+    .map((task) => ({ ...task, scheduledStart: null, scheduledEnd: null, placementStatus: 'unscheduled' as const }));
+  const merged = [...history, ...schedule.scheduledTasks, ...conflicts, ...unscheduledTasks];
+  const unique = [...new Map(merged.map((task) => [task.id, task])).values()];
+  return {
+    state: {
+      ...state,
+      tasks: unique,
+      lastScheduleResult: schedule,
+      lastPlanReason: reason,
+      lastReschedule: result,
+      lastPlannedDate: todayDate,
+    },
+    result,
+  };
+}
 
 function materialDailyMinuteCap(
   material: Material,
@@ -277,7 +396,7 @@ function materialDailyMinuteCap(
  * 未達成(期限切れplanned/postponed)タスクも翌日に積むのではなく、
  * スコア順で全体に再配置する。
  */
-export function generatePlan(
+export function generatePlanLegacy(
   state: AppState,
   fromDate: ISODate,
   reason: string,
