@@ -828,7 +828,7 @@ export function subjectAchievementMap(state: AppState, ref: ISODate): Map<string
 // キャパシティ警告
 // ============================================================
 
-export function computeCapacity(state: AppState, ref: ISODate): CapacityWarning {
+export function computeCapacity(state: AppState, ref: ISODate, now = new Date()): CapacityWarning {
   const goal = state.goal;
   const examDate = goal ? goal.examDate : addDays(ref, 90);
 
@@ -839,14 +839,23 @@ export function computeCapacity(state: AppState, ref: ISODate): CapacityWarning 
     remainingMinutes += Math.max(0, m.totalAmount - m.doneAmount) * m.minutesPerUnit;
   }
   for (const t of state.tasks) {
-    if (t.status === 'planned' && t.type !== 'new') remainingMinutes += t.estimatedMinutes;
+    const independentManual = t.materialId === null && (t.sourceType === 'manual' || t.generatedBy === 'manual');
+    if (t.status === 'planned' && (t.type !== 'new' || independentManual)) remainingMinutes += t.estimatedMinutes;
   }
 
   // 試験日までの利用可能分数
   let available = 0;
   let d = ref;
+  const currentDate = dateInTimeZone(now, state.settings.timezone ?? APP_TIME_ZONE);
   while (d <= examDate) {
-    available += availableMinutesOn(state, d);
+    const dayCapacity = availableMinutesOn(state, d);
+    if (d === currentDate) {
+      const futureWindowMinutes = futureFreeSlotsOn(state, d, now)
+        .reduce((sum, slot) => sum + Math.max(0, slot.end - slot.start), 0);
+      available += Math.min(dayCapacity, futureWindowMinutes);
+    } else {
+      available += dayCapacity;
+    }
     d = addDays(d, 1);
   }
 

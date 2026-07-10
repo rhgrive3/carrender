@@ -75,9 +75,10 @@ export function apiGetData(): Promise<GetDataResponse> {
   return request<GetDataResponse>('/api/data', { method: 'GET' });
 }
 
-export function apiPutData(appState: unknown): Promise<{ ok: boolean; updatedAt: string }> {
+export function apiPutData(appState: unknown, expectedUpdatedAt?: string | null): Promise<{ ok: boolean; updatedAt: string }> {
   return request<{ ok: boolean; updatedAt: string }>('/api/data', {
     method: 'PUT',
+    headers: expectedUpdatedAt === undefined ? undefined : { 'X-Data-Version': expectedUpdatedAt ?? 'null' },
     body: JSON.stringify(appState),
   });
 }

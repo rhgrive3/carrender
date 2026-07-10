@@ -68,6 +68,7 @@ export function saveState(state: AppState): void {
 
 export function saveStateNow(state: AppState): void {
   if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
   } catch (e) {
@@ -76,11 +77,15 @@ export function saveStateNow(state: AppState): void {
 }
 
 export function clearState(): void {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
   localStorage.removeItem(KEY);
 }
 
 /** ログアウト時: 端末に残る学習データキャッシュと持ち主情報を消す(共用端末での漏えい防止) */
 export function clearOwnedState(): void {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
   localStorage.removeItem(KEY);
   localStorage.removeItem(OWNER_KEY);
 }
@@ -138,6 +143,22 @@ export function migrateState(input: AppState): MigrationResult {
     const total = material.totalUnits ?? material.totalAmount;
     if ((source?.doneAmount ?? 0) > total) {
       errors.push({ targetId: material.id, field: 'doneAmount', value: source?.doneAmount, reason: '完了量が教材総量を超えています', suggestion: '教材総量または完了量を修正してください' });
+    }
+    const invalidRange = source?.completedRanges?.find((range) =>
+      !Number.isInteger(range.start)
+      || !Number.isInteger(range.end)
+      || range.start < 1
+      || range.end < range.start
+      || range.end > total,
+    );
+    if (invalidRange) {
+      errors.push({
+        targetId: material.id,
+        field: 'completedRanges',
+        value: invalidRange,
+        reason: '教材の完了範囲が総量外または不正です',
+        suggestion: `1から${total}までの正しい範囲へ修正してください`,
+      });
     }
   }
   return errors.length > 0 ? { ok: false, state, errors } : { ok: true, state, errors: [] };

@@ -123,6 +123,8 @@ export interface StudyTask {
   placementLock?: 'none' | 'date' | 'time';
   materialRange?: UnitRange;
   manualScheduling?: ManualTaskScheduling;
+  /** 日別画面だけの手動表示順。配置時刻や固定状態には影響させない。 */
+  manualOrder?: number;
 }
 
 export interface ManualTaskScheduling {

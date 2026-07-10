@@ -14,7 +14,7 @@ import type {
   UserGoal,
 } from '../types';
 import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, normalizeState, STATE_VERSION } from '../lib/storage';
-import { freeSlotsOn, generatePlan, normalizeUnitRanges, remainingUnitRanges, subtractBusySlots, sumRangeLengths, taskBusySlots, updateMinutesPerUnitEstimate } from '../lib/scheduler';
+import { generatePlan, normalizeUnitRanges, remainingUnitRanges, sumRangeLengths, updateMinutesPerUnitEstimate } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
 import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
 import { buildDemoState } from '../data/demo';
@@ -22,6 +22,7 @@ import { defaultSettings, defaultAvailability } from '../data/defaults';
 import { useAuth } from './AuthContext';
 import { apiGetData, apiPutData } from '../lib/api';
 import type { ApiError } from '../lib/api';
+import { compareTaskDisplayOrder, isPlacedPlanTask } from '../lib/taskFilters';
 
 // ============================================================
 // アクション定義
@@ -80,6 +81,7 @@ export type Action =
   | { type: 'UPDATE_GOAL'; goal: UserGoal }
   | { type: 'UPDATE_AVAILABILITY'; availability: AvailabilitySlot[] }
   | { type: 'UPDATE_DAY_PLAN'; dayPlan: DayPlanOverride }
+  | { type: 'UPDATE_DAY_MEMO'; date: ISODate; memo: string }
   | { type: 'UPDATE_FIXED_EVENTS'; fixedEvents: FixedEvent[] }
   | { type: 'UPDATE_SETTINGS'; settings: AppSettings }
   | { type: 'DISMISS_RESCHEDULE_BANNER' }
@@ -89,16 +91,91 @@ export type Action =
 // Reducer
 // ============================================================
 
-function takeFirstRemainingRanges(total: number, completed: { start: number; end: number }[], amount: number) {
+function takeFirstRanges(ranges: { start: number; end: number }[], amount: number) {
   const result: { start: number; end: number }[] = [];
   let left = amount;
-  for (const range of remainingUnitRanges(total, completed)) {
+  for (const range of ranges) {
     if (left <= 0) break;
     const take = Math.min(left, range.end - range.start + 1);
     result.push({ start: range.start, end: range.start + take - 1 });
     left -= take;
   }
   return result;
+}
+
+function intersectRanges(
+  ranges: { start: number; end: number }[],
+  limit: { start: number; end: number },
+): { start: number; end: number }[] {
+  return ranges.flatMap((range) => {
+    const start = Math.max(range.start, limit.start);
+    const end = Math.min(range.end, limit.end);
+    return start <= end ? [{ start, end }] : [];
+  });
+}
+
+/** 入力値を、対象教材・対象タスクで実際に完了可能な量へ正規化する。 */
+export function resolveSessionProgress(state: AppState, input: SessionInput) {
+  const requested = Math.max(0, Math.floor(Number.isFinite(input.amountDone) ? input.amountDone : 0));
+  const material = input.materialId ? state.materials.find((item) => item.id === input.materialId) : undefined;
+  if (!material) return { amountDone: requested, addedRanges: [] as { start: number; end: number }[] };
+
+  const completed = normalizeUnitRanges(
+    material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []),
+    material.totalAmount,
+  );
+  const task = input.taskId ? state.tasks.find((item) => item.id === input.taskId) : undefined;
+  const explicit = task?.materialRange
+    ?? (task?.rangeStart !== null && task?.rangeStart !== undefined && task.rangeEnd !== null
+      ? { start: task.rangeStart, end: task.rangeEnd }
+      : undefined);
+  let eligible = remainingUnitRanges(material.totalAmount, completed);
+  if (explicit) eligible = intersectRanges(eligible, explicit);
+
+  let remaining = sumRangeLengths(eligible);
+  if (task && !explicit) remaining = Math.min(remaining, Math.max(0, task.amount));
+  const amountDone = Math.min(input.completedTask && task ? remaining : requested, remaining);
+  return { amountDone, addedRanges: takeFirstRanges(eligible, amountDone) };
+}
+
+function deferTask(task: StudyTask, date: ISODate): StudyTask {
+  let manualScheduling = task.manualScheduling;
+  let placementLock: StudyTask['placementLock'] = 'none';
+  if (manualScheduling) {
+    const canStayFlexible = manualScheduling.placementPolicy === 'flexibleBeforeDeadline'
+      && !!manualScheduling.deadline
+      && manualScheduling.deadline >= date;
+    manualScheduling = canStayFlexible
+      ? { ...manualScheduling, fixedDate: undefined, fixedStartTime: undefined }
+      : {
+          ...manualScheduling,
+          placementPolicy: 'fixedDateFlexibleTime',
+          fixedDate: date,
+          fixedStartTime: undefined,
+        };
+    placementLock = canStayFlexible ? 'none' : 'date';
+  }
+  return {
+    ...task,
+    status: 'planned',
+    scheduledDate: date,
+    scheduledStart: null,
+    scheduledEnd: null,
+    placementLock,
+    placementStatus: 'unscheduled',
+    manualScheduling,
+    manualOrder: undefined,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function settingsAffectPlan(previous: AppSettings, next: AppSettings): boolean {
+  return previous.maxDailyMinutes !== next.maxDailyMinutes
+    || previous.sessionMinMinutes !== next.sessionMinMinutes
+    || previous.sessionMaxMinutes !== next.sessionMaxMinutes
+    || previous.timezone !== next.timezone
+    || previous.taskGenerationHorizonDays !== next.taskGenerationHorizonDays
+    || JSON.stringify(previous.reviewRule) !== JSON.stringify(next.reviewRule);
 }
 
 export function appReducer(state: AppState, action: Action): AppState {
@@ -247,53 +324,27 @@ export function appReducer(state: AppState, action: Action): AppState {
       const task = state.tasks.find((x) => x.id === action.taskId);
       if (!task) return state;
       const list = state.tasks
-        .filter((x) => x.scheduledDate === task.scheduledDate && x.status !== 'skipped' && x.status !== 'done')
-        .sort((a, b) => (a.scheduledStart ?? '99:99').localeCompare(b.scheduledStart ?? '99:99') || b.priority - a.priority);
+        .filter((x) => x.scheduledDate === task.scheduledDate && x.status === 'planned' && isPlacedPlanTask(x))
+        .sort(compareTaskDisplayOrder);
       const index = list.findIndex((x) => x.id === action.taskId);
       const target = action.direction === 'up' ? index - 1 : index + 1;
       if (index < 0 || target < 0 || target >= list.length) return state;
       const reordered = [...list];
       const [picked] = reordered.splice(index, 1);
       reordered.splice(target, 0, picked);
-      // 固定予定と完了/実行中タスクの時間帯を避けた空き枠に、新しい順序で詰め直す
-      const occupied = taskBusySlots(
-        state.tasks.filter(
-          (x) => x.scheduledDate === task.scheduledDate && (x.status === 'done' || x.status === 'doing'),
-        ),
-      );
-      const slots = subtractBusySlots(freeSlotsOn(state, task.scheduledDate), occupied);
-      let cursor = Math.min(...reordered.map((x) => (x.scheduledStart ? hmToMinutes(x.scheduledStart) : Number.POSITIVE_INFINITY)));
-      if (!Number.isFinite(cursor)) cursor = slots[0]?.start ?? 18 * 60;
-      let slotIdx = 0;
-      const times = new Map<string, { start: string; end: string }>();
-      for (const item of reordered) {
-        const need = item.estimatedMinutes;
-        let placed: { start: number; end: number } | null = null;
-        while (slotIdx < slots.length) {
-          const slot = slots[slotIdx];
-          const start = Math.max(cursor, slot.start);
-          if (slot.end - start >= need) {
-            placed = { start, end: start + need };
-            break;
-          }
-          slotIdx += 1;
-          if (slotIdx < slots.length) cursor = Math.max(cursor, slots[slotIdx].start);
-        }
-        if (!placed) return state;
-        times.set(item.id, { start: minutesToHM(placed.start), end: minutesToHM(placed.end) });
-        cursor = placed.end + 5;
-      }
+      const order = new Map(reordered.map((item, orderIndex) => [item.id, orderIndex]));
       return {
         ...state,
         tasks: state.tasks.map((x) => {
-          const time = times.get(x.id);
-          return time ? { ...x, scheduledStart: time.start, scheduledEnd: time.end, placementLock: 'time' as const, placementStatus: 'scheduled' as const, updatedAt: new Date().toISOString() } : x;
+          const manualOrder = order.get(x.id);
+          return manualOrder === undefined ? x : { ...x, manualOrder, updatedAt: new Date().toISOString() };
         }),
       };
     }
 
     case 'RECORD_SESSION': {
       const inp = action.input;
+      const progress = resolveSessionProgress(state, inp);
       const session: StudySession = {
         id: genId('sess'),
         taskId: inp.taskId,
@@ -302,7 +353,7 @@ export function appReducer(state: AppState, action: Action): AppState {
         date: t,
         startedAt: new Date().toISOString(),
         minutes: inp.minutes,
-        amountDone: inp.amountDone,
+        amountDone: progress.amountDone,
         rangeLabel: inp.rangeLabel,
         focus: inp.focus,
         memo: inp.memo,
@@ -311,19 +362,11 @@ export function appReducer(state: AppState, action: Action): AppState {
 
       // 教材進捗を更新
       let materials = state.materials;
-      if (inp.materialId && inp.amountDone > 0) {
+      if (inp.materialId && progress.amountDone > 0) {
         materials = state.materials.map((m) => {
           if (m.id !== inp.materialId) return m;
           const completed = m.completedRanges ?? (m.doneAmount > 0 ? [{ start: 1, end: m.doneAmount }] : []);
-          const completedTask = inp.taskId ? state.tasks.find((item) => item.id === inp.taskId) : undefined;
-          const explicit = completedTask?.materialRange
-            ?? (completedTask?.rangeStart !== null && completedTask?.rangeStart !== undefined && completedTask.rangeEnd !== null
-              ? { start: completedTask.rangeStart, end: completedTask.rangeEnd }
-              : undefined);
-          const added = explicit
-            ? [explicit]
-            : takeFirstRemainingRanges(m.totalAmount, completed, inp.amountDone);
-          const merged = normalizeUnitRanges([...completed, ...added], m.totalAmount);
+          const merged = normalizeUnitRanges([...completed, ...progress.addedRanges], m.totalAmount);
           return { ...m, completedRanges: merged, doneAmount: sumRangeLengths(merged) };
         });
       }
@@ -370,7 +413,7 @@ export function appReducer(state: AppState, action: Action): AppState {
       const next = {
         ...state,
         tasks: state.tasks.map((x) =>
-          x.id === action.taskId ? { ...x, status: 'postponed' as const, scheduledDate: addDays(t, 1) } : x,
+          x.id === action.taskId ? deferTask(x, addDays(t, 1)) : x,
         ),
       };
       return generatePlan(next, addDays(t, 1), `「${task.title}」の延期`).state;
@@ -407,7 +450,7 @@ export function appReducer(state: AppState, action: Action): AppState {
       // 今日の未着手タスクを全て外し、明日以降で全体再計算
       const tasks = state.tasks.map((x) =>
         x.scheduledDate === t && x.status === 'planned'
-          ? { ...x, status: 'postponed' as const, scheduledDate: addDays(t, 1) }
+          ? deferTask(x, addDays(t, 1))
           : x,
       );
       return generatePlan({ ...state, tasks }, addDays(t, 1), '「今日は無理」の指定').state;
@@ -425,11 +468,23 @@ export function appReducer(state: AppState, action: Action): AppState {
       return generatePlan({ ...state, dayPlans }, action.dayPlan.date < t ? t : action.dayPlan.date, '日別負荷・利用可能時間の変更').state;
     }
 
+    case 'UPDATE_DAY_MEMO': {
+      const current = state.dayPlans.find((plan) => plan.date === action.date);
+      const dayPlan: DayPlanOverride = current
+        ? { ...current, memo: action.memo }
+        : { date: action.date, load: 'normal', memo: action.memo, availabilityWindows: null };
+      const dayPlans = [...state.dayPlans.filter((plan) => plan.date !== action.date), dayPlan]
+        .sort((a, b) => a.date.localeCompare(b.date));
+      return { ...state, dayPlans };
+    }
+
     case 'UPDATE_FIXED_EVENTS':
       return generatePlan({ ...state, fixedEvents: action.fixedEvents }, t, '固定予定の変更').state;
 
     case 'UPDATE_SETTINGS':
-      return generatePlan({ ...state, settings: action.settings }, t, '設定の変更').state;
+      return settingsAffectPlan(state.settings, action.settings)
+        ? generatePlan({ ...state, settings: action.settings }, t, '計画設定の変更').state
+        : { ...state, settings: action.settings };
 
     case 'DISMISS_RESCHEDULE_BANNER':
       return { ...state, lastReschedule: null };
@@ -472,7 +527,7 @@ export function emptyState(): AppState {
 // Context
 // ============================================================
 
-export type SyncStatus = 'syncing' | 'synced' | 'offline' | 'error';
+export type SyncStatus = 'syncing' | 'synced' | 'offline' | 'conflict' | 'error';
 
 interface AppContextValue {
   state: AppState;
@@ -514,8 +569,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPush = useRef(false);
+  const remoteUpdatedAt = useRef<string | null | undefined>(undefined);
+  const pushChain = useRef<Promise<void>>(Promise.resolve());
+  const syncConflict = useRef(false);
 
   useEffect(() => {
+    if (!owner) return;
     saveState(state);
     setStateOwner(owner);
   }, [state, owner]);
@@ -551,22 +610,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!owner) return;
     let cancelled = false;
+    remoteUpdatedAt.current = undefined;
+    pushChain.current = Promise.resolve();
+    syncConflict.current = false;
     setSyncReady(false);
     setSyncStatus('syncing');
     (async () => {
       try {
         const res = await apiGetData();
         if (cancelled) return;
+        remoteUpdatedAt.current = res.updatedAt;
         if (res.appState) {
           dispatch({ type: 'IMPORT_STATE', state: normalizeState(res.appState as AppState) });
         } else if (stateRef.current.onboarded) {
-          await apiPutData(stateRef.current);
+          const saved = await apiPutData(stateRef.current, null);
+          remoteUpdatedAt.current = saved.updatedAt;
         }
         if (!cancelled) setSyncStatus('synced');
       } catch (e) {
         if (cancelled) return;
         const err = e as ApiError;
-        setSyncStatus(err.isNetworkError ? 'offline' : 'error');
+        if (err.status === 409) {
+          syncConflict.current = true;
+          setSyncStatus('conflict');
+        } else {
+          setSyncStatus(err.isNetworkError ? 'offline' : 'error');
+        }
       } finally {
         if (!cancelled) setSyncReady(true);
       }
@@ -577,21 +646,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner]);
 
-  const pushToD1 = useCallback(async (nextState: AppState) => {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      pendingPush.current = true;
-      setSyncStatus('offline');
-      return;
-    }
-    try {
-      await apiPutData(nextState);
-      pendingPush.current = false;
-      setSyncStatus('synced');
-    } catch (e) {
-      pendingPush.current = true;
-      const err = e as ApiError;
-      setSyncStatus(err.isNetworkError ? 'offline' : 'error');
-    }
+  const pushToD1 = useCallback((nextState: AppState) => {
+    pushChain.current = pushChain.current.then(async () => {
+      if (syncConflict.current) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        pendingPush.current = true;
+        setSyncStatus('offline');
+        return;
+      }
+      try {
+        const saved = await apiPutData(nextState, remoteUpdatedAt.current);
+        remoteUpdatedAt.current = saved.updatedAt;
+        pendingPush.current = false;
+        setSyncStatus('synced');
+      } catch (e) {
+        const err = e as ApiError;
+        if (err.status === 409) {
+          syncConflict.current = true;
+          pendingPush.current = false;
+          setSyncStatus('conflict');
+        } else {
+          pendingPush.current = true;
+          setSyncStatus(err.isNetworkError ? 'offline' : 'error');
+        }
+      }
+    });
+    return pushChain.current;
   }, []);
 
   // 状態変化をD1へデバウンス反映(オフライン時はlocalStorageのみに保存し、オンライン復帰後に再送)
@@ -615,6 +695,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [pushToD1]);
 
   const value = useMemo(() => ({ state, dispatch, syncStatus }), [state, syncStatus]);
+  if (owner && !syncReady) {
+    return <div className="screen"><div className="card">クラウドの最新データを確認中…</div></div>;
+  }
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 

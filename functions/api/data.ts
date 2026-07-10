@@ -45,12 +45,35 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const now = new Date().toISOString();
-  await env.DB.prepare(
-    `INSERT INTO user_data (user_id, app_state, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET app_state = excluded.app_state, updated_at = excluded.updated_at`,
-  )
-    .bind(user.id, JSON.stringify(appState), now)
-    .run();
+  const expectedHeader = request.headers.get('X-Data-Version');
+  let saved = true;
+  if (expectedHeader === 'null') {
+    const result = await env.DB.prepare(
+      'INSERT INTO user_data (user_id, app_state, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO NOTHING',
+    ).bind(user.id, JSON.stringify(appState), now).run();
+    saved = result.meta.changes === 1;
+  } else if (expectedHeader) {
+    const result = await env.DB.prepare(
+      'UPDATE user_data SET app_state = ?, updated_at = ? WHERE user_id = ? AND updated_at = ?',
+    ).bind(JSON.stringify(appState), now, user.id, expectedHeader).run();
+    saved = result.meta.changes === 1;
+  } else {
+    // 旧クライアントとの互換経路。新クライアントは常にX-Data-Versionを送る。
+    await env.DB.prepare(
+      `INSERT INTO user_data (user_id, app_state, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET app_state = excluded.app_state, updated_at = excluded.updated_at`,
+    ).bind(user.id, JSON.stringify(appState), now).run();
+  }
+
+  if (!saved) {
+    const current = await env.DB.prepare('SELECT updated_at FROM user_data WHERE user_id = ?')
+      .bind(user.id)
+      .first<{ updated_at: string }>();
+    return json(
+      { error: '別の端末またはタブでデータが更新されています。再読み込みして最新データを確認してください', updatedAt: current?.updated_at ?? null },
+      { status: 409 },
+    );
+  }
 
   return json({ ok: true, updatedAt: now });
 };
