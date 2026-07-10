@@ -223,7 +223,12 @@ export function appReducer(state: AppState, action: Action): AppState {
         ...action.task,
         sourceType: 'manual' as const,
         sourceId: action.task.sourceId ?? action.task.id,
-        placementLock: action.task.placementLock ?? (action.task.scheduledStart ? 'time' as const : 'date' as const),
+        placementLock: action.task.placementLock
+          ?? (action.task.manualScheduling?.placementPolicy === 'fixedTime'
+            ? 'time' as const
+            : action.task.manualScheduling?.placementPolicy === 'fixedDateFlexibleTime'
+              ? 'date' as const
+              : 'none' as const),
         placementStatus: action.task.scheduledStart ? 'scheduled' as const : 'unscheduled' as const,
         updatedAt: action.task.updatedAt ?? action.task.createdAt,
       };
