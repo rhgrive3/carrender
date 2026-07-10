@@ -13,6 +13,7 @@ import type {
 import { addDays, APP_TIME_ZONE, diffDays, genId, hmToMinutes, minutesToHM, toISODate, today, weekdayOf, formatMinutes } from './date';
 import { dateInTimeZone, generatePlanV2, mergeMinuteRanges, subtractMinuteRanges } from './schedulerV2';
 export {
+  compareObjectives,
   dateInTimeZone,
   deterministicTaskId,
   generatePlanV2,
@@ -330,11 +331,13 @@ export function generatePlan(
         ? `${reason}を反映しましたが、固定条件に${schedule.conflicts.length}件の衝突があります。`
         : schedule.status === 'infeasible'
           ? `${reason}を反映しましたが、厳守期限までに${formatMinutes(schedule.objectiveReport.unscheduledStrictMinutes)}不足しています。`
-          : schedule.status === 'invalidInput'
-            ? `${reason}を反映できません。入力値を修正してください。`
-            : schedule.status === 'partial'
-              ? `${reason}を反映しました。通常・柔軟課題の一部は未配置です。`
-              : `${reason}のため計画を再設計しました。`,
+          : schedule.status === 'indeterminate'
+            ? `${reason}を反映しましたが、探索上限に達したため厳守期限の実行可能性を確定できませんでした。`
+            : schedule.status === 'invalidInput'
+              ? `${reason}を反映できません。入力値を修正してください。`
+              : schedule.status === 'partial'
+                ? `${reason}を反映しました。通常・柔軟課題の一部は未配置です。`
+                : `${reason}のため計画を再設計しました。`,
   };
 
   if (schedule.status === 'invalidInput') {

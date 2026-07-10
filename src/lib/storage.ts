@@ -5,7 +5,11 @@ import { toISODate } from './date';
 const KEY = 'studycommander_state_v1';
 const OWNER_KEY = 'studycommander_owner_v1';
 const BACKUP_KEY = 'studycommander_state_migration_backup';
-export const STATE_VERSION = 2;
+/**
+ * v3: placementLockをマイグレーション時に明示化(スケジューラーは実行時に
+ * generatedByからロックを推測しない)。完了済みタスクは未来容量を予約しない。
+ */
+export const STATE_VERSION = 3;
 
 /** どのアカウントのデータがlocalStorageにキャッシュされているかを記録する(別ユーザーへの誤流用を防止) */
 export function getStateOwner(): string | null {

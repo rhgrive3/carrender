@@ -123,6 +123,16 @@ export function PlanScreen() {
           {(schedule.conflicts.length > 0 || schedule.unscheduledWork.length > 0) && (
             <div className="faint mt-8">固定衝突 {schedule.conflicts.length}件 ・ 未配置 {schedule.unscheduledWork.length}件</div>
           )}
+          {schedule.conflicts.slice(0, 3).map((conflict) => (
+            <div key={conflict.taskId} className="faint mt-8" style={{ color: 'var(--danger)' }}>
+              「{state.tasks.find((task) => task.id === conflict.taskId)?.title ?? conflict.taskId}」: {conflict.message}
+            </div>
+          ))}
+          {schedule.warnings.filter((warning) => warning.code === 'EXCEEDS_DAILY_BUDGET').slice(0, 2).map((warning, index) => (
+            <div key={`${warning.targetId ?? index}-budget`} className="faint mt-8" style={{ color: 'var(--warn)' }}>
+              {warning.message}
+            </div>
+          ))}
           {state.lastPlanReason && <div className="faint mt-8">再計算理由: {state.lastPlanReason}</div>}
           {schedule.capacityReport.shortages[0]?.suggestedActions[0] && (
             <div className="faint mt-8">提案: {schedule.capacityReport.shortages[0].suggestedActions[0].label}</div>

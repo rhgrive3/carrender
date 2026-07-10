@@ -294,6 +294,7 @@ export interface SchedulerContext {
   timezone: TimeZoneId;
   generationId: string;
   maxSearchNodes?: number;
+  maxSearchMilliseconds?: number;
 }
 
 export interface WorkItem {
@@ -341,9 +342,20 @@ export interface UnscheduledWorkItem {
   reason: string;
 }
 
+/** 固定タスクが配置できない具体的理由 */
+export type ConflictCode =
+  | 'OUTSIDE_AVAILABILITY'
+  | 'OVERLAPS_FIXED_EVENT'
+  | 'OVERLAPS_LOCKED_TASK'
+  | 'EXCEEDS_DAILY_BUDGET'
+  | 'PAST_TIME'
+  | 'INVALID_TIME_RANGE'
+  | 'DURATION_MISMATCH'
+  | 'OUTSIDE_HORIZON';
+
 export interface ScheduleConflict {
   taskId: string;
-  code: string;
+  code: ConflictCode | string;
   message: string;
 }
 
@@ -406,6 +418,8 @@ export interface ObjectiveReport {
   subjectImbalance: number;
   timePreferenceViolations: number;
   taskSwitches: number;
+  /** 同一教材が同日内で連続したブロック数(旧保存データには存在しない) */
+  sameMaterialStreak?: number;
 }
 
 export interface ScheduleGenerationResult {
