@@ -1,0 +1,51 @@
+name: Verify scheduler slot fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out work branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/scheduler-slot-allocations-20260710
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply focused code changes
+        shell: bash
+        run: |
+          sed -n "/^          python - <<'PYCODE'$/,/^          PYCODE$/p" .github/workflows/apply-scheduler-fix.yml \
+            | sed 's/^          //' > /tmp/apply-scheduler-fix.sh
+          bash /tmp/apply-scheduler-fix.sh
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit verified changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-scheduler-fix.yml .github/workflows/verify-scheduler-fix.yml
+          git add package.json src/lib/strictSolver.ts src/lib/schedulerV2.ts src/lib/storage.ts src/lib/scheduler.ts src/state/AppContext.tsx scripts/schedulerV2.test.ts
+          git commit -m "Verify scheduler slot allocation fix"
+          git push origin HEAD:fix/scheduler-slot-allocations-20260710
