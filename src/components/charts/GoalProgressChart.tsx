@@ -12,6 +12,8 @@ import {
 } from 'recharts';
 import type { AppState, ISODate, Material } from '../../types';
 import { addDays, diffDays, formatDateShort } from '../../lib/date';
+import { isPlacedPlanTask, plannedMaterialAmountThrough } from '../../lib/taskFilters';
+import type { UnitRange } from '../../types';
 
 interface GoalProgressChartProps {
   state: AppState;
@@ -91,11 +93,13 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       return { points: [] as ChartPoint[], series: [] as Series[], materials: [] as Material[] };
     }
 
-    const plannedByMaterial = new Map<string, { date: ISODate; amount: number }[]>();
+    const plannedByMaterial = new Map<string, { date: ISODate; amount: number; range?: UnitRange }[]>();
     for (const task of state.tasks) {
-      if (!task.materialId || task.type !== 'new' || task.status === 'skipped' || task.amount <= 0) continue;
+      if (!task.materialId || task.type !== 'new' || !isPlacedPlanTask(task) || task.amount <= 0) continue;
       const list = plannedByMaterial.get(task.materialId) ?? [];
-      list.push({ date: task.scheduledDate, amount: task.amount });
+      const range = task.materialRange
+        ?? (task.rangeStart !== null && task.rangeEnd !== null ? { start: task.rangeStart, end: task.rangeEnd } : undefined);
+      list.push({ date: task.scheduledDate, amount: task.amount, range });
       plannedByMaterial.set(task.materialId, list);
     }
     for (const list of plannedByMaterial.values()) {
@@ -148,12 +152,7 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       activeMaterials.forEach((material, index) => {
         const start = materialStartDate(material);
         const baseline = Math.max(0, material.doneAmount - (totalRecordedByMaterial.get(material.id) ?? 0));
-        const planned = plannedByMaterial.get(material.id) ?? [];
-        const plannedByDate =
-          baseline +
-          planned.reduce((sum, item) => {
-            return item.date <= date ? sum + item.amount : sum;
-          }, 0);
+        const plannedByDate = baseline + plannedMaterialAmountThrough(state.tasks, material.id, material.totalAmount, date);
         point[`m${index}Target`] = date < start ? 0 : clampPercent((plannedByDate / material.totalAmount) * 100);
 
         if (date > refDate) {

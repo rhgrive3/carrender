@@ -7,6 +7,7 @@ import type {
 } from '../types';
 import { addDays, diffDays, formatMinutes } from './date';
 import { computeCapacity } from './scheduler';
+import { isPlacedPlanTask } from './taskFilters';
 
 // ============================================================
 // 分析サマリー(全て実データから計算)
@@ -59,7 +60,7 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
 
   // --- 直近7日の予定達成率 ---
   const tasks7d = state.tasks.filter((t) => t.scheduledDate >= weekFrom && t.scheduledDate <= ref);
-  const relevant = tasks7d.filter((t) => t.status !== 'skipped');
+  const relevant = tasks7d.filter(isPlacedPlanTask);
   const planned7d = relevant.reduce((sum, t) => sum + t.estimatedMinutes, 0);
   const done7d = relevant.filter((t) => t.status === 'done').reduce((sum, t) => sum + t.estimatedMinutes, 0);
   const planAchievementRate7d = planned7d > 0 ? Math.min(1, done7d / planned7d) : 1;
@@ -68,7 +69,7 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
   const from14 = addDays(ref, -13);
   const subjectStats: SubjectStat[] = state.subjects.map((subj) => {
     const sTasks = state.tasks.filter(
-      (t) => t.subjectId === subj.id && t.scheduledDate >= from14 && t.scheduledDate <= ref && t.status !== 'skipped',
+      (t) => t.subjectId === subj.id && t.scheduledDate >= from14 && t.scheduledDate <= ref && isPlacedPlanTask(t),
     );
     const sSessions = sessions.filter((s) => s.subjectId === subj.id && s.date >= from14 && s.date <= ref);
     const planned = sTasks.reduce((sum, t) => sum + t.estimatedMinutes, 0);

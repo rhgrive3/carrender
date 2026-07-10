@@ -3,7 +3,7 @@ import { Check, ChevronDown, ChevronUp, Pin, Play, Plus, RefreshCw, Repeat, Skip
 import { useApp } from '../state/AppContext';
 import { addDays, addMonths, formatDateShort, formatMinutes, formatMinutesCompact, formatMinutesTile, hmToMinutes, minutesToHM, monthKeyOf, monthLabel, today, WEEKDAY_LABELS, weekdayOf, genId } from '../lib/date';
 import { MonthCalendar } from '../components/ui/MonthCalendar';
-import { availableMinutesOn, dayPlanOn, fixedEventsOn, freeSlotsOn } from '../lib/scheduler';
+import { availableMinutesOn, dayPlanOn, fixedEventsOn, freeSlotsOn, subtractBusySlots, taskBusySlots } from '../lib/scheduler';
 import type { StudyTask } from '../types';
 import { Sheet } from '../components/ui/Sheet';
 import { Segmented, Stepper, TASK_TYPE_LABEL } from '../components/ui/bits';
@@ -11,6 +11,7 @@ import { useToast } from '../components/ui/Toast';
 import { useTimer } from '../components/timer/TimerContext';
 import { RecordSheet } from '../components/forms/RecordSheet';
 import { normalizeTaskSchedule } from '../lib/taskSchedule';
+import { compareTaskDisplayOrder, isPlacedPlanTask } from '../lib/taskFilters';
 
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => (typeof window === 'undefined' ? false : window.matchMedia(query).matches));
@@ -43,11 +44,11 @@ export function PlanScreen() {
     const map = new Map<string, StudyTask[]>();
     for (const d of days) map.set(d, []);
     for (const task of state.tasks) {
-      if (task.status === 'skipped' || task.placementStatus === 'conflict' || task.placementStatus === 'unscheduled') continue;
+      if (!isPlacedPlanTask(task)) continue;
       if (map.has(task.scheduledDate)) map.get(task.scheduledDate)!.push(task);
     }
     for (const list of map.values()) {
-      list.sort((a, b) => (a.scheduledStart ?? '99').localeCompare(b.scheduledStart ?? '99'));
+      list.sort(compareTaskDisplayOrder);
     }
     return map;
   }, [state.tasks, days]);
@@ -289,7 +290,7 @@ function PlanMonthView({
   const byDay = useMemo(() => {
     const map = new Map<string, { minutes: number; subjects: string[]; total: number; done: number }>();
     for (const task of state.tasks) {
-      if (!task.scheduledDate.startsWith(month) || task.status === 'skipped') continue;
+      if (!task.scheduledDate.startsWith(month) || !isPlacedPlanTask(task)) continue;
       let e = map.get(task.scheduledDate);
       if (!e) {
         e = { minutes: 0, subjects: [], total: 0, done: 0 };
@@ -382,8 +383,8 @@ function DayDetailPanel({
   const tasks = useMemo(
     () =>
       state.tasks
-        .filter((task) => task.scheduledDate === date && task.status !== 'skipped' && task.placementStatus !== 'conflict' && task.placementStatus !== 'unscheduled')
-        .sort((a, b) => (a.scheduledStart ?? '99:99').localeCompare(b.scheduledStart ?? '99:99') || b.priority - a.priority),
+        .filter((task) => task.scheduledDate === date && isPlacedPlanTask(task))
+        .sort(compareTaskDisplayOrder),
     [state.tasks, date],
   );
   const sessions = state.sessions.filter((session) => session.date === date);
@@ -393,25 +394,12 @@ function DayDetailPanel({
   const achievement = planned > 0 ? Math.min(1, actual / planned) : actual > 0 ? 1 : 0;
   const free = Math.max(0, capacity - planned);
   const events = fixedEventsOn(state, date);
-  const slots = freeSlotsOn(state, date);
+  const slots = subtractBusySlots(freeSlotsOn(state, date), taskBusySlots(tasks));
   const learningTasks = tasks.filter((task) => task.type !== 'review');
   const reviewTasks = tasks.filter((task) => task.type === 'review');
   const missedTasks = state.tasks.filter((task) => task.status === 'planned' && task.scheduledDate < t);
   const subjectMinutes = new Map<string, number>();
   for (const task of tasks) subjectMinutes.set(task.subjectId, (subjectMinutes.get(task.subjectId) ?? 0) + task.estimatedMinutes);
-
-  const savePlan = (nextLoad = load, shouldReschedule = false) => {
-    dispatch({
-      type: 'UPDATE_DAY_PLAN',
-      dayPlan: {
-        date,
-        load: nextLoad,
-        memo,
-        availabilityWindows: dayPlan?.availabilityWindows ?? null,
-      },
-    });
-    if (shouldReschedule) dispatch({ type: 'RESCHEDULE_FROM', fromDate: date, reason: `${formatDateShort(date)}の詳細計画変更` });
-  };
 
   const applyLoad = (nextLoad: typeof load) => {
     setLoad(nextLoad);
@@ -424,7 +412,6 @@ function DayDetailPanel({
         availabilityWindows: dayPlan?.availabilityWindows ?? null,
       },
     });
-    dispatch({ type: 'RESCHEDULE_FROM', fromDate: date, reason: `${formatDateShort(date)}を${nextLoad === 'light' ? '軽め' : nextLoad === 'heavy' ? '重め' : nextLoad === 'rest' ? '休養日' : '通常'}に変更` });
     toast('日別負荷を反映して再計算しました');
   };
 
@@ -534,7 +521,7 @@ function DayDetailPanel({
       <button
         className="btn btn-secondary btn-sm btn-block"
         onClick={() => {
-          savePlan(load, false);
+          dispatch({ type: 'UPDATE_DAY_MEMO', date, memo });
           toast('日別メモを保存しました');
         }}
       >
@@ -674,13 +661,24 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
         scheduledEnd: finalEnd || null,
         estimatedMinutes: minutes,
         memo,
-        placementLock: 'time',
-        placementStatus: 'scheduled',
+        placementLock: finalStart ? 'time' : 'date',
+        placementStatus: finalStart ? 'scheduled' : 'unscheduled',
+        manualScheduling: task.manualScheduling
+          ? {
+              ...task.manualScheduling,
+              placementPolicy: finalStart ? 'fixedTime' : 'fixedDateFlexibleTime',
+              fixedDate: finalDate,
+              fixedStartTime: finalStart || undefined,
+            }
+          : task.manualScheduling,
+        manualOrder: undefined,
         updatedAt: new Date().toISOString(),
       },
     });
     if (avoidedEvent) {
       toast(`固定予定を避けて${formatDateShort(finalDate)} ${finalStart}〜に調整しました`);
+    } else if (!finalStart) {
+      toast('開始時刻なしの日付固定タスクとして保存しました');
     } else if (normalized.date !== date || normalized.startTime !== startTime) {
       toast(`${formatDateShort(normalized.date)} ${normalized.startTime}〜に直して保存しました`);
     } else {

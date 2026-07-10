@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Plus, Timer } from 'lucide-react';
 import { Sheet } from '../ui/Sheet';
 import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
-import { useApp } from '../../state/AppContext';
+import { resolveSessionProgress, useApp } from '../../state/AppContext';
 import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
 import { today } from '../../lib/date';
@@ -46,6 +46,21 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
   );
   const material = state.materials.find((m) => m.id === (preset?.materialId ?? materialId));
   const quota = material ? todayQuotaFor(state, material.id, today()) : 0;
+  const remainingAmount = useMemo(() => {
+    if (!material) return task?.amount ?? 9999;
+    return resolveSessionProgress(state, {
+      taskId: preset?.taskId ?? null,
+      subjectId,
+      materialId: material.id,
+      minutes,
+      amountDone: Number.MAX_SAFE_INTEGER,
+      focus: null,
+      memo: '',
+      source: preset?.source ?? 'manual',
+      rangeLabel: preset?.rangeLabel ?? '',
+      completedTask: false,
+    }).amountDone;
+  }, [material, minutes, preset?.rangeLabel, preset?.source, preset?.taskId, state, subjectId, task?.amount]);
 
   const save = () => {
     if (!subjectId) {
@@ -150,7 +165,7 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
           <NumericInput
             value={amountDone}
             min={0}
-            max={material ? material.totalAmount : 9999}
+            max={remainingAmount}
             placeholder={`例: ${quota || task?.amount || 10}`}
             onChange={setAmountDone}
             ariaLabel="完了量"
