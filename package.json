@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "vite-node scripts/smoke.ts",
+    "test:smoke": "vite-node scripts/smoke.ts",
+    "test:scheduler": "vite-node scripts/schedulerV2.test.ts",
+    "test": "npm run test:smoke && npm run test:scheduler",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "icons": "node scripts/generate-icons.mjs",
