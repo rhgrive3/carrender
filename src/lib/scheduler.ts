@@ -279,8 +279,7 @@ export function generatePlan(
 ): { state: AppState; result: RescheduleResult } {
   const now = options.now ?? new Date();
   const generationId = options.generationId ?? `plan-${fromDate}`;
-  const timezone = options.timezone ?? state.settings.timezone ?? APP_TIME_ZONE;
-  const todayDate = dateInTimeZone(now, timezone);
+  const todayDate = toISODate(now);
   const protectedTasks = new Map(
     state.tasks
       .filter((task) => task.status === 'planned' && task.scheduledDate >= todayDate && task.scheduledDate < fromDate)
@@ -290,22 +289,11 @@ export function generatePlan(
     ? state
     : {
         ...state,
-        tasks: state.tasks.map((task) => {
-          if (!protectedTasks.has(task.id)
-            || task.placementLock === 'time'
-            || task.manualScheduling?.placementPolicy === 'fixedTime') return task;
-          return {
-            ...task,
-            placementLock: 'date' as const,
-            scheduledStart: null,
-            scheduledEnd: null,
-            placementStatus: 'unscheduled' as const,
-          };
-        }),
+        tasks: state.tasks.map((task) => protectedTasks.has(task.id) ? { ...task, placementLock: task.scheduledStart ? 'time' as const : 'date' as const } : task),
       };
   const rawSchedule = generatePlanV2(planningState, {
     now,
-    timezone,
+    timezone: options.timezone ?? state.settings.timezone ?? APP_TIME_ZONE,
     generationId,
   });
   const schedule = protectedTasks.size === 0

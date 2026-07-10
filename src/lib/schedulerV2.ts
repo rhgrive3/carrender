@@ -20,7 +20,7 @@ import type {
   ValidationIssue,
 } from '../types';
 import { addDays, diffDays, hmToMinutes, minutesToHM, weekdayOf } from './date';
-import type { DayAllocation, SlotAllocation, SolverDayInput, SolverItem } from './strictSolver';
+import type { DayAllocation, SolverDayInput, SolverItem } from './strictSolver';
 import { compareItemsForSearch, countItemPlacements, minutesForUnits, solveStrict } from './strictSolver';
 
 interface MinuteRange {
@@ -322,7 +322,6 @@ function taskRange(task: StudyTask): UnitRange | undefined {
  */
 function effectiveLock(task: StudyTask): 'none' | 'date' | 'time' {
   if (task.manualScheduling?.placementPolicy === 'fixedTime') return 'time';
-  if (task.manualScheduling?.placementPolicy === 'fixedDateFlexibleTime') return 'date';
   return task.placementLock ?? 'none';
 }
 
@@ -527,16 +526,6 @@ function takeUnits(ranges: UnitRange[], requested: number, unitStep: number): Un
   return range;
 }
 
-/** Consume an irregular final chunk from the end of the remaining material ranges. */
-function takeTailUnits(ranges: UnitRange[], requested: number): UnitRange | null {
-  const last = ranges[ranges.length - 1];
-  if (!last || requested <= 0 || requested > last.end - last.start + 1) return null;
-  const range = { start: last.end - requested + 1, end: last.end };
-  if (range.start === last.start) ranges.pop();
-  else last.end = range.start - 1;
-  return range;
-}
-
 function allocateMaterial(
   material: Material,
   ranges: UnitRange[],
@@ -703,9 +692,13 @@ interface StrictWork {
   requiredMinutes: number;
   solverItem: SolverItem;
   verdict: 'feasible' | 'infeasible' | 'indeterminate';
+  slippedMinutes: number;
 }
 
-type ReservationEntry = DayAllocation;
+interface ReservationEntry {
+  units: number;
+  minutes: number;
+}
 
 function materialSolverItem(material: Material, requiredUnits: number, today: ISODate, sessionMin: number, sessionMax: number): SolverItem {
   const mpu = material.minutesPerUnit;
@@ -812,16 +805,56 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   }
 
   // ---------- strict作業のグローバル実行可能性判定(第1段階) ----------
-  const strictTasks = state.tasks.filter((task) => task.status === 'planned' && effectiveLock(task) === 'none' && task.manualScheduling?.placementPolicy === 'flexibleBeforeDeadline' && Boolean(task.manualScheduling.deadline));
+  const strictTasks = state.tasks.filter((task) =>
+    task.status === 'planned'
+    && effectiveLock(task) === 'none'
+    && task.manualScheduling?.placementPolicy === 'flexibleBeforeDeadline'
+    && Boolean(task.manualScheduling.deadline));
   const strictWorks: StrictWork[] = [];
   for (const material of activeMaterials.filter((item) => item.deadlinePolicy === 'strict')) {
     const requiredUnits = sumRangeLengths(rangesByMaterial.get(material.id) ?? []);
     if (requiredUnits <= 0) continue;
-    strictWorks.push({ workItemId: `material:${material.id}`, sourceId: material.id, material, deadline: material.targetDate, requiredMinutes: minutesForUnits(material.minutesPerUnit, requiredUnits), solverItem: materialSolverItem(material, requiredUnits, today, sessionMin, sessionMax), verdict: 'infeasible' });
+    strictWorks.push({
+      workItemId: `material:${material.id}`,
+      sourceId: material.id,
+      material,
+      deadline: material.targetDate,
+      requiredMinutes: minutesForUnits(material.minutesPerUnit, requiredUnits),
+      solverItem: materialSolverItem(material, requiredUnits, today, sessionMin, sessionMax),
+      verdict: 'infeasible',
+      slippedMinutes: 0,
+    });
   }
-  for (const task of strictTasks) strictWorks.push({ workItemId: `task:${task.id}`, sourceId: task.id, task, deadline: task.manualScheduling!.deadline!, requiredMinutes: task.estimatedMinutes, solverItem: taskSolverItem(task, today), verdict: 'infeasible' });
-  const solverDays = (): SolverDayInput[] => [...calendar.values()].filter((day) => day.date >= today && day.date <= feasibilityEnd).map((day) => ({ date: day.date, slots: day.slots.map((slot) => ({ ...slot })), budget: day.budget }));
-  const reservations = new Map<string, ReservationEntry[]>();
+  for (const task of strictTasks) {
+    strictWorks.push({
+      workItemId: `task:${task.id}`,
+      sourceId: task.id,
+      task,
+      deadline: task.manualScheduling!.deadline!,
+      requiredMinutes: task.estimatedMinutes,
+      solverItem: taskSolverItem(task, today),
+      verdict: 'infeasible',
+      slippedMinutes: 0,
+    });
+  }
+
+  const solverDays = (): SolverDayInput[] => [...calendar.values()]
+    .filter((day) => day.date >= today && day.date <= feasibilityEnd)
+    .map((day) => ({ date: day.date, slots: day.slots.map((slot) => ({ ...slot })), budget: day.budget }));
+
+  // 最低予約量L: work.workItemId → 日付 → {units, minutes}
+  const reservations = new Map<string, Map<ISODate, ReservationEntry>>();
+  const reserveByDay = new Map<ISODate, number>();
+  const applyReserve = (date: ISODate, minutes: number) => {
+    const day = calendar.get(date);
+    if (day) day.budget -= minutes;
+    reserveByDay.set(date, (reserveByDay.get(date) ?? 0) + minutes);
+  };
+  const releaseReserve = (date: ISODate, minutes: number) => {
+    const day = calendar.get(date);
+    if (day) day.budget += minutes;
+    reserveByDay.set(date, (reserveByDay.get(date) ?? 0) - minutes);
+  };
 
   if (strictWorks.length > 0) {
     const nodeLimit = context.maxSearchNodes ?? 20000;
@@ -829,96 +862,172 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     const searchDeadline = Date.now() + msLimit;
     let remainingNodes = nodeLimit;
     const runSolve = (items: SolverItem[]) => {
-      const result = solveStrict(items, solverDays(), { maxNodes: Math.max(0, remainingNodes), maxMs: Math.max(0, searchDeadline - Date.now()), preferLate: true });
+      const result = solveStrict(items, solverDays(), {
+        maxNodes: Math.max(0, remainingNodes),
+        maxMs: Math.max(0, searchDeadline - Date.now()),
+        preferLate: true,
+      });
       remainingNodes -= result.nodes;
       return result;
     };
     const baseDays = solverDays();
-    const ordered = [...strictWorks].sort((a, b) => countItemPlacements(a.solverItem, baseDays) - countItemPlacements(b.solverItem, baseDays) || compareItemsForSearch(a.solverItem, b.solverItem));
+    const ordered = [...strictWorks].sort((a, b) =>
+      countItemPlacements(a.solverItem, baseDays) - countItemPlacements(b.solverItem, baseDays)
+      || compareItemsForSearch(a.solverItem, b.solverItem));
     const full = runSolve(ordered.map((work) => work.solverItem));
-    let finalAllocations: Map<string, SlotAllocation[]>;
+    let finalAllocations: Map<string, DayAllocation[]>;
     if (full.status === 'feasible') {
-      strictWorks.forEach((work) => { work.verdict = 'feasible'; });
+      for (const work of strictWorks) work.verdict = 'feasible';
       finalAllocations = full.allocations;
     } else if (full.status === 'indeterminate') {
-      strictWorks.forEach((work) => { work.verdict = 'indeterminate'; });
+      for (const work of strictWorks) work.verdict = 'indeterminate';
       finalAllocations = new Map();
     } else {
+      // 全体では不可能: 実行可能な部分集合を2通りの順序で構築し、辞書式目的で良い方を採る
       const buildSubset = (order: StrictWork[]) => {
         const accepted: StrictWork[] = [];
         const verdicts = new Map<string, StrictWork['verdict']>();
-        let allocations = new Map<string, SlotAllocation[]>();
+        let allocations = new Map<string, DayAllocation[]>();
         for (const work of order) {
-          if (remainingNodes <= 0 || Date.now() >= searchDeadline) { verdicts.set(work.workItemId, 'indeterminate'); continue; }
+          if (remainingNodes <= 0 || Date.now() >= searchDeadline) {
+            verdicts.set(work.workItemId, 'indeterminate');
+            continue;
+          }
           const result = runSolve([...accepted.map((item) => item.solverItem), work.solverItem]);
-          if (result.status === 'feasible') { accepted.push(work); allocations = result.allocations; verdicts.set(work.workItemId, 'feasible'); }
-          else verdicts.set(work.workItemId, result.status);
+          if (result.status === 'feasible') {
+            accepted.push(work);
+            allocations = result.allocations;
+            verdicts.set(work.workItemId, 'feasible');
+          } else {
+            verdicts.set(work.workItemId, result.status);
+          }
         }
         const violations = [...verdicts.values()].filter((verdict) => verdict === 'infeasible').length;
-        const shortage = order.filter((work) => verdicts.get(work.workItemId) !== 'feasible').reduce((sum, work) => sum + work.requiredMinutes, 0);
+        const shortage = order
+          .filter((work) => verdicts.get(work.workItemId) !== 'feasible')
+          .reduce((sum, work) => sum + work.requiredMinutes, 0);
         return { verdicts, allocations, violations, shortage };
       };
       const subsetA = buildSubset(ordered);
       const subsetB = buildSubset([...strictWorks].sort((a, b) => b.requiredMinutes - a.requiredMinutes || a.workItemId.localeCompare(b.workItemId)));
-      const objective = (subset: { violations: number; shortage: number }): ObjectiveReport => ({ ...EMPTY_OBJECTIVE, strictDeadlineViolations: subset.violations, unscheduledStrictMinutes: subset.shortage });
-      const chosen = compareObjectives(objective(subsetA), objective(subsetB)) <= 0 ? subsetA : subsetB;
-      strictWorks.forEach((work) => { work.verdict = chosen.verdicts.get(work.workItemId) ?? 'indeterminate'; });
+      const toObjective = (subset: { violations: number; shortage: number }): ObjectiveReport => ({
+        ...EMPTY_OBJECTIVE,
+        strictDeadlineViolations: subset.violations,
+        unscheduledStrictMinutes: subset.shortage,
+      });
+      const chosen = compareObjectives(toObjective(subsetA), toObjective(subsetB)) <= 0 ? subsetA : subsetB;
+      for (const work of strictWorks) work.verdict = chosen.verdicts.get(work.workItemId) ?? 'indeterminate';
       finalAllocations = chosen.allocations;
     }
-
+    // 最低予約量Lをカレンダー予算へ反映(具体タスク化は日次ループで行う)
     for (const work of strictWorks) {
       if (work.verdict !== 'feasible') continue;
-      const allocations = [...(finalAllocations.get(work.solverItem.id) ?? [])].sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start || a.end - b.end);
-      const calendarSnapshot = cloneCalendar(calendar);
-      const assignmentCount = assignments.length;
-      const materialRanges = work.material ? rangesByMaterial.get(work.material.id)! : null;
-      const rangeSnapshot = materialRanges?.map((range) => ({ ...range })) ?? null;
-      let exact = allocations.length > 0;
+      const allocations = finalAllocations.get(work.solverItem.id) ?? [];
+      const byDate = new Map<ISODate, ReservationEntry>();
       for (const allocation of allocations) {
-        const day = calendar.get(allocation.date);
-        if (!day || allocation.end - allocation.start !== allocation.minutes || !reserve(day, allocation.start, allocation.end)) { exact = false; break; }
-        if (allocation.date > concreteEnd) continue;
-        if (work.material && materialRanges) {
-          const irregular = allocation.units % Math.max(1, work.solverItem.unitStep) !== 0 || allocation.units < work.solverItem.minChunkUnits;
-          const range = irregular ? takeTailUnits(materialRanges, allocation.units) : takeUnits(materialRanges, allocation.units, work.material.unitStep ?? 1);
-          if (!range || range.end - range.start + 1 !== allocation.units) { exact = false; break; }
-          assignments.push(materialAssignment(work.material, allocation.date, allocation, range, 95));
-        } else if (work.task) assignments.push(taskAssignment(work.task, allocation.date, allocation));
+        const entry = byDate.get(allocation.date) ?? { units: 0, minutes: 0 };
+        entry.units += allocation.units;
+        entry.minutes += allocation.minutes;
+        byDate.set(allocation.date, entry);
+        applyReserve(allocation.date, allocation.minutes);
       }
-      if (!exact) {
-        replaceCalendar(calendar, calendarSnapshot);
-        assignments.splice(assignmentCount);
-        if (materialRanges && rangeSnapshot) materialRanges.splice(0, materialRanges.length, ...rangeSnapshot);
-        work.verdict = 'indeterminate';
-        warnings.push({ code: 'STRICT_PLACEMENT_SLIP', targetId: work.sourceId, minutes: work.requiredMinutes, message: '厳守作業のソルバー区間を実タスクへ変換できなかったため、期限保証から除外しました' });
-      } else reservations.set(work.workItemId, allocations.filter((allocation) => allocation.date > concreteEnd));
+      reservations.set(work.workItemId, byDate);
     }
   }
 
-  const strictTaskIds = new Set(strictTasks.map((task) => task.id));
-  const movableTasks = state.tasks.filter((task) => {
-    if (task.status !== 'planned' || effectiveLock(task) !== 'none' || strictTaskIds.has(task.id)) return false;
-    if (task.generatedBy === 'auto' && task.type === 'new') return false;
-    if (task.type === 'review') {
-      const material = task.materialId ? state.materials.find((item) => item.id === task.materialId) : undefined;
-      if (!state.settings.reviewRule.enabled || (material && !material.reviewEnabled)) return false;
+  const trimReservation = (work: StrictWork, unitsToTrim: number) => {
+    const entries = reservations.get(work.workItemId);
+    if (!entries || unitsToTrim <= 0) return;
+    const dates = [...entries.keys()].sort().reverse();
+    let left = unitsToTrim;
+    for (const date of dates) {
+      if (left <= 0) break;
+      const entry = entries.get(date)!;
+      const take = Math.min(entry.units, left);
+      const newUnits = entry.units - take;
+      const newMinutes = newUnits <= 0 ? 0 : minutesForUnits(work.solverItem.minutesPerUnit, newUnits);
+      releaseReserve(date, entry.minutes - newMinutes);
+      if (newUnits <= 0) entries.delete(date);
+      else entries.set(date, { units: newUnits, minutes: newMinutes });
+      left -= take;
     }
-    return true;
-  }).sort((a, b) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31') || a.id.localeCompare(b.id));
+  };
+
+  const carryReservation = (work: StrictWork, fromDate: ISODate, units: number) => {
+    const minutes = minutesForUnits(work.solverItem.minutesPerUnit, units);
+    for (let date = addDays(fromDate, 1); date <= work.deadline; date = addDays(date, 1)) {
+      if (!calendar.has(date)) continue;
+      const entries = reservations.get(work.workItemId)!;
+      const entry = entries.get(date) ?? { units: 0, minutes: 0 };
+      entry.units += units;
+      entry.minutes += minutes;
+      entries.set(date, entry);
+      applyReserve(date, minutes);
+      return;
+    }
+    work.slippedMinutes += minutes;
+    warnings.push({
+      code: 'STRICT_PLACEMENT_SLIP',
+      targetId: work.sourceId,
+      minutes,
+      message: `厳守作業の予約${minutes}分を区間の断片化により期限内へ配置できませんでした`,
+    });
+  };
+
+  // 実行可能と判定されたstrict手動タスクは早期に前詰め配置を試みる(不可なら予約日に配置)
+  for (const work of strictWorks) {
+    if (!work.task || work.verdict !== 'feasible') continue;
+    const entries = reservations.get(work.workItemId)!;
+    for (const [date, entry] of entries) releaseReserve(date, entry.minutes);
+    const snapshot = cloneCalendar(calendar);
+    const placed = allocateTask(work.task, calendar, today, feasibilityEnd, work.deadline);
+    if (placed) {
+      assignments.push(...placed);
+      reservations.delete(work.workItemId);
+    } else {
+      replaceCalendar(calendar, snapshot);
+      for (const [date, entry] of entries) applyReserve(date, entry.minutes);
+    }
+  }
+
+  // ---------- 復習・非固定手動タスク(strict予約後の残り容量へ) ----------
+  const strictTaskIds = new Set(strictTasks.map((task) => task.id));
+  const movableTasks = state.tasks
+    .filter((task) => {
+      if (task.status !== 'planned' || effectiveLock(task) !== 'none' || strictTaskIds.has(task.id)) return false;
+      if (task.generatedBy === 'auto' && task.type === 'new') return false;
+      if (task.type === 'review') {
+        const material = task.materialId ? state.materials.find((item) => item.id === task.materialId) : undefined;
+        if (!state.settings.reviewRule.enabled || !material?.reviewEnabled) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31') || a.id.localeCompare(b.id));
   for (const task of movableTasks) {
     const snapshot = cloneCalendar(calendar);
     const placed = allocateTask(task, calendar, today, feasibilityEnd);
     if (placed) assignments.push(...placed);
-    else { replaceCalendar(calendar, snapshot); unscheduled.push({ workItemId: `task:${task.id}`, sourceId: task.id, minutes: task.estimatedMinutes, reason: '期限までの空き区間へ配置できません' }); }
+    else {
+      replaceCalendar(calendar, snapshot);
+      unscheduled.push({ workItemId: `task:${task.id}`, sourceId: task.id, minutes: task.estimatedMinutes, reason: '期限までの空き区間へ配置できません' });
+    }
   }
-  // Strict work is already placed or reserved in exact slots. Progress curves only use remaining non-strict capacity.
-  const curveMaterials = activeMaterials.filter((material) => material.deadlinePolicy !== 'strict' && (rangesByMaterial.get(material.id)?.length ?? 0) > 0);
+
+  // ---------- 進捗曲線(第2段階): 日別容量を教材間で配分した基準容量で累積目標を作る ----------
+  const strictWorkByMaterial = new Map<string, StrictWork>();
+  for (const work of strictWorks) if (work.material) strictWorkByMaterial.set(work.material.id, work);
+  const strictInfeasibleMaterials = new Set(
+    strictWorks.filter((work) => work.material && work.verdict === 'infeasible').map((work) => work.material!.id),
+  );
+  const curveMaterials = activeMaterials.filter((material) =>
+    (rangesByMaterial.get(material.id)?.length ?? 0) > 0 && !strictInfeasibleMaterials.has(material.id));
   const dates: ISODate[] = [];
   for (let date = today; date <= calendarEnd; date = addDays(date, 1)) dates.push(date);
   const dateIndex = new Map(dates.map((date, index) => [date, index]));
-  const capBase = dates.map((date) => calendar.get(date)?.budget ?? 0);
+  const capBase = dates.map((date) => (calendar.get(date)?.budget ?? 0) + (reserveByDay.get(date) ?? 0));
   const capSuffix = new Array<number>(dates.length + 1).fill(0);
   for (let i = dates.length - 1; i >= 0; i -= 1) capSuffix[i] = capSuffix[i + 1] + capBase[i];
+
   interface CurveState {
     material: Material;
     ranges: UnitRange[];
@@ -951,17 +1060,28 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       needMinutes: minutesForUnits(material.minutesPerUnit, sumRangeLengths(ranges)),
       scheduledMinutes: 0,
       weight: 0.6 + (material.priority + (subject?.importance ?? 3) + (subject?.weakness ?? 3) + material.examRelevance) / 20,
-      perDayCap: Math.min(material.maxMinutesPerDay ?? Number.POSITIVE_INFINITY, material.maxUnitsPerDay !== undefined ? minutesForUnits(material.minutesPerUnit, material.maxUnitsPerDay) : Number.POSITIVE_INFINITY),
+      perDayCap: Math.min(
+        material.maxMinutesPerDay ?? Number.POSITIVE_INFINITY,
+        material.maxUnitsPerDay !== undefined ? minutesForUnits(material.minutesPerUnit, material.maxUnitsPerDay) : Number.POSITIVE_INFINITY,
+      ),
     };
   });
   const curveByMaterial = new Map(curves.map((curve) => [curve.material.id, curve]));
   const progressDeficits: ProgressDeficit[] = [];
-  for (const curve of curves) if (curve.needMinutes > 0 && curve.windowCapacity <= 0) warnings.push({ code: 'NO_ELIGIBLE_CAPACITY', targetId: curve.material.id, message: `${curve.material.name}は推奨完了日までに利用可能容量がありません` });
+  for (const curve of curves) {
+    if (curve.needMinutes > 0 && curve.windowCapacity <= 0) {
+      warnings.push({ code: 'NO_ELIGIBLE_CAPACITY', targetId: curve.material.id, message: `${curve.material.name}は推奨完了日までに利用可能容量がありません` });
+    }
+  }
+  // 日別容量を必要シェアで正規化しながら累積目標を作る
   for (let i = 0; i < dates.length; i += 1) {
     const date = dates[i];
     const capacity = capBase[i];
     const active = curves.filter((curve) => curve.needMinutes > 0 && date >= curve.curveStart && date <= curve.curveEnd);
-    if (active.length === 0 || capacity <= 0) { active.forEach((curve) => curve.targetByDate.set(date, curve.cumTarget)); continue; }
+    if (active.length === 0 || capacity <= 0) {
+      for (const curve of active) curve.targetByDate.set(date, curve.cumTarget);
+      continue;
+    }
     const rated = active.map((curve) => {
       const endIdx = dateIndex.get(curve.curveEnd) ?? dates.length - 1;
       const remainingWindow = Math.max(1, capSuffix[i] - capSuffix[endIdx + 1]);
@@ -977,28 +1097,80 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       curve.targetByDate.set(date, curve.cumTarget);
     }
   }
-  const curveTargetAt = (curve: CurveState, date: ISODate): number => date < curve.curveStart ? 0 : curve.targetByDate.get(date) ?? (date > curve.curveEnd ? curve.cumTarget : 0);
-  const chunkUnitsFor = (material: Material) => material.maximumChunkUnits ?? Math.max(material.unitStep ?? 1, Math.floor(sessionMax / material.minutesPerUnit));
+  const curveTargetAt = (curve: CurveState, date: ISODate): number => {
+    if (date < curve.curveStart) return 0;
+    return curve.targetByDate.get(date) ?? (date > curve.curveEnd ? curve.cumTarget : 0);
+  };
+
+  // ---------- 日次ループ: 期限を守る最低予約 → 進捗曲線に沿った配分 ----------
+  const feasibleStrictWorks = strictWorks
+    .filter((work) => work.verdict === 'feasible')
+    .sort((a, b) => a.deadline.localeCompare(b.deadline) || a.workItemId.localeCompare(b.workItemId));
+  const chunkUnitsFor = (material: Material) =>
+    material.maximumChunkUnits ?? Math.max(material.unitStep ?? 1, Math.floor(sessionMax / material.minutesPerUnit));
   for (let dateIdx = 0; dateIdx < dates.length && dates[dateIdx] <= concreteEnd; dateIdx += 1) {
     const date = dates[dateIdx];
+    const day = calendar.get(date);
+    if (!day) continue;
+    // 1) 期限保証のための最低予約分を配置する
+    for (const work of feasibleStrictWorks) {
+      const entries = reservations.get(work.workItemId);
+      const entry = entries?.get(date);
+      if (!entries || !entry) continue;
+      entries.delete(date);
+      releaseReserve(date, entry.minutes);
+      if (work.material) {
+        const ranges = rangesByMaterial.get(work.material.id)!;
+        const before = sumRangeLengths(ranges);
+        const placed = allocateMaterial(work.material, ranges, calendar, date, date, entry.units, 95, sessionMin, sessionMax, assignments, fixed.valid);
+        assignments.push(...placed);
+        const placedUnits = before - sumRangeLengths(ranges);
+        const curve = curveByMaterial.get(work.material.id);
+        if (curve) curve.scheduledMinutes += placed.reduce((sum, item) => sum + item.end - item.start, 0);
+        if (entry.units - placedUnits > 0) carryReservation(work, date, entry.units - placedUnits);
+      } else if (work.task) {
+        const scheduling = work.task.manualScheduling;
+        const splittable = scheduling?.splittable ?? false;
+        const minimum = Math.max(1, scheduling?.minimumChunkMinutes ?? entry.minutes);
+        const maximum = Math.max(minimum, scheduling?.maximumChunkMinutes ?? entry.minutes);
+        let remaining = entry.minutes;
+        while (remaining > 0) {
+          const chunk = splittable ? Math.min(remaining, maximum) : remaining;
+          if (chunk < minimum && chunk !== remaining) break;
+          const slot = findSlot(day, chunk);
+          if (!slot) break;
+          reserve(day, slot.start, slot.end);
+          assignments.push(taskAssignment(work.task, date, slot));
+          remaining -= chunk;
+          if (!splittable) break;
+        }
+        if (remaining > 0) carryReservation(work, date, remaining);
+      }
+    }
+    // 2) 進捗曲線の負債分を配分する(strict教材も曲線対象。前倒し分は予約の後ろから解放)
     const candidates = curves
       .filter((curve) => curve.ranges.length > 0 && date >= curve.curveStart)
+      .filter((curve) => {
+        const strict = strictWorkByMaterial.get(curve.material.id);
+        return !strict || date <= strict.deadline;
+      })
       .map((curve) => ({ curve, debt: Math.max(0, curveTargetAt(curve, date) - curve.scheduledMinutes) }))
       .filter((candidate) => candidate.debt > 0)
       .sort((a, b) => b.debt - a.debt || a.curve.curveEnd.localeCompare(b.curve.curveEnd) || b.curve.material.priority - a.curve.material.priority || a.curve.material.id.localeCompare(b.curve.material.id));
     for (const { curve, debt } of candidates) {
-      const wantedUnits = Math.min(Math.ceil(debt / curve.material.minutesPerUnit), chunkUnitsFor(curve.material));
+      const material = curve.material;
+      const wantedUnits = Math.min(Math.ceil(debt / material.minutesPerUnit), chunkUnitsFor(material));
       if (wantedUnits <= 0) continue;
-      const placed = allocateMaterial(curve.material, curve.ranges, calendar, date, date, wantedUnits, 70, sessionMin, sessionMax, assignments, fixed.valid);
+      const before = sumRangeLengths(curve.ranges);
+      const placed = allocateMaterial(material, curve.ranges, calendar, date, date, wantedUnits, 70, sessionMin, sessionMax, assignments, fixed.valid);
       if (placed.length === 0) continue;
       assignments.push(...placed);
+      const placedUnits = before - sumRangeLengths(curve.ranges);
       curve.scheduledMinutes += placed.reduce((sum, item) => sum + item.end - item.start, 0);
+      const strict = strictWorkByMaterial.get(material.id);
+      if (strict) trimReservation(strict, placedUnits);
     }
   }
-
-  // Strict work has already consumed exact slots; legacy surplus hooks remain no-ops.
-  const strictWorkByMaterial = new Map<string, StrictWork>();
-  const trimReservation = (_work: StrictWork, _units: number) => {};
 
   // ---------- 余剰時間による前倒し(決定的スコア順) ----------
   const scored = curveMaterials
@@ -1079,7 +1251,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     const placedWithinDeadline = assignments
       .filter((assignment) => assignment.workItemId === work.workItemId && assignment.date <= work.deadline)
       .reduce((sum, assignment) => sum + assignment.end - assignment.start, 0);
-    const reservedLeft = (reservations.get(work.workItemId) ?? []).filter((entry) => entry.date <= work.deadline).reduce((sum, entry) => sum + entry.minutes, 0);
+    const reservedLeft = [...(reservations.get(work.workItemId)?.values() ?? [])].reduce((sum, entry) => sum + entry.minutes, 0);
     if (work.verdict === 'infeasible') {
       // 全ロールバック済み: 採用された配置は0分なので不足は全量
       strictInfeasibleMinutes += work.requiredMinutes;
@@ -1088,7 +1260,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     } else if (work.verdict === 'indeterminate') {
       const shortage = Math.max(0, work.requiredMinutes - placedWithinDeadline);
       strictIndeterminateMinutes += shortage;
-      unscheduled.push({ workItemId: work.workItemId, sourceId: work.sourceId, minutes: shortage, reason: '探索上限または実区間変換の失敗により配置可能性を確定できませんでした' });
+      unscheduled.push({ workItemId: work.workItemId, sourceId: work.sourceId, minutes: shortage, reason: '探索上限に達したため配置可能性を確定できませんでした' });
       deadlineReports.push({ workItemId: work.workItemId, policy: 'strict', deadline: work.deadline, feasible: null, scheduledMinutes: placedWithinDeadline, requiredMinutes: work.requiredMinutes, shortageMinutes: shortage, overdueDays: 0 });
     } else {
       const guaranteed = placedWithinDeadline + reservedLeft;

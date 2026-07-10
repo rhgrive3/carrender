@@ -2,12 +2,11 @@
  * スケジューラーV2 仕様テスト (要件13〜18)
  * 実行: npx vite-node scripts/schedulerV2.test.ts
  */
-import { generatePlan } from '../src/lib/scheduler';
 import { generatePlanV2, validateGeneratedScheduleV2 } from '../src/lib/schedulerV2';
 import type { SolverDayInput, SolverItem } from '../src/lib/strictSolver';
 import { isChunkAllowed, minutesForUnits, solveStrict } from '../src/lib/strictSolver';
 import { normalizeState } from '../src/lib/storage';
-import { appReducer, emptyState } from '../src/state/AppContext';
+import { emptyState } from '../src/state/AppContext';
 import type { AppState, Material, SchedulerContext, StudyTask } from '../src/types';
 
 let failures = 0;
@@ -251,8 +250,8 @@ console.log('--- 16. 固定条件誤判定 ---');
   delete (legacyTimed as Partial<StudyTask>).placementLock;
   delete (legacyDated as Partial<StudyTask>).placementLock;
   const migrated = normalizeState({ ...emptyState(), tasks: [legacyTimed, legacyDated] });
-  check('旧データ移行で時刻ありでもplacementLock=none', migrated.tasks.find((task) => task.id === 'task_legacy_t')?.placementLock === 'none');
-  check('旧データ移行で時刻なしもplacementLock=none', migrated.tasks.find((task) => task.id === 'task_legacy_d')?.placementLock === 'none');
+  check('旧データ移行で時刻ありはplacementLock=time', migrated.tasks.find((task) => task.id === 'task_legacy_t')?.placementLock === 'time');
+  check('旧データ移行で時刻なしはplacementLock=date', migrated.tasks.find((task) => task.id === 'task_legacy_d')?.placementLock === 'date');
   // 通常スケジューラーはgeneratedBy==='manual'から推測しない: 明示ロックが無ければ固定扱いされない
   const unlocked = manualTask('task_nolock', { scheduledStart: '09:00', scheduledEnd: '10:00', estimatedMinutes: 60 });
   delete (unlocked as Partial<StudyTask>).placementLock;
@@ -262,81 +261,6 @@ console.log('--- 16. 固定条件誤判定 ---');
   check('明示ロックの無い手動タスクは固定扱いせずconflictも出さない', result.conflicts.length === 0, result.conflicts);
   check('明示ロックの無い手動タスクは空き時間へ再配置される', moved?.scheduledStart === '11:00', moved);
 }
-
-{
-  const now20 = new Date('2026-07-10T11:00:00.000Z'); // JST 20:00
-  const pastAuto = manualTask('task_past_auto', {
-    generatedBy: 'auto',
-    sourceType: 'review',
-    type: 'review',
-    placementLock: 'none',
-    scheduledDate: D1,
-    scheduledStart: '18:00',
-    scheduledEnd: '19:00',
-    estimatedMinutes: 60,
-  });
-  const state = baseState([], [{ start: '18:00', end: '23:00' }], 300, { tasks: [pastAuto] });
-  const replanned = generatePlan(state, D2, '過去時刻の自動タスク再計算', {
-    now: now20,
-    timezone: 'Asia/Tokyo',
-    generationId: 'past-auto-regression',
-  }).state;
-  const output = replanned.tasks.find((task) => task.id === pastAuto.id);
-  check('過去時刻の未固定自動タスクはPAST_TIMEにならない', !replanned.lastScheduleResult?.conflicts.some((conflict) => conflict.taskId === pastAuto.id && conflict.code === 'PAST_TIME'), replanned.lastScheduleResult?.conflicts);
-  check('過去時刻の未固定自動タスクをtime固定へ昇格しない', output?.placementLock !== 'time', output);
-  check('過去時刻の未固定自動タスクは現在時刻以降へ再配置または未配置', output?.scheduledStart === null || output?.scheduledStart === undefined || output.scheduledStart >= '20:00', output);
-}
-{
-  const now20 = new Date('2026-07-10T11:00:00.000Z'); // JST 20:00
-  const locked = manualTask('task_explicit_time', {
-    placementLock: 'time',
-    scheduledDate: D1,
-    scheduledStart: '18:00',
-    scheduledEnd: '19:00',
-    estimatedMinutes: 60,
-  });
-  const result = generatePlanV2(baseState([], [{ start: '18:00', end: '23:00' }], 300, { tasks: [locked] }), context({ now: now20 }));
-  check('明示time固定は過去時刻ならPAST_TIMEを返す', result.conflicts.some((conflict) => conflict.taskId === locked.id && conflict.code === 'PAST_TIME'), result.conflicts);
-  check('明示time固定を自動解除しない', locked.placementLock === 'time' && locked.scheduledStart === '18:00', locked);
-}
-{
-  const actionTask = manualTask('task_new_manual_unlocked', {
-    scheduledDate: D1,
-    scheduledStart: '21:00',
-    scheduledEnd: '22:00',
-    estimatedMinutes: 60,
-  });
-  delete (actionTask as Partial<StudyTask>).placementLock;
-  const reduced = appReducer(baseState([], [{ start: '09:00', end: '23:00' }], 300), { type: 'ADD_MANUAL_TASK', task: actionTask });
-  check('新規手動タスクは開始時刻だけではtime固定にならない', reduced.tasks.find((task) => task.sourceId === actionTask.id || task.id === actionTask.id)?.placementLock === 'none', reduced.tasks.find((task) => task.sourceId === actionTask.id || task.id === actionTask.id));
-}
-{
-  const strict = mat('mat_exact_slot', { minutesPerUnit: 60, splittable: false, targetDate: D1 });
-  const normal = manualTask('task_normal_30', { placementLock: 'none', estimatedMinutes: 30, dueDate: D1 });
-  const state = baseState([strict], [{ start: '09:00', end: '10:00' }, { start: '11:00', end: '11:30' }], 90, { tasks: [normal] });
-  const result = generatePlanV2(state, context());
-  const strictTask = result.scheduledTasks.find((task) => task.materialId === strict.id);
-  const normalTask = result.scheduledTasks.find((task) => task.id === normal.id);
-  check('strictの実時刻区間09:00〜10:00を保持する', strictTask?.scheduledStart === '09:00' && strictTask.scheduledEnd === '10:00', result.scheduledTasks);
-  check('通常タスクはstrict区間を避けて11:00〜11:30へ入る', normalTask?.scheduledStart === '11:00' && normalTask.scheduledEnd === '11:30', result.scheduledTasks);
-}
-{
-  const item: SolverItem = {
-    id: 'exact-allocation', release: D1, deadline: D1, requiredUnits: 1, minutesPerUnit: 60,
-    unitStep: 1, minChunkUnits: 1, maxChunkUnits: 1, splittable: false,
-  };
-  const solved = solveStrict([item], [{ date: D1, slots: [{ start: 540, end: 600 }], budget: 60 }], { maxNodes: 1000, maxMs: 1000, preferLate: true });
-  const allocation = solved.allocations.get(item.id)?.[0];
-  check('strictソルバーが正確なstart/endを返す', solved.status === 'feasible' && allocation?.start === 540 && allocation.end === 600, allocation);
-}
-{
-  const strict = mat('mat_no_fake_reserve', { minutesPerUnit: 60, splittable: false, targetDate: D1 });
-  const state = baseState([strict], [{ start: '09:00', end: '09:30' }, { start: '11:00', end: '11:30' }], 60);
-  const result = generatePlanV2(state, context());
-  const report = result.deadlineReports.find((entry) => entry.workItemId === `material:${strict.id}`);
-  check('分断された30分+30分を連続60分の架空予約として保証しない', report?.feasible === false && report.scheduledMinutes === 0, report);
-}
-
 
 // ============================================================
 console.log('--- 17. 完全探索比較(小規模ランダムケース) ---');

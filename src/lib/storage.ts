@@ -246,12 +246,7 @@ export function normalizeState(input: AppState): AppState {
     // 廃止した「間違い直し」タスクは復習タスクとして読み替える
     tasks: (input.tasks ?? []).map((rawTask) => {
       const t = (rawTask.type as string) === 'correction' ? { ...rawTask, type: 'review' as const } : rawTask;
-      const placementLock = t.placementLock
-        ?? (t.manualScheduling?.placementPolicy === 'fixedTime'
-          ? 'time'
-          : t.manualScheduling?.placementPolicy === 'fixedDateFlexibleTime'
-            ? 'date'
-            : 'none');
+      const placementLock = t.placementLock ?? (t.generatedBy === 'manual' ? (t.scheduledStart ? 'time' : 'date') : 'none');
       return {
         ...t,
         sourceType: t.sourceType ?? (t.generatedBy === 'manual' ? 'manual' : t.type === 'review' ? 'review' : 'material'),
