@@ -313,7 +313,12 @@ function replaceCalendar(target: Map<ISODate, CalendarDay>, source: Map<ISODate,
 }
 
 function taskRange(task: StudyTask): UnitRange | undefined {
-  return task.materialRange ?? (task.rangeStart !== null && task.rangeEnd !== null ? { start: task.rangeStart, end: task.rangeEnd } : undefined);
+  if (task.materialRange
+    && Number.isFinite(task.materialRange.start)
+    && Number.isFinite(task.materialRange.end)) return task.materialRange;
+  return Number.isFinite(task.rangeStart) && Number.isFinite(task.rangeEnd)
+    ? { start: task.rangeStart!, end: task.rangeEnd! }
+    : undefined;
 }
 
 /**
@@ -491,7 +496,9 @@ function allocateTask(task: StudyTask, calendar: Map<ISODate, CalendarDay>, star
   const maximum = Math.max(minimum, scheduling?.maximumChunkMinutes ?? task.estimatedMinutes);
   const splittable = scheduling?.splittable ?? false;
   const lock = effectiveLock(task);
-  const release = lock === 'date' ? task.scheduledDate : scheduling?.fixedDate ?? start;
+  const release = lock === 'date' || task.type === 'review'
+    ? task.scheduledDate
+    : scheduling?.fixedDate ?? start;
   const deadline = lock === 'date' ? task.scheduledDate : strictDeadline ?? scheduling?.deadline ?? task.dueDate ?? end;
   let remaining = task.estimatedMinutes;
   let allocatedMinutes = 0;
@@ -501,24 +508,27 @@ function allocateTask(task: StudyTask, calendar: Map<ISODate, CalendarDay>, star
   for (let date = release > start ? release : start; date <= deadline && date <= end && remaining > 0; date = addDays(date, 1)) {
     const day = calendar.get(date);
     if (!day) continue;
-    const chunk = splittable ? Math.min(remaining, maximum) : remaining;
-    const allowedSmallFinal = chunk === remaining;
-    if (chunk < minimum && !allowedSmallFinal) continue;
-    const slot = findSlot(day, chunk);
-    if (!slot) continue;
-    reserve(day, slot.start, slot.end);
-    const amountThrough = remaining === chunk
-      ? task.amount
-      : Math.round(task.amount * (allocatedMinutes + chunk) / Math.max(1, task.estimatedMinutes));
-    const chunkAmount = Math.max(0, amountThrough - allocatedAmount);
-    const range = explicitRange && chunkAmount > 0
-      ? { start: explicitRange.start + allocatedAmount, end: explicitRange.start + allocatedAmount + chunkAmount - 1 }
-      : undefined;
-    assignments.push(taskAssignment(task, date, slot, chunkAmount, range));
-    allocatedMinutes += chunk;
-    allocatedAmount += chunkAmount;
-    remaining -= chunk;
-    if (!splittable) break;
+    // 分割可能な手動タスクは、同じ日の複数空き枠へ連続して置ける。
+    while (remaining > 0) {
+      const chunk = splittable ? Math.min(remaining, maximum) : remaining;
+      const allowedSmallFinal = chunk === remaining;
+      if (chunk < minimum && !allowedSmallFinal) break;
+      const slot = findSlot(day, chunk);
+      if (!slot) break;
+      if (!reserve(day, slot.start, slot.end)) return null;
+      const amountThrough = remaining === chunk
+        ? task.amount
+        : Math.round(task.amount * (allocatedMinutes + chunk) / Math.max(1, task.estimatedMinutes));
+      const chunkAmount = Math.max(0, amountThrough - allocatedAmount);
+      const range = explicitRange && chunkAmount > 0
+        ? { start: explicitRange.start + allocatedAmount, end: explicitRange.start + allocatedAmount + chunkAmount - 1 }
+        : undefined;
+      assignments.push(taskAssignment(task, date, slot, chunkAmount, range));
+      allocatedMinutes += chunk;
+      allocatedAmount += chunkAmount;
+      remaining -= chunk;
+      if (!splittable) break;
+    }
   }
   return remaining === 0 ? assignments : null;
 }
@@ -533,7 +543,9 @@ function taskAssignment(
   return {
     sourceType: task.sourceType ?? (task.generatedBy === 'manual' ? 'manual' : 'review'),
     sourceId: task.sourceId ?? task.id,
-    workItemId: `task:${task.id}`,
+    // 分割後の子を次の再計算で親として扱っても、work itemは常に最初の
+    // 手動タスクを指す。H(H(T)) のようなID連鎖を防ぐ。
+    workItemId: `task:${task.sourceId ?? task.id}`,
     subjectId: task.subjectId,
     materialId: task.materialId,
     title: task.title,
@@ -550,14 +562,18 @@ function taskAssignment(
 }
 
 function takeUnits(ranges: UnitRange[], requested: number, unitStep: number): UnitRange | null {
-  const first = ranges[0];
+  // 先頭が最小チャンクに満たない飛び飛び残量でも、後ろの十分な断片を
+  // 進められるようにする。小断片は最後の残量として後で扱う。
+  const candidateIndex = ranges.findIndex((range) => range.end - range.start + 1 >= requested);
+  const index = candidateIndex >= 0 ? candidateIndex : 0;
+  const first = ranges[index];
   if (!first) return null;
   const available = first.end - first.start + 1;
   let units = Math.min(available, requested);
   if (units < available) units = Math.floor(units / unitStep) * unitStep;
   if (units <= 0) return null;
   const range = { start: first.start, end: first.start + units - 1 };
-  if (range.end === first.end) ranges.shift();
+  if (range.end === first.end) ranges.splice(index, 1);
   else first.start = range.end + 1;
   return range;
 }
@@ -642,7 +658,9 @@ function allocateMaterial(
       const range = takeUnits(ranges, request, unitStep);
       if (!range) break;
       const units = range.end - range.start + 1;
-      const minutes = Math.round(units * minutesPerUnit);
+      // 0.1分/単位なども0分タスクにしない。予約に成功した分だけ範囲を
+      // 消費するため、実時間ゼロで教材を完了予定にすることもない。
+      const minutes = Math.max(1, Math.ceil(units * minutesPerUnit));
       if ((minutes < minUnits * minutesPerUnit && units < remainingAll) || minutes > largestSlot.end - largestSlot.start || minutes > day.budget) {
         ranges.splice(0, ranges.length, ...snapshot);
         break;
@@ -821,7 +839,10 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     .filter((task) => task.status === 'planned' && effectiveLock(task) === 'date' && task.scheduledDate >= today)
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate) || a.id.localeCompare(b.id));
   const claimedByMaterial = new Map<string, UnitRange[]>();
-  for (const task of [...fixed.valid, ...dateLockedTasks, ...state.tasks.filter((item) => item.status === 'done')]) {
+  const materialCountingManuals = state.tasks.filter((task) =>
+    task.status === 'planned'
+    && task.manualScheduling?.progressPolicy.type === 'countTowardMaterial');
+  for (const task of [...fixed.valid, ...dateLockedTasks, ...materialCountingManuals, ...state.tasks.filter((item) => item.status === 'done')]) {
     if (!task.materialId) continue;
     const range = taskRange(task);
     if (range) claimedByMaterial.set(task.materialId, [...(claimedByMaterial.get(task.materialId) ?? []), range]);
@@ -1013,7 +1034,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       if (task.generatedBy === 'auto' && task.type === 'new') return false;
       if (task.type === 'review') {
         const material = task.materialId ? state.materials.find((item) => item.id === task.materialId) : undefined;
-        if (!state.settings.reviewRule.enabled || !material?.reviewEnabled) return false;
+        if (!state.settings.reviewRule.enabled || !material?.reviewEnabled || material.paused || material.archived) return false;
       }
       return true;
     })
@@ -1431,11 +1452,12 @@ export function validateGeneratedScheduleV2(state: AppState, result: ScheduleGen
     }
     const material = task.materialId ? state.materials.find((item) => item.id === task.materialId) : undefined;
     if (material) {
+      const isReview = task.type === 'review';
       if (task.scheduledDate < material.startDate) errors.push(issue(task.id, 'scheduledDate', task.scheduledDate, '教材開始日前です', '開始日以降へ配置してください'));
       if (material.deadlinePolicy === 'strict' && task.scheduledDate > material.targetDate) errors.push(issue(task.id, 'scheduledDate', task.scheduledDate, '厳守期限後です', '期限以前へ配置してください'));
-      if (material.paused || material.archived) errors.push(issue(task.id, 'materialId', material.id, '停止中またはアーカイブ済み教材です', '配置対象から除外してください'));
+      if (!isReview && (material.paused || material.archived)) errors.push(issue(task.id, 'materialId', material.id, '停止中またはアーカイブ済み教材です', '配置対象から除外してください'));
       const range = taskRange(task);
-      if (range) {
+      if (range && !isReview) {
         rangesByMaterial.set(material.id, [...(rangesByMaterial.get(material.id) ?? []), range]);
         const completed = normalizeUnitRanges(material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []), materialTotal(material));
         if (completed.some((item) => range.start <= item.end && range.end >= item.start)) errors.push(issue(task.id, 'materialRange', range, '完了済み範囲と重複しています', '未完了範囲を割り当ててください'));
