@@ -11,6 +11,7 @@ import type {
   TimeRange,
 } from '../types';
 import { addDays, APP_TIME_ZONE, diffDays, genId, hmToMinutes, minutesToHM, toISODate, today, weekdayOf, formatMinutes } from './date';
+import { isPlacedPlanTask } from './taskFilters';
 import { dateInTimeZone, generatePlanV2, mergeMinuteRanges, subtractMinuteRanges } from './schedulerV2';
 export {
   compareObjectives,
@@ -279,7 +280,8 @@ export function generatePlan(
 ): { state: AppState; result: RescheduleResult } {
   const now = options.now ?? new Date();
   const generationId = options.generationId ?? `plan-${fromDate}`;
-  const todayDate = toISODate(now);
+  const timezone = options.timezone ?? state.settings.timezone ?? APP_TIME_ZONE;
+  const todayDate = dateInTimeZone(now, timezone);
   const protectedTasks = new Map(
     state.tasks
       .filter((task) => task.status === 'planned' && task.scheduledDate >= todayDate && task.scheduledDate < fromDate)
@@ -289,11 +291,22 @@ export function generatePlan(
     ? state
     : {
         ...state,
-        tasks: state.tasks.map((task) => protectedTasks.has(task.id) ? { ...task, placementLock: task.scheduledStart ? 'time' as const : 'date' as const } : task),
+        tasks: state.tasks.map((task) => {
+          if (!protectedTasks.has(task.id)
+            || task.placementLock === 'time'
+            || task.manualScheduling?.placementPolicy === 'fixedTime') return task;
+          return {
+            ...task,
+            placementLock: 'date' as const,
+            scheduledStart: null,
+            scheduledEnd: null,
+            placementStatus: 'unscheduled' as const,
+          };
+        }),
       };
   const rawSchedule = generatePlanV2(planningState, {
     now,
-    timezone: options.timezone ?? state.settings.timezone ?? APP_TIME_ZONE,
+    timezone,
     generationId,
   });
   const schedule = protectedTasks.size === 0
@@ -309,7 +322,8 @@ export function generatePlan(
     totalRemainingMinutes: schedule.capacityReport.requiredMinutes,
     totalAvailableMinutes: schedule.capacityReport.availableMinutes,
     deficitMinutes: schedule.capacityReport.requiredMinutes - schedule.capacityReport.availableMinutes,
-    ok: schedule.status !== 'infeasible',
+    ok: schedule.status === 'success'
+      && schedule.capacityReport.requiredMinutes <= schedule.capacityReport.availableMinutes,
   };
   const result: RescheduleResult = {
     at: schedule.generatedAt,
@@ -814,6 +828,7 @@ export function subjectAchievementMap(state: AppState, ref: ISODate): Map<string
   const done = new Map<string, number>();
   for (const t of state.tasks) {
     if (t.scheduledDate < from || t.scheduledDate >= ref) continue;
+    if (!isPlacedPlanTask(t)) continue;
     planned.set(t.subjectId, (planned.get(t.subjectId) ?? 0) + 1);
     if (t.status === 'done') done.set(t.subjectId, (done.get(t.subjectId) ?? 0) + 1);
   }

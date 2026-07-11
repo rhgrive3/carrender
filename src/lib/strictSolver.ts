@@ -43,15 +43,19 @@ export interface SolverOptions {
   preferLate: boolean;
 }
 
-export interface DayAllocation {
+export interface SlotAllocation {
   date: ISODate;
+  start: number;
+  end: number;
   units: number;
   minutes: number;
 }
 
+export type DayAllocation = SlotAllocation;
+
 export interface SolveResult {
   status: 'feasible' | 'infeasible' | 'indeterminate';
-  allocations: Map<string, DayAllocation[]>;
+  allocations: Map<string, SlotAllocation[]>;
   nodes: number;
   elapsedMs: number;
 }
@@ -103,13 +107,15 @@ interface ItemState {
   maxAllocIdx: number;
   /** 端数チャンクを置いた日index。以降はこの日以前にしか置けない */
   tailIdx: number;
-  allocations: { dayIdx: number; units: number; minutes: number }[];
+  allocations: { dayIdx: number; start: number; end: number; units: number; minutes: number }[];
 }
 
 interface Move {
   itemIdx: number;
   dayIdx: number;
   slotIdx: number;
+  start: number;
+  end: number;
   units: number;
   minutes: number;
   isTail: boolean;
@@ -266,11 +272,14 @@ export function solveStrict(items: SolverItem[], daysInput: SolverDayInput[], op
         })
         .sort((a, b) => a.len - b.len); // best-fit: 小さいスロットから
       for (const { slotIdx, len } of slotOrder) {
+        const slot = day.slots[slotIdx];
         const free = Math.min(len, day.budget);
         for (const units of enumerateUnits(item, state, dayIdx, free, true)) {
           const minutes = minutesForUnits(item.minutesPerUnit, units);
+          const start = slot.start;
+          const end = start + minutes;
           const isTail = item.splittable && (units % Math.max(1, item.unitStep) !== 0 || units < item.minChunkUnits);
-          moves.push({ itemIdx, dayIdx, slotIdx, units, minutes, isTail });
+          moves.push({ itemIdx, dayIdx, slotIdx, start, end, units, minutes, isTail });
           if (moves.length >= cap) return moves;
         }
       }
@@ -281,12 +290,12 @@ export function solveStrict(items: SolverItem[], daysInput: SolverDayInput[], op
   const apply = (move: Move) => {
     const state = itemStates[move.itemIdx];
     const day = days[move.dayIdx];
-    day.slots[move.slotIdx].start += move.minutes;
+    day.slots[move.slotIdx].start = move.end;
     day.budget -= move.minutes;
     state.remaining -= move.units;
     state.perDayUnits[move.dayIdx] += move.units;
     state.perDayMinutes[move.dayIdx] += move.minutes;
-    state.allocations.push({ dayIdx: move.dayIdx, units: move.units, minutes: move.minutes });
+    state.allocations.push({ dayIdx: move.dayIdx, start: move.start, end: move.end, units: move.units, minutes: move.minutes });
     if (move.isTail) state.tailIdx = move.dayIdx;
     if (move.dayIdx > state.maxAllocIdx) state.maxAllocIdx = move.dayIdx;
   };
@@ -294,7 +303,7 @@ export function solveStrict(items: SolverItem[], daysInput: SolverDayInput[], op
   const undo = (move: Move, prevMaxAllocIdx: number, prevTailIdx: number) => {
     const state = itemStates[move.itemIdx];
     const day = days[move.dayIdx];
-    day.slots[move.slotIdx].start -= move.minutes;
+    day.slots[move.slotIdx].start = move.start;
     day.budget += move.minutes;
     state.remaining += move.units;
     state.perDayUnits[move.dayIdx] -= move.units;
@@ -345,20 +354,19 @@ export function solveStrict(items: SolverItem[], daysInput: SolverDayInput[], op
   const found = search();
   const elapsedMs = Date.now() - startedAt;
   if (found) {
-    const allocations = new Map<string, DayAllocation[]>();
+    const allocations = new Map<string, SlotAllocation[]>();
     for (const state of itemStates) {
-      const byDay = new Map<number, { units: number; minutes: number }>();
-      for (const alloc of state.allocations) {
-        const entry = byDay.get(alloc.dayIdx) ?? { units: 0, minutes: 0 };
-        entry.units += alloc.units;
-        entry.minutes += alloc.minutes;
-        byDay.set(alloc.dayIdx, entry);
-      }
       allocations.set(
         state.item.id,
-        [...byDay.entries()]
-          .sort((a, b) => a[0] - b[0])
-          .map(([dayIdx, entry]) => ({ date: days[dayIdx].date, units: entry.units, minutes: entry.minutes })),
+        [...state.allocations]
+          .sort((a, b) => a.dayIdx - b.dayIdx || a.start - b.start || a.end - b.end)
+          .map((allocation) => ({
+            date: days[allocation.dayIdx].date,
+            start: allocation.start,
+            end: allocation.end,
+            units: allocation.units,
+            minutes: allocation.minutes,
+          })),
       );
     }
     return { status: 'feasible', allocations, nodes, elapsedMs };

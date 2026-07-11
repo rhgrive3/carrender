@@ -1,4 +1,4 @@
-import type { StudyTask } from '../types';
+import type { StudyTask, UnitRange } from '../types';
 
 /** 現行計画や集計に含めてよい、実際に配置されたタスクだけを返す。 */
 export function isPlacedPlanTask(task: StudyTask): boolean {
@@ -22,6 +22,7 @@ export function plannedMaterialAmountThrough(
   materialId: string,
   totalAmount: number,
   date: string,
+  baselineRanges: UnitRange[] = [],
 ): number {
   const relevant = tasks.filter((task) =>
     task.materialId === materialId
@@ -29,10 +30,14 @@ export function plannedMaterialAmountThrough(
     && task.scheduledDate <= date
     && task.amount > 0
     && isPlacedPlanTask(task));
-  const ranges = relevant.flatMap((task) => {
+  const ranges = [...baselineRanges, ...relevant.flatMap((task) => {
     const range = task.materialRange
       ?? (task.rangeStart !== null && task.rangeEnd !== null ? { start: task.rangeStart, end: task.rangeEnd } : undefined);
     if (!range) return [];
+    const start = Math.max(1, Math.min(totalAmount, Math.floor(range.start)));
+    const end = Math.max(1, Math.min(totalAmount, Math.floor(range.end)));
+    return start <= end ? [{ start, end }] : [];
+  })].flatMap((range) => {
     const start = Math.max(1, Math.min(totalAmount, Math.floor(range.start)));
     const end = Math.max(1, Math.min(totalAmount, Math.floor(range.end)));
     return start <= end ? [{ start, end }] : [];

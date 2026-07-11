@@ -2,10 +2,10 @@
 /// <reference types="node" />
 import { addDays, today } from '../src/lib/date';
 import { computeAnalytics } from '../src/lib/analytics';
-import { computeCapacity } from '../src/lib/scheduler';
+import { computeCapacity, generatePlan, subjectAchievementMap } from '../src/lib/scheduler';
 import { clearOwnedState, saveState } from '../src/lib/storage';
 import { isPlacedPlanTask, plannedMaterialAmountThrough } from '../src/lib/taskFilters';
-import { appReducer, emptyState } from '../src/state/AppContext';
+import { adjustCompletedRanges, appReducer, emptyState } from '../src/state/AppContext';
 import type { AppState, Material, StudyTask } from '../src/types';
 
 let failures = 0;
@@ -64,6 +64,9 @@ console.log('--- 記録範囲と実績量 ---');
   const done = partial.materials[0].completedRanges ?? [];
   check('途中まで2問ならタスク先頭の10〜11だけ完了', done.length === 1 && done[0].start === 10 && done[0].end === 11, done);
   check('途中記録のセッション量も2のまま', partial.sessions.at(-1)?.amountDone === 2, partial.sessions.at(-1));
+  const remainingTask = partial.tasks.find((item) => item.id === 'task');
+  check('途中記録後の元タスクは未完了の12〜20へ縮む', remainingTask?.rangeStart === 12 && remainingTask.rangeEnd === 20 && remainingTask.amount === 9, remainingTask);
+  check('途中記録後の予定時間も残量比で90分へ縮む', remainingTask?.estimatedMinutes === 90, remainingTask);
 
   const complete = appReducer(state(), record(true, 2));
   const completeRanges = complete.materials[0].completedRanges ?? [];
@@ -77,6 +80,24 @@ console.log('--- 記録範囲と実績量 ---');
   });
   check('残り5問に対する100問入力はセッションも5へ制限', free.sessions.at(-1)?.amountDone === 5, free.sessions.at(-1));
   check('残量超過入力でも教材進捗は100で止まる', free.materials[0].doneAmount === 100, free.materials[0]);
+}
+
+console.log('--- 教材進捗編集・固定状態 ---');
+{
+  const adjusted = adjustCompletedRanges(100, [{ start: 1, end: 5 }, { start: 20, end: 24 }], 11);
+  check('進捗量を増やしても非連続の完了範囲を保持', JSON.stringify(adjusted) === JSON.stringify([{ start: 1, end: 6 }, { start: 20, end: 24 }]), adjusted);
+
+  const manual = task({
+    id: 'move-manual', materialId: null, generatedBy: 'manual', sourceType: 'manual', sourceId: 'move-manual',
+    manualScheduling: { placementPolicy: 'fixedTime', fixedDate: ref, fixedStartTime: '18:00', progressPolicy: { type: 'independent' }, splittable: false },
+    placementLock: 'time',
+  });
+  const moved = appReducer(state({ materials: [], tasks: [manual] }), { type: 'MOVE_TASK', taskId: manual.id, date: tomorrow });
+  const movedTask = moved.tasks.find((item) => item.id === manual.id);
+  check('MOVE_TASKはplacementLockとmanualSchedulingを同じ日付固定へ揃える', movedTask?.placementLock === 'date'
+    && movedTask.manualScheduling?.placementPolicy === 'fixedDateFlexibleTime'
+    && movedTask.manualScheduling.fixedDate === tomorrow
+    && movedTask.manualScheduling.fixedStartTime === undefined, movedTask);
 }
 
 console.log('--- 延期・今日は無理 ---');
@@ -125,6 +146,13 @@ console.log('--- 表示・分析・容量 ---');
   check('共通フィルターは未配置と延期を除外', isPlacedPlanTask(visible) && !isPlacedPlanTask(hidden) && !isPlacedPlanTask(postponed));
   const duplicate = task({ id: 'duplicate', scheduledDate: visible.scheduledDate });
   check('目標グラフ用の教材範囲は重複タスクを和集合で数える', plannedMaterialAmountThrough([visible, duplicate, hidden], material.id, material.totalAmount, ref) === 11);
+  check('旧データの初期進捗と完了タスク範囲を二重計上しない', plannedMaterialAmountThrough(
+    [task({ id: 'old-done', status: 'done', rangeStart: 1, rangeEnd: 20, materialRange: { start: 1, end: 20 }, amount: 20 })],
+    material.id,
+    material.totalAmount,
+    ref,
+    [{ start: 1, end: 20 }],
+  ) === 20);
   const analytics = computeAnalytics(state({ tasks: [visible, hidden, postponed] }), ref);
   check('分析の予定分数は表示対象だけを集計', analytics.subjectStats[0].plannedMinutes === 60, analytics.subjectStats[0]);
 
@@ -134,6 +162,17 @@ console.log('--- 表示・分析・容量 ---');
   const capacity = computeCapacity(noMaterials, ref, late);
   check('独立した手動newタスクも残り学習量へ含む', capacity.totalRemainingMinutes === 90, capacity);
   check('当日の終了済み時間帯を残り容量へ含めない', capacity.totalAvailableMinutes === 0, capacity);
+
+  const polluted = state({ tasks: [
+    task({ id: 'done', scheduledDate: addDays(ref, -1), status: 'done' }),
+    task({ id: 'postponed-old', scheduledDate: addDays(ref, -1), status: 'postponed' }),
+    task({ id: 'conflict-old', scheduledDate: addDays(ref, -1), placementStatus: 'conflict' }),
+  ] });
+  check('科目達成率は延期・衝突残骸を予定件数へ含めない', subjectAchievementMap(polluted, ref).get(subject.id) === 1, subjectAchievementMap(polluted, ref));
+
+  const conflict = task({ placementLock: 'time', scheduledStart: '01:00', scheduledEnd: '02:50' });
+  const conflictedPlan = generatePlan(state({ tasks: [conflict] }), ref, 'capacity conflict', { now: new Date(`${ref}T12:00:00+09:00`) });
+  check('固定衝突がある計画は旧capacity.okをtrueにしない', conflictedPlan.result.capacity.ok === false, conflictedPlan.result.capacity);
 }
 
 console.log('--- ログアウト時の保存タイマー ---');

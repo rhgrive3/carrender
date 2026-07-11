@@ -2,6 +2,7 @@
  * スケジューラーV2 仕様テスト (要件13〜18)
  * 実行: npx vite-node scripts/schedulerV2.test.ts
  */
+import { generatePlan } from '../src/lib/scheduler';
 import { generatePlanV2, validateGeneratedScheduleV2 } from '../src/lib/schedulerV2';
 import type { SolverDayInput, SolverItem } from '../src/lib/strictSolver';
 import { isChunkAllowed, minutesForUnits, solveStrict } from '../src/lib/strictSolver';
@@ -244,14 +245,14 @@ console.log('--- 16. 固定条件誤判定 ---');
   check('完了済みタスクの時間帯(09:00〜)が未来容量として使える', day2Planned.some((task) => task.scheduledStart === '09:00'), day2Planned);
 }
 {
-  // 旧手動タスク: placementLockが欠けた旧データはマイグレーションで明示ロックが付与される
+  // 旧手動タスク: 時刻の有無から固定を推測せず、明示ポリシーだけを移行する
   const legacyTimed = manualTask('task_legacy_t', { scheduledStart: '18:00', scheduledEnd: '19:00' });
   const legacyDated = manualTask('task_legacy_d', {});
   delete (legacyTimed as Partial<StudyTask>).placementLock;
   delete (legacyDated as Partial<StudyTask>).placementLock;
   const migrated = normalizeState({ ...emptyState(), tasks: [legacyTimed, legacyDated] });
-  check('旧データ移行で時刻ありはplacementLock=time', migrated.tasks.find((task) => task.id === 'task_legacy_t')?.placementLock === 'time');
-  check('旧データ移行で時刻なしはplacementLock=date', migrated.tasks.find((task) => task.id === 'task_legacy_d')?.placementLock === 'date');
+  check('旧データ移行で時刻ありでもplacementLock=none', migrated.tasks.find((task) => task.id === 'task_legacy_t')?.placementLock === 'none');
+  check('旧データ移行で時刻なしもplacementLock=none', migrated.tasks.find((task) => task.id === 'task_legacy_d')?.placementLock === 'none');
   // 通常スケジューラーはgeneratedBy==='manual'から推測しない: 明示ロックが無ければ固定扱いされない
   const unlocked = manualTask('task_nolock', { scheduledStart: '09:00', scheduledEnd: '10:00', estimatedMinutes: 60 });
   delete (unlocked as Partial<StudyTask>).placementLock;
@@ -260,6 +261,63 @@ console.log('--- 16. 固定条件誤判定 ---');
   const moved = result.scheduledTasks.find((task) => task.id === 'task_nolock');
   check('明示ロックの無い手動タスクは固定扱いせずconflictも出さない', result.conflicts.length === 0, result.conflicts);
   check('明示ロックの無い手動タスクは空き時間へ再配置される', moved?.scheduledStart === '11:00', moved);
+}
+{
+  const now20 = new Date('2026-07-10T11:00:00.000Z'); // JST 20:00
+  const pastAuto = manualTask('task_past_auto', {
+    generatedBy: 'auto', sourceType: 'review', type: 'review', placementLock: 'none',
+    scheduledDate: D1, scheduledStart: '18:00', scheduledEnd: '19:00', estimatedMinutes: 60,
+  });
+  const replanned = generatePlan(baseState([], [{ start: '18:00', end: '23:00' }], 300, { tasks: [pastAuto] }), D2, '保護タスク再計算', {
+    now: now20, timezone: 'Asia/Tokyo', generationId: 'past-auto-regression',
+  }).state;
+  const output = replanned.tasks.find((task) => task.id === pastAuto.id);
+  check('未固定の自動タスクを保護時にtime固定へ昇格しない', output?.placementLock !== 'time', output);
+  check('未固定の自動タスクはPAST_TIME衝突にならない', !replanned.lastScheduleResult?.conflicts.some((conflict) => conflict.taskId === pastAuto.id && conflict.code === 'PAST_TIME'), replanned.lastScheduleResult?.conflicts);
+}
+{
+  const strict = mat('mat_exact_slot', { minutesPerUnit: 60, splittable: false, targetDate: D1 });
+  const normal = manualTask('task_normal_30', { placementLock: 'none', estimatedMinutes: 30, dueDate: D1 });
+  const result = generatePlanV2(baseState([strict], [{ start: '09:00', end: '10:00' }, { start: '11:00', end: '11:30' }], 90, { tasks: [normal] }), context());
+  const strictTask = result.scheduledTasks.find((task) => task.materialId === strict.id);
+  const normalTask = result.scheduledTasks.find((task) => task.id === normal.id);
+  check('strictの実時刻区間を保持する', strictTask?.scheduledStart === '09:00' && strictTask.scheduledEnd === '10:00', result.scheduledTasks);
+  check('通常タスクはstrict実区間を避ける', normalTask?.scheduledStart === '11:00' && normalTask.scheduledEnd === '11:30', result.scheduledTasks);
+}
+{
+  const item: SolverItem = {
+    id: 'exact-allocation', release: D1, deadline: D1, requiredUnits: 1, minutesPerUnit: 60,
+    unitStep: 1, minChunkUnits: 1, maxChunkUnits: 1, splittable: false,
+  };
+  const solved = solveStrict([item], [{ date: D1, slots: [{ start: 540, end: 600 }], budget: 60 }], { maxNodes: 1000, maxMs: 1000, preferLate: true });
+  const allocation = solved.allocations.get(item.id)?.[0];
+  check('strictソルバーが正確なstart/endを返す', solved.status === 'feasible' && allocation?.start === 540 && allocation.end === 600, allocation);
+}
+{
+  const strict = mat('mat_no_fake_reserve', { minutesPerUnit: 60, splittable: false, targetDate: D1 });
+  const result = generatePlanV2(baseState([strict], [{ start: '09:00', end: '09:30' }, { start: '11:00', end: '11:30' }], 60), context());
+  const report = result.deadlineReports.find((entry) => entry.workItemId === `material:${strict.id}`);
+  check('分断30分+30分を連続60分の架空予約として保証しない', report?.feasible === false && report.scheduledMinutes === 0, report);
+}
+{
+  const split = manualTask('task_split_amount', {
+    amount: 6, estimatedMinutes: 180, dueDate: D3, placementLock: 'none',
+    manualScheduling: {
+      placementPolicy: 'flexibleBeforeDeadline', progressPolicy: { type: 'independent' },
+      splittable: true, minimumChunkMinutes: 60, maximumChunkMinutes: 60,
+    },
+  });
+  const result = generatePlanV2(baseState([], [{ start: '09:00', end: '10:00' }], 60, { tasks: [split] }), context());
+  const chunks = result.scheduledTasks.filter((task) => task.sourceId === split.id).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+  check('分割手動タスクのamountは各チャンクへ比例配分', chunks.length === 3 && chunks.every((task) => task.amount === 2), chunks);
+  check('分割後amountの合計は元タスク全量と一致', chunks.reduce((sum, task) => sum + task.amount, 0) === 6, chunks);
+}
+{
+  const legacy = manualTask('legacy_undefined_range', {});
+  delete (legacy as Partial<StudyTask>).rangeStart;
+  delete (legacy as Partial<StudyTask>).rangeEnd;
+  const migrated = normalizeState({ ...emptyState(), tasks: [legacy] });
+  check('旧JSONのundefined範囲からmaterialRangeを生成しない', migrated.tasks[0].materialRange === undefined, migrated.tasks[0]);
 }
 
 // ============================================================
