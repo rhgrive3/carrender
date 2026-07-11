@@ -99,8 +99,7 @@ export function isIOSSafari(): boolean {
  * - standalone起動済み → 不要
  * - Playwright等の自動テスト(navigator.webdriver)・localhost開発 → バイパス
  * - ?pwa-gate=on で強制表示(実機・スクショ検証用)、?pwa-gate=off で強制バイパス
- * - モバイル(iOS/Android)のブラウザ起動 → 表示(強制)
- * - デスクトップ → バナーのみ(ゲートは出さない)
+ * - モバイルもバナーだけにし、管理端末・プライベートブラウズ等でも利用可能にする
  */
 export function shouldShowInstallGate(): boolean {
   if (typeof window === 'undefined') return false;
@@ -110,5 +109,5 @@ export function shouldShowInstallGate(): boolean {
   if (isStandalone()) return false;
   if (navigator.webdriver) return false;
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') return false;
-  return isMobile();
+  return false;
 }
