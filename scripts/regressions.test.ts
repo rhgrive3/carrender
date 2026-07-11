@@ -80,6 +80,18 @@ console.log('--- 記録範囲と実績量 ---');
   });
   check('残り5問に対する100問入力はセッションも5へ制限', free.sessions.at(-1)?.amountDone === 5, free.sessions.at(-1));
   check('残量超過入力でも教材進捗は100で止まる', free.materials[0].doneAmount === 100, free.materials[0]);
+
+  // タイマー開始後の再計算でauto taskのIDだけが変わったケース。
+  const regenerated = task({ id: 'task_after_replan', sourceId: material.id });
+  const recovered = appReducer(state({ tasks: [regenerated] }), {
+    type: 'RECORD_SESSION',
+    input: {
+      ...record(true, 0).input,
+      taskId: 'task_before_replan',
+      taskLocator: { sourceId: material.id, range: { start: 10, end: 20 }, type: 'new' },
+    },
+  });
+  check('再計算でIDが変わったタイマー記録も現行タスクを完了にする', recovered.tasks.some((item) => item.id === regenerated.id && item.status === 'done'), recovered.tasks);
 }
 
 console.log('--- 教材進捗編集・固定状態 ---');
