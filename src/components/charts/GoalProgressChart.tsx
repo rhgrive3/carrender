@@ -152,7 +152,22 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       activeMaterials.forEach((material, index) => {
         const start = materialStartDate(material);
         const baseline = Math.max(0, material.doneAmount - (totalRecordedByMaterial.get(material.id) ?? 0));
-        const plannedByDate = baseline + plannedMaterialAmountThrough(state.tasks, material.id, material.totalAmount, date);
+        const completedRanges = material.completedRanges
+          ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
+        let baselineLeft = baseline;
+        const baselineRanges = completedRanges.flatMap((range) => {
+          if (baselineLeft <= 0) return [];
+          const amount = Math.min(baselineLeft, range.end - range.start + 1);
+          baselineLeft -= amount;
+          return [{ start: range.start, end: range.start + amount - 1 }];
+        });
+        const plannedByDate = plannedMaterialAmountThrough(
+          state.tasks,
+          material.id,
+          material.totalAmount,
+          date,
+          baselineRanges,
+        );
         point[`m${index}Target`] = date < start ? 0 : clampPercent((plannedByDate / material.totalAmount) * 100);
 
         if (date > refDate) {

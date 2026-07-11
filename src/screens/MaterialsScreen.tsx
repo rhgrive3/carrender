@@ -200,7 +200,8 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       totalAmount,
       doneAmount: Math.min(doneAmount, totalAmount),
       totalUnits: totalAmount,
-      completedRanges: doneAmount > 0 ? [{ start: 1, end: Math.min(doneAmount, totalAmount) }] : [],
+      completedRanges: material?.completedRanges
+        ?? (doneAmount > 0 ? [{ start: 1, end: Math.min(doneAmount, totalAmount) }] : []),
       startDate,
       targetDate,
       preferredFinishDate: preferredFinishDate || undefined,

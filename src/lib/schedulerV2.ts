@@ -20,7 +20,7 @@ import type {
   ValidationIssue,
 } from '../types';
 import { addDays, diffDays, hmToMinutes, minutesToHM, weekdayOf } from './date';
-import type { DayAllocation, SolverDayInput, SolverItem } from './strictSolver';
+import type { SlotAllocation, SolverDayInput, SolverItem } from './strictSolver';
 import { compareItemsForSearch, countItemPlacements, minutesForUnits, solveStrict } from './strictSolver';
 
 interface MinuteRange {
@@ -322,6 +322,7 @@ function taskRange(task: StudyTask): UnitRange | undefined {
  */
 function effectiveLock(task: StudyTask): 'none' | 'date' | 'time' {
   if (task.manualScheduling?.placementPolicy === 'fixedTime') return 'time';
+  if (task.manualScheduling?.placementPolicy === 'fixedDateFlexibleTime') return 'date';
   return task.placementLock ?? 'none';
 }
 
@@ -346,6 +347,14 @@ function taskFromAssignment(assignment: Assignment, context: SchedulerContext): 
   const start = minutesToHM(assignment.start);
   const end = minutesToHM(assignment.end);
   if (assignment.template) {
+    const split = assignment.template.manualScheduling?.splittable ?? false;
+    const progressPolicy = assignment.template.manualScheduling?.progressPolicy;
+    const manualScheduling = assignment.template.manualScheduling && progressPolicy?.type === 'countTowardMaterial'
+      ? {
+          ...assignment.template.manualScheduling,
+          progressPolicy: { ...progressPolicy, range: assignment.range, amount: assignment.amount },
+        }
+      : assignment.template.manualScheduling;
     return {
       ...assignment.template,
       id: assignment.template.manualScheduling?.splittable
@@ -355,6 +364,14 @@ function taskFromAssignment(assignment: Assignment, context: SchedulerContext): 
       scheduledStart: start,
       scheduledEnd: end,
       estimatedMinutes: assignment.end - assignment.start,
+      amount: assignment.amount,
+      rangeStart: assignment.range?.start ?? (split ? null : assignment.template.rangeStart),
+      rangeEnd: assignment.range?.end ?? (split ? null : assignment.template.rangeEnd),
+      materialRange: assignment.range ?? (split ? undefined : assignment.template.materialRange),
+      rangeLabel: assignment.range
+        ? (assignment.range.start === assignment.range.end ? `${assignment.range.start}` : `${assignment.range.start}〜${assignment.range.end}`)
+        : assignment.template.rangeLabel,
+      manualScheduling,
       placementStatus: 'scheduled',
       status: 'planned',
       updatedAt: context.now.toISOString(),
@@ -477,6 +494,9 @@ function allocateTask(task: StudyTask, calendar: Map<ISODate, CalendarDay>, star
   const release = lock === 'date' ? task.scheduledDate : scheduling?.fixedDate ?? start;
   const deadline = lock === 'date' ? task.scheduledDate : strictDeadline ?? scheduling?.deadline ?? task.dueDate ?? end;
   let remaining = task.estimatedMinutes;
+  let allocatedMinutes = 0;
+  let allocatedAmount = 0;
+  const explicitRange = taskRange(task);
   const assignments: Assignment[] = [];
   for (let date = release > start ? release : start; date <= deadline && date <= end && remaining > 0; date = addDays(date, 1)) {
     const day = calendar.get(date);
@@ -487,14 +507,29 @@ function allocateTask(task: StudyTask, calendar: Map<ISODate, CalendarDay>, star
     const slot = findSlot(day, chunk);
     if (!slot) continue;
     reserve(day, slot.start, slot.end);
-    assignments.push(taskAssignment(task, date, slot));
+    const amountThrough = remaining === chunk
+      ? task.amount
+      : Math.round(task.amount * (allocatedMinutes + chunk) / Math.max(1, task.estimatedMinutes));
+    const chunkAmount = Math.max(0, amountThrough - allocatedAmount);
+    const range = explicitRange && chunkAmount > 0
+      ? { start: explicitRange.start + allocatedAmount, end: explicitRange.start + allocatedAmount + chunkAmount - 1 }
+      : undefined;
+    assignments.push(taskAssignment(task, date, slot, chunkAmount, range));
+    allocatedMinutes += chunk;
+    allocatedAmount += chunkAmount;
     remaining -= chunk;
     if (!splittable) break;
   }
   return remaining === 0 ? assignments : null;
 }
 
-function taskAssignment(task: StudyTask, date: ISODate, slot: MinuteRange): Assignment {
+function taskAssignment(
+  task: StudyTask,
+  date: ISODate,
+  slot: MinuteRange,
+  amount = task.amount,
+  range = taskRange(task),
+): Assignment {
   return {
     sourceType: task.sourceType ?? (task.generatedBy === 'manual' ? 'manual' : 'review'),
     sourceId: task.sourceId ?? task.id,
@@ -505,7 +540,8 @@ function taskAssignment(task: StudyTask, date: ISODate, slot: MinuteRange): Assi
     date,
     start: slot.start,
     end: slot.end,
-    amount: task.amount,
+    amount,
+    range,
     priority: task.priority,
     dueDate: task.dueDate,
     type: task.type,
@@ -523,6 +559,15 @@ function takeUnits(ranges: UnitRange[], requested: number, unitStep: number): Un
   const range = { start: first.start, end: first.start + units - 1 };
   if (range.end === first.end) ranges.shift();
   else first.start = range.end + 1;
+  return range;
+}
+
+function takeTailUnits(ranges: UnitRange[], requested: number): UnitRange | null {
+  const last = ranges[ranges.length - 1];
+  if (!last || requested <= 0 || requested > last.end - last.start + 1) return null;
+  const range = { start: last.end - requested + 1, end: last.end };
+  if (range.start === last.start) ranges.pop();
+  else last.end = range.start - 1;
   return range;
 }
 
@@ -692,12 +737,6 @@ interface StrictWork {
   requiredMinutes: number;
   solverItem: SolverItem;
   verdict: 'feasible' | 'infeasible' | 'indeterminate';
-  slippedMinutes: number;
-}
-
-interface ReservationEntry {
-  units: number;
-  minutes: number;
 }
 
 function materialSolverItem(material: Material, requiredUnits: number, today: ISODate, sessionMin: number, sessionMax: number): SolverItem {
@@ -822,7 +861,6 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       requiredMinutes: minutesForUnits(material.minutesPerUnit, requiredUnits),
       solverItem: materialSolverItem(material, requiredUnits, today, sessionMin, sessionMax),
       verdict: 'infeasible',
-      slippedMinutes: 0,
     });
   }
   for (const task of strictTasks) {
@@ -834,7 +872,6 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       requiredMinutes: task.estimatedMinutes,
       solverItem: taskSolverItem(task, today),
       verdict: 'infeasible',
-      slippedMinutes: 0,
     });
   }
 
@@ -842,19 +879,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     .filter((day) => day.date >= today && day.date <= feasibilityEnd)
     .map((day) => ({ date: day.date, slots: day.slots.map((slot) => ({ ...slot })), budget: day.budget }));
 
-  // 最低予約量L: work.workItemId → 日付 → {units, minutes}
-  const reservations = new Map<string, Map<ISODate, ReservationEntry>>();
-  const reserveByDay = new Map<ISODate, number>();
-  const applyReserve = (date: ISODate, minutes: number) => {
-    const day = calendar.get(date);
-    if (day) day.budget -= minutes;
-    reserveByDay.set(date, (reserveByDay.get(date) ?? 0) + minutes);
-  };
-  const releaseReserve = (date: ISODate, minutes: number) => {
-    const day = calendar.get(date);
-    if (day) day.budget += minutes;
-    reserveByDay.set(date, (reserveByDay.get(date) ?? 0) - minutes);
-  };
+  const reservations = new Map<string, SlotAllocation[]>();
 
   if (strictWorks.length > 0) {
     const nodeLimit = context.maxSearchNodes ?? 20000;
@@ -875,7 +900,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       countItemPlacements(a.solverItem, baseDays) - countItemPlacements(b.solverItem, baseDays)
       || compareItemsForSearch(a.solverItem, b.solverItem));
     const full = runSolve(ordered.map((work) => work.solverItem));
-    let finalAllocations: Map<string, DayAllocation[]>;
+    let finalAllocations: Map<string, SlotAllocation[]>;
     if (full.status === 'feasible') {
       for (const work of strictWorks) work.verdict = 'feasible';
       finalAllocations = full.allocations;
@@ -887,7 +912,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       const buildSubset = (order: StrictWork[]) => {
         const accepted: StrictWork[] = [];
         const verdicts = new Map<string, StrictWork['verdict']>();
-        let allocations = new Map<string, DayAllocation[]>();
+        let allocations = new Map<string, SlotAllocation[]>();
         for (const work of order) {
           if (remainingNodes <= 0 || Date.now() >= searchDeadline) {
             verdicts.set(work.workItemId, 'indeterminate');
@@ -919,74 +944,64 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       for (const work of strictWorks) work.verdict = chosen.verdicts.get(work.workItemId) ?? 'indeterminate';
       finalAllocations = chosen.allocations;
     }
-    // 最低予約量Lをカレンダー予算へ反映(具体タスク化は日次ループで行う)
+    // ソルバーが選んだ実区間をそのまま予約し、具体期間内は同じ区間でタスク化する。
     for (const work of strictWorks) {
       if (work.verdict !== 'feasible') continue;
-      const allocations = finalAllocations.get(work.solverItem.id) ?? [];
-      const byDate = new Map<ISODate, ReservationEntry>();
+      const allocations = [...(finalAllocations.get(work.solverItem.id) ?? [])]
+        .sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start || a.end - b.end);
+      const calendarSnapshot = cloneCalendar(calendar);
+      const assignmentCount = assignments.length;
+      const materialRanges = work.material ? rangesByMaterial.get(work.material.id)! : null;
+      const rangeSnapshot = materialRanges?.map((range) => ({ ...range })) ?? null;
+      let exact = allocations.length > 0;
+      let allocatedTaskMinutes = 0;
+      let allocatedTaskAmount = 0;
       for (const allocation of allocations) {
-        const entry = byDate.get(allocation.date) ?? { units: 0, minutes: 0 };
-        entry.units += allocation.units;
-        entry.minutes += allocation.minutes;
-        byDate.set(allocation.date, entry);
-        applyReserve(allocation.date, allocation.minutes);
+        const day = calendar.get(allocation.date);
+        if (!day || allocation.end - allocation.start !== allocation.minutes || !reserve(day, allocation.start, allocation.end)) {
+          exact = false;
+          break;
+        }
+        if (allocation.date > concreteEnd) continue;
+        if (work.material && materialRanges) {
+          const irregular = allocation.units % Math.max(1, work.solverItem.unitStep) !== 0
+            || allocation.units < work.solverItem.minChunkUnits;
+          const range = irregular
+            ? takeTailUnits(materialRanges, allocation.units)
+            : takeUnits(materialRanges, allocation.units, work.material.unitStep ?? 1);
+          if (!range || range.end - range.start + 1 !== allocation.units) {
+            exact = false;
+            break;
+          }
+          assignments.push(materialAssignment(work.material, allocation.date, allocation, range, 95));
+        } else if (work.task) {
+          const amountThrough = allocation.minutes + allocatedTaskMinutes >= work.task.estimatedMinutes
+            ? work.task.amount
+            : Math.round(work.task.amount * (allocatedTaskMinutes + allocation.minutes) / Math.max(1, work.task.estimatedMinutes));
+          const amount = Math.max(0, amountThrough - allocatedTaskAmount);
+          const explicit = taskRange(work.task);
+          const range = explicit && amount > 0
+            ? { start: explicit.start + allocatedTaskAmount, end: explicit.start + allocatedTaskAmount + amount - 1 }
+            : undefined;
+          assignments.push(taskAssignment(work.task, allocation.date, allocation, amount, range));
+          allocatedTaskMinutes += allocation.minutes;
+          allocatedTaskAmount += amount;
+        }
       }
-      reservations.set(work.workItemId, byDate);
-    }
-  }
-
-  const trimReservation = (work: StrictWork, unitsToTrim: number) => {
-    const entries = reservations.get(work.workItemId);
-    if (!entries || unitsToTrim <= 0) return;
-    const dates = [...entries.keys()].sort().reverse();
-    let left = unitsToTrim;
-    for (const date of dates) {
-      if (left <= 0) break;
-      const entry = entries.get(date)!;
-      const take = Math.min(entry.units, left);
-      const newUnits = entry.units - take;
-      const newMinutes = newUnits <= 0 ? 0 : minutesForUnits(work.solverItem.minutesPerUnit, newUnits);
-      releaseReserve(date, entry.minutes - newMinutes);
-      if (newUnits <= 0) entries.delete(date);
-      else entries.set(date, { units: newUnits, minutes: newMinutes });
-      left -= take;
-    }
-  };
-
-  const carryReservation = (work: StrictWork, fromDate: ISODate, units: number) => {
-    const minutes = minutesForUnits(work.solverItem.minutesPerUnit, units);
-    for (let date = addDays(fromDate, 1); date <= work.deadline; date = addDays(date, 1)) {
-      if (!calendar.has(date)) continue;
-      const entries = reservations.get(work.workItemId)!;
-      const entry = entries.get(date) ?? { units: 0, minutes: 0 };
-      entry.units += units;
-      entry.minutes += minutes;
-      entries.set(date, entry);
-      applyReserve(date, minutes);
-      return;
-    }
-    work.slippedMinutes += minutes;
-    warnings.push({
-      code: 'STRICT_PLACEMENT_SLIP',
-      targetId: work.sourceId,
-      minutes,
-      message: `厳守作業の予約${minutes}分を区間の断片化により期限内へ配置できませんでした`,
-    });
-  };
-
-  // 実行可能と判定されたstrict手動タスクは早期に前詰め配置を試みる(不可なら予約日に配置)
-  for (const work of strictWorks) {
-    if (!work.task || work.verdict !== 'feasible') continue;
-    const entries = reservations.get(work.workItemId)!;
-    for (const [date, entry] of entries) releaseReserve(date, entry.minutes);
-    const snapshot = cloneCalendar(calendar);
-    const placed = allocateTask(work.task, calendar, today, feasibilityEnd, work.deadline);
-    if (placed) {
-      assignments.push(...placed);
-      reservations.delete(work.workItemId);
-    } else {
-      replaceCalendar(calendar, snapshot);
-      for (const [date, entry] of entries) applyReserve(date, entry.minutes);
+      if (!exact) {
+        replaceCalendar(calendar, calendarSnapshot);
+        assignments.splice(assignmentCount);
+        if (materialRanges && rangeSnapshot) materialRanges.splice(0, materialRanges.length, ...rangeSnapshot);
+        work.verdict = 'indeterminate';
+        warnings.push({
+          code: 'STRICT_PLACEMENT_SLIP',
+          targetId: work.sourceId,
+          minutes: work.requiredMinutes,
+          message: '厳守作業のソルバー区間を実タスクへ変換できなかったため、期限保証から除外しました',
+        });
+      } else {
+        reservations.set(work.workItemId, allocations.filter((allocation) => allocation.date > concreteEnd));
+      }
     }
   }
 
@@ -1014,17 +1029,12 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   }
 
   // ---------- 進捗曲線(第2段階): 日別容量を教材間で配分した基準容量で累積目標を作る ----------
-  const strictWorkByMaterial = new Map<string, StrictWork>();
-  for (const work of strictWorks) if (work.material) strictWorkByMaterial.set(work.material.id, work);
-  const strictInfeasibleMaterials = new Set(
-    strictWorks.filter((work) => work.material && work.verdict === 'infeasible').map((work) => work.material!.id),
-  );
   const curveMaterials = activeMaterials.filter((material) =>
-    (rangesByMaterial.get(material.id)?.length ?? 0) > 0 && !strictInfeasibleMaterials.has(material.id));
+    material.deadlinePolicy !== 'strict' && (rangesByMaterial.get(material.id)?.length ?? 0) > 0);
   const dates: ISODate[] = [];
   for (let date = today; date <= calendarEnd; date = addDays(date, 1)) dates.push(date);
   const dateIndex = new Map(dates.map((date, index) => [date, index]));
-  const capBase = dates.map((date) => (calendar.get(date)?.budget ?? 0) + (reserveByDay.get(date) ?? 0));
+  const capBase = dates.map((date) => calendar.get(date)?.budget ?? 0);
   const capSuffix = new Array<number>(dates.length + 1).fill(0);
   for (let i = dates.length - 1; i >= 0; i -= 1) capSuffix[i] = capSuffix[i + 1] + capBase[i];
 
@@ -1102,58 +1112,13 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     return curve.targetByDate.get(date) ?? (date > curve.curveEnd ? curve.cumTarget : 0);
   };
 
-  // ---------- 日次ループ: 期限を守る最低予約 → 進捗曲線に沿った配分 ----------
-  const feasibleStrictWorks = strictWorks
-    .filter((work) => work.verdict === 'feasible')
-    .sort((a, b) => a.deadline.localeCompare(b.deadline) || a.workItemId.localeCompare(b.workItemId));
+  // strict作業は上で実区間を消費済み。ここでは残り容量へ通常教材だけを配分する。
   const chunkUnitsFor = (material: Material) =>
     material.maximumChunkUnits ?? Math.max(material.unitStep ?? 1, Math.floor(sessionMax / material.minutesPerUnit));
   for (let dateIdx = 0; dateIdx < dates.length && dates[dateIdx] <= concreteEnd; dateIdx += 1) {
     const date = dates[dateIdx];
-    const day = calendar.get(date);
-    if (!day) continue;
-    // 1) 期限保証のための最低予約分を配置する
-    for (const work of feasibleStrictWorks) {
-      const entries = reservations.get(work.workItemId);
-      const entry = entries?.get(date);
-      if (!entries || !entry) continue;
-      entries.delete(date);
-      releaseReserve(date, entry.minutes);
-      if (work.material) {
-        const ranges = rangesByMaterial.get(work.material.id)!;
-        const before = sumRangeLengths(ranges);
-        const placed = allocateMaterial(work.material, ranges, calendar, date, date, entry.units, 95, sessionMin, sessionMax, assignments, fixed.valid);
-        assignments.push(...placed);
-        const placedUnits = before - sumRangeLengths(ranges);
-        const curve = curveByMaterial.get(work.material.id);
-        if (curve) curve.scheduledMinutes += placed.reduce((sum, item) => sum + item.end - item.start, 0);
-        if (entry.units - placedUnits > 0) carryReservation(work, date, entry.units - placedUnits);
-      } else if (work.task) {
-        const scheduling = work.task.manualScheduling;
-        const splittable = scheduling?.splittable ?? false;
-        const minimum = Math.max(1, scheduling?.minimumChunkMinutes ?? entry.minutes);
-        const maximum = Math.max(minimum, scheduling?.maximumChunkMinutes ?? entry.minutes);
-        let remaining = entry.minutes;
-        while (remaining > 0) {
-          const chunk = splittable ? Math.min(remaining, maximum) : remaining;
-          if (chunk < minimum && chunk !== remaining) break;
-          const slot = findSlot(day, chunk);
-          if (!slot) break;
-          reserve(day, slot.start, slot.end);
-          assignments.push(taskAssignment(work.task, date, slot));
-          remaining -= chunk;
-          if (!splittable) break;
-        }
-        if (remaining > 0) carryReservation(work, date, remaining);
-      }
-    }
-    // 2) 進捗曲線の負債分を配分する(strict教材も曲線対象。前倒し分は予約の後ろから解放)
     const candidates = curves
       .filter((curve) => curve.ranges.length > 0 && date >= curve.curveStart)
-      .filter((curve) => {
-        const strict = strictWorkByMaterial.get(curve.material.id);
-        return !strict || date <= strict.deadline;
-      })
       .map((curve) => ({ curve, debt: Math.max(0, curveTargetAt(curve, date) - curve.scheduledMinutes) }))
       .filter((candidate) => candidate.debt > 0)
       .sort((a, b) => b.debt - a.debt || a.curve.curveEnd.localeCompare(b.curve.curveEnd) || b.curve.material.priority - a.curve.material.priority || a.curve.material.id.localeCompare(b.curve.material.id));
@@ -1161,14 +1126,10 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       const material = curve.material;
       const wantedUnits = Math.min(Math.ceil(debt / material.minutesPerUnit), chunkUnitsFor(material));
       if (wantedUnits <= 0) continue;
-      const before = sumRangeLengths(curve.ranges);
       const placed = allocateMaterial(material, curve.ranges, calendar, date, date, wantedUnits, 70, sessionMin, sessionMax, assignments, fixed.valid);
       if (placed.length === 0) continue;
       assignments.push(...placed);
-      const placedUnits = before - sumRangeLengths(curve.ranges);
       curve.scheduledMinutes += placed.reduce((sum, item) => sum + item.end - item.start, 0);
-      const strict = strictWorkByMaterial.get(material.id);
-      if (strict) trimReservation(strict, placedUnits);
     }
   }
 
@@ -1199,10 +1160,6 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     while ((calendar.get(date)?.budget ?? 0) >= sessionMin) {
       const pool = scored
         .filter(({ material }) => material.startDate <= date && (rangesByMaterial.get(material.id)?.length ?? 0) > 0)
-        .filter(({ material }) => {
-          const strict = strictWorkByMaterial.get(material.id);
-          return !strict || date <= strict.deadline;
-        })
         .sort((a, b) =>
           Number(a.material.id === lastSurplusMaterial) - Number(b.material.id === lastSurplusMaterial)
           || sumRangeLengths(rangesByMaterial.get(b.material.id) ?? []) - sumRangeLengths(rangesByMaterial.get(a.material.id) ?? [])
@@ -1211,14 +1168,11 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       let placedAny = false;
       for (const { material, score } of pool) {
         const ranges = rangesByMaterial.get(material.id)!;
-        const before = sumRangeLengths(ranges);
         const placed = allocateMaterial(material, ranges, calendar, date, date, chunkUnitsFor(material), score * 100, sessionMin, sessionMax, assignments, fixed.valid);
         if (placed.length === 0) continue;
         assignments.push(...placed);
         const curve = curveByMaterial.get(material.id);
         if (curve) curve.scheduledMinutes += placed.reduce((sum, item) => sum + item.end - item.start, 0);
-        const strict = strictWorkByMaterial.get(material.id);
-        if (strict) trimReservation(strict, before - sumRangeLengths(ranges));
         lastSurplusMaterial = material.id;
         placedAny = true;
         break;
@@ -1251,7 +1205,9 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     const placedWithinDeadline = assignments
       .filter((assignment) => assignment.workItemId === work.workItemId && assignment.date <= work.deadline)
       .reduce((sum, assignment) => sum + assignment.end - assignment.start, 0);
-    const reservedLeft = [...(reservations.get(work.workItemId)?.values() ?? [])].reduce((sum, entry) => sum + entry.minutes, 0);
+    const reservedLeft = (reservations.get(work.workItemId) ?? [])
+      .filter((entry) => entry.date <= work.deadline)
+      .reduce((sum, entry) => sum + entry.minutes, 0);
     if (work.verdict === 'infeasible') {
       // 全ロールバック済み: 採用された配置は0分なので不足は全量
       strictInfeasibleMinutes += work.requiredMinutes;
@@ -1260,7 +1216,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     } else if (work.verdict === 'indeterminate') {
       const shortage = Math.max(0, work.requiredMinutes - placedWithinDeadline);
       strictIndeterminateMinutes += shortage;
-      unscheduled.push({ workItemId: work.workItemId, sourceId: work.sourceId, minutes: shortage, reason: '探索上限に達したため配置可能性を確定できませんでした' });
+      unscheduled.push({ workItemId: work.workItemId, sourceId: work.sourceId, minutes: shortage, reason: '探索上限または実区間変換の失敗により配置可能性を確定できませんでした' });
       deadlineReports.push({ workItemId: work.workItemId, policy: 'strict', deadline: work.deadline, feasible: null, scheduledMinutes: placedWithinDeadline, requiredMinutes: work.requiredMinutes, shortageMinutes: shortage, overdueDays: 0 });
     } else {
       const guaranteed = placedWithinDeadline + reservedLeft;

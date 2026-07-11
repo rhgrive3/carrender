@@ -114,6 +114,44 @@ function intersectRanges(
   });
 }
 
+/** 進捗量の編集時も既存の飛び飛び範囲を保ち、増減分だけを調整する。 */
+export function adjustCompletedRanges(
+  totalAmount: number,
+  ranges: { start: number; end: number }[],
+  requestedDoneAmount: number,
+) {
+  const total = Math.max(0, Math.floor(totalAmount));
+  const desired = Math.max(0, Math.min(total, Math.floor(requestedDoneAmount)));
+  let adjusted = normalizeUnitRanges(
+    ranges.flatMap((range) => {
+      const start = Math.max(1, Math.floor(range.start));
+      const end = Math.min(total, Math.floor(range.end));
+      return start <= end ? [{ start, end }] : [];
+    }),
+    total,
+  );
+  const current = sumRangeLengths(adjusted);
+  if (desired > current) {
+    const additions = takeFirstRanges(remainingUnitRanges(total, adjusted), desired - current);
+    return normalizeUnitRanges([...adjusted, ...additions], total);
+  }
+  let remove = current - desired;
+  if (remove <= 0) return adjusted;
+  adjusted = adjusted.map((range) => ({ ...range }));
+  for (let index = adjusted.length - 1; index >= 0 && remove > 0; index -= 1) {
+    const range = adjusted[index];
+    const length = range.end - range.start + 1;
+    if (remove >= length) {
+      adjusted.splice(index, 1);
+      remove -= length;
+    } else {
+      range.end -= remove;
+      remove = 0;
+    }
+  }
+  return adjusted;
+}
+
 /** 入力値を、対象教材・対象タスクで実際に完了可能な量へ正規化する。 */
 export function resolveSessionProgress(state: AppState, input: SessionInput) {
   const requested = Math.max(0, Math.floor(Number.isFinite(input.amountDone) ? input.amountDone : 0));
@@ -167,6 +205,78 @@ function deferTask(task: StudyTask, date: ISODate): StudyTask {
     manualOrder: undefined,
     updatedAt: new Date().toISOString(),
   };
+}
+
+function dateLockManualScheduling(task: StudyTask, date: ISODate) {
+  if (!task.manualScheduling) return undefined;
+  return {
+    ...task.manualScheduling,
+    placementPolicy: 'fixedDateFlexibleTime' as const,
+    fixedDate: date,
+    fixedStartTime: undefined,
+  };
+}
+
+function unlockManualScheduling(task: StudyTask) {
+  if (!task.manualScheduling) return undefined;
+  return {
+    ...task.manualScheduling,
+    placementPolicy: 'flexibleBeforeDeadline' as const,
+    fixedDate: undefined,
+    fixedStartTime: undefined,
+  };
+}
+
+/** 途中記録後の元タスクを、実際に未完了の範囲と時間へ縮める。 */
+function shrinkTaskAfterProgress(task: StudyTask, material: Material | undefined, completedRanges: { start: number; end: number }[]) {
+  const explicit = task.materialRange
+    ?? (task.rangeStart !== null && task.rangeStart !== undefined && task.rangeEnd !== null && task.rangeEnd !== undefined
+      ? { start: task.rangeStart, end: task.rangeEnd }
+      : undefined);
+  const originalAmount = Math.max(1, task.amount);
+  const minutesPerAmount = task.estimatedMinutes / originalAmount;
+  const now = new Date().toISOString();
+
+  if (!material || !explicit) {
+    const completed = Math.min(task.amount, sumRangeLengths(completedRanges));
+    const amount = Math.max(0, task.amount - completed);
+    if (amount <= 0) return [{ ...task, status: 'done' as const, completedAt: now }];
+    return [{
+      ...task,
+      amount,
+      estimatedMinutes: Math.max(1, Math.round(amount * minutesPerAmount)),
+      scheduledEnd: task.scheduledStart
+        ? minutesToHM(hmToMinutes(task.scheduledStart) + Math.max(1, Math.round(amount * minutesPerAmount)))
+        : task.scheduledEnd,
+      updatedAt: now,
+    }];
+  }
+
+  const remaining = intersectRanges(remainingUnitRanges(material.totalAmount, completedRanges), explicit);
+  if (remaining.length === 0) return [{ ...task, status: 'done' as const, completedAt: now }];
+  let cursor = task.scheduledStart ? hmToMinutes(task.scheduledStart) : null;
+  return remaining.map((range, index) => {
+    const amount = range.end - range.start + 1;
+    const estimatedMinutes = Math.max(1, Math.round(amount * minutesPerAmount));
+    const scheduledStart = cursor === null ? task.scheduledStart : minutesToHM(cursor);
+    const scheduledEnd = cursor === null ? task.scheduledEnd : minutesToHM(cursor + estimatedMinutes);
+    if (cursor !== null) cursor += estimatedMinutes;
+    return {
+      ...task,
+      id: index === 0 ? task.id : `${task.id}_remaining_${range.start}_${range.end}`,
+      rangeStart: range.start,
+      rangeEnd: range.end,
+      materialRange: range,
+      rangeLabel: range.start === range.end ? `${range.start}` : `${range.start}〜${range.end}`,
+      amount,
+      estimatedMinutes,
+      scheduledStart,
+      scheduledEnd,
+      status: 'planned' as const,
+      completedAt: null,
+      updatedAt: now,
+    };
+  });
 }
 
 function settingsAffectPlan(previous: AppSettings, next: AppSettings): boolean {
@@ -263,9 +373,11 @@ export function appReducer(state: AppState, action: Action): AppState {
 
     case 'UPDATE_MATERIAL': {
       const previous = state.materials.find((m) => m.id === action.material.id);
-      const completedRanges = !action.material.completedRanges || previous?.doneAmount !== action.material.doneAmount
-        ? (action.material.doneAmount > 0 ? [{ start: 1, end: action.material.doneAmount }] : [])
-        : action.material.completedRanges;
+      const previousRanges = previous?.completedRanges
+        ?? (previous && previous.doneAmount > 0 ? [{ start: 1, end: previous.doneAmount }] : []);
+      const completedRanges = previous
+        ? adjustCompletedRanges(action.material.totalAmount, previousRanges, action.material.doneAmount)
+        : adjustCompletedRanges(action.material.totalAmount, action.material.completedRanges ?? [], action.material.doneAmount);
       const material = { ...action.material, totalUnits: action.material.totalAmount, completedRanges };
       const next = {
         ...state,
@@ -296,11 +408,13 @@ export function appReducer(state: AppState, action: Action): AppState {
     }
 
     case 'ADD_MANUAL_TASK': {
+      const policy = action.task.manualScheduling?.placementPolicy;
       const task = {
         ...action.task,
         sourceType: 'manual' as const,
         sourceId: action.task.sourceId ?? action.task.id,
-        placementLock: action.task.placementLock ?? (action.task.scheduledStart ? 'time' as const : 'date' as const),
+        placementLock: action.task.placementLock
+          ?? (policy === 'fixedTime' ? 'time' as const : policy === 'fixedDateFlexibleTime' ? 'date' as const : 'none' as const),
         placementStatus: action.task.scheduledStart ? 'scheduled' as const : 'unscheduled' as const,
         updatedAt: action.task.updatedAt ?? action.task.createdAt,
       };
@@ -390,6 +504,11 @@ export function appReducer(state: AppState, action: Action): AppState {
           x.id === task.id ? { ...x, status: 'done' as const, completedAt: new Date().toISOString() } : x,
         );
         newReviews = generateReviewTasks({ ...state, materials }, task, t);
+      } else if (task && progress.amountDone > 0 && task.status !== 'done') {
+        const material = task.materialId ? materials.find((item) => item.id === task.materialId) : undefined;
+        const completedRanges = material?.completedRanges ?? [];
+        const replacements = shrinkTaskAfterProgress(task, material, progress.addedRanges.length > 0 ? completedRanges : [{ start: 1, end: progress.amountDone }]);
+        tasks = tasks.flatMap((item) => item.id === task.id ? replacements : [item]);
       }
 
       const next: AppState = {
@@ -425,7 +544,16 @@ export function appReducer(state: AppState, action: Action): AppState {
       if (task.dueDate && task.dueDate >= t && action.date > task.dueDate) return state;
       const tasks = state.tasks.map((x) =>
         x.id === action.taskId
-          ? { ...x, scheduledDate: action.date, scheduledStart: null, scheduledEnd: null, placementLock: 'date' as const, placementStatus: 'unscheduled' as const, updatedAt: new Date().toISOString() }
+          ? {
+              ...x,
+              scheduledDate: action.date,
+              scheduledStart: null,
+              scheduledEnd: null,
+              placementLock: 'date' as const,
+              placementStatus: 'unscheduled' as const,
+              manualScheduling: dateLockManualScheduling(x, action.date),
+              updatedAt: new Date().toISOString(),
+            }
           : x,
       );
       return generatePlan({ ...state, tasks }, t, `「${task.title}」の日付固定`).state;
@@ -435,7 +563,13 @@ export function appReducer(state: AppState, action: Action): AppState {
       const task = state.tasks.find((item) => item.id === action.taskId);
       if (!task || task.status === 'done' || task.status === 'doing') return state;
       const tasks = state.tasks.map((item) => item.id === action.taskId
-        ? { ...item, placementLock: 'none' as const, generatedBy: item.sourceType === 'manual' ? item.generatedBy : 'auto' as const, updatedAt: new Date().toISOString() }
+        ? {
+            ...item,
+            placementLock: 'none' as const,
+            manualScheduling: unlockManualScheduling(item),
+            generatedBy: item.sourceType === 'manual' ? item.generatedBy : 'auto' as const,
+            updatedAt: new Date().toISOString(),
+          }
         : item);
       return generatePlan({ ...state, tasks }, t, `「${task.title}」のロック解除`).state;
     }
