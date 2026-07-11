@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, CloudRain, Coffee, Pause, Play, SkipForward, Trash2, VolumeX, Wind, X } from 'lucide-react';
-import { useTimer, type TimerTarget } from './TimerContext';
+import { useTimer } from './TimerContext';
 import { useApp } from '../../state/AppContext';
 import { formatHM } from '../../lib/date';
 import { RecordSheet } from '../forms/RecordSheet';
@@ -14,8 +14,7 @@ const NOISE_LABEL: Record<NoiseType, string> = { off: '環境音オフ', white: 
 export function TimerOverlay() {
   const timer = useTimer();
   const { state } = useApp();
-  // 終了時はtimer.targetが消えるため、記録用にスナップショットを保持する
-  const [finished, setFinished] = useState<{ target: TimerTarget; minutes: number } | null>(null);
+  const [recordDismissed, setRecordDismissed] = useState(false);
   const [noise, setNoiseState] = useState<NoiseType>(() => getNoise());
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -45,20 +44,26 @@ export function TimerOverlay() {
     if (!active) setConfirmDiscard(false);
   }, [active]);
 
-  if (finished) {
+  useEffect(() => {
+    if (!timer.pendingRecord) setRecordDismissed(false);
+  }, [timer.pendingRecord]);
+
+  if (timer.target && timer.pendingRecord && !recordDismissed) {
     return (
       <RecordSheet
         open
-        onClose={() => setFinished(null)}
+        // 閉じてもタイマー自体は消さない。次回起動でもこの記録を再開できる。
+        onClose={() => setRecordDismissed(true)}
         preset={{
-          taskId: finished.target.taskId,
-          subjectId: finished.target.subjectId,
-          materialId: finished.target.materialId,
-          minutes: finished.minutes,
-          rangeLabel: finished.target.rangeLabel,
+          taskId: timer.target.taskId,
+          subjectId: timer.target.subjectId,
+          materialId: timer.target.materialId,
+          minutes: timer.finish(),
+          rangeLabel: timer.target.rangeLabel,
           source: 'timer',
+          taskLocator: { sourceId: timer.target.sourceId, range: timer.target.range, type: timer.target.type },
         }}
-        onDone={() => setFinished(null)}
+        onDone={timer.confirmRecordSaved}
       />
     );
   }
@@ -71,10 +76,10 @@ export function TimerOverlay() {
   const handleFinish = () => {
     const target = timer.target;
     if (!target) return;
-    const minutes = timer.finish();
+    timer.finish();
     stopNoise();
     setConfirmDiscard(false);
-    setFinished({ target, minutes });
+    setRecordDismissed(false);
   };
 
   const handleDiscard = () => {
@@ -130,7 +135,13 @@ export function TimerOverlay() {
         </div>
       )}
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22, width: '100%' }}>
+      {timer.pendingRecord ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, width: '100%' }}>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>終了したタイマーの記録が残ってる</div>
+          <div className="muted">保存するか破棄するまで、時間とタスク情報は端末に残るで。</div>
+          <button className="btn btn-primary" onClick={() => setRecordDismissed(false)}>記録を続ける</button>
+        </div>
+      ) : <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22, width: '100%' }}>
         {subject && (
           <span className="subject-chip" style={{ background: `${subject.color}26`, color: subject.color, fontSize: 14, padding: '6px 14px' }}>
             {subject.name}
@@ -189,9 +200,9 @@ export function TimerOverlay() {
           )}
           {NOISE_LABEL[noise]}
         </button>
-      </div>
+      </div>}
 
-      <div style={{ width: '100%', maxWidth: 420, display: 'flex', gap: 12 }}>
+      {!timer.pendingRecord && <div style={{ width: '100%', maxWidth: 420, display: 'flex', gap: 12 }}>
         {timer.running ? (
           <button className="btn btn-secondary btn-block" onClick={timer.pause}>
             <Pause size={15} strokeWidth={2.4} fill="currentColor" aria-hidden="true" /> 一時停止
@@ -204,7 +215,7 @@ export function TimerOverlay() {
         <button className="btn btn-primary btn-block" onClick={handleFinish}>
           <Check size={16} strokeWidth={2.8} aria-hidden="true" /> 終了して記録
         </button>
-      </div>
+      </div>}
     </div>
   );
 }
