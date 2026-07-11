@@ -108,7 +108,7 @@ export function InstallGate() {
           </>
         )}
 
-        <p className="install-footnote">追加は無料で、アプリストアは不要です。データ通信量もかかりません。</p>
+        <p className="install-footnote">追加は無料で、アプリストアは不要です。同期・ログイン時は通信を使います。</p>
       </div>
     </div>
   );
