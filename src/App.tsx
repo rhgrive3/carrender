@@ -110,6 +110,21 @@ function AuthGate({ children }: { children: JSX.Element }) {
   return children;
 }
 
+/** owner が変わる時は AppProvider 以下を丸ごと作り直す。前ユーザーの reducer state を
+ * 新しい owner 名で保存・同期する経路を持たせない。 */
+function AuthenticatedApp() {
+  const { user } = useAuth();
+  return (
+    <AppProvider key={user?.username ?? 'anonymous'}>
+      <TimerProvider>
+        <ToastProvider>
+          <Shell />
+        </ToastProvider>
+      </TimerProvider>
+    </AppProvider>
+  );
+}
+
 export default function App() {
   // standalone起動かどうかはページ読み込み中に変わらないため初回判定のみでよい
   const [gated] = useState(() => shouldShowInstallGate());
@@ -122,13 +137,7 @@ export default function App() {
     <AuthProvider>
       <InstallBanner />
       <AuthGate>
-        <AppProvider>
-          <TimerProvider>
-            <ToastProvider>
-              <Shell />
-            </ToastProvider>
-          </TimerProvider>
-        </AppProvider>
+        <AuthenticatedApp />
       </AuthGate>
     </AuthProvider>
   );
