@@ -9,8 +9,11 @@ export function isPlacedPlanTask(task: StudyTask): boolean {
 
 /** 日別の手動表示順。同順位なら実時刻と優先度で決定的に並べる。 */
 export function compareTaskDisplayOrder(a: StudyTask, b: StudyTask): number {
-  const manual = (a.manualOrder ?? Number.POSITIVE_INFINITY) - (b.manualOrder ?? Number.POSITIVE_INFINITY);
-  if (manual !== 0) return manual;
+  if (a.manualOrder !== undefined || b.manualOrder !== undefined) {
+    if (a.manualOrder === undefined) return 1;
+    if (b.manualOrder === undefined) return -1;
+    if (a.manualOrder !== b.manualOrder) return a.manualOrder - b.manualOrder;
+  }
   return (a.scheduledStart ?? '99:99').localeCompare(b.scheduledStart ?? '99:99')
     || b.priority - a.priority
     || a.id.localeCompare(b.id);
