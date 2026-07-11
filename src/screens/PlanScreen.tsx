@@ -759,6 +759,9 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
               materialId: task.materialId,
               title: task.title,
               rangeLabel: task.rangeLabel,
+              sourceId: task.sourceId,
+              range: task.materialRange ?? (Number.isFinite(task.rangeStart) && Number.isFinite(task.rangeEnd) ? { start: task.rangeStart!, end: task.rangeEnd! } : undefined),
+              type: task.type,
             });
             onClose();
           }}
