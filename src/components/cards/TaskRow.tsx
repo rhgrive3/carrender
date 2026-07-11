@@ -31,6 +31,9 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
       materialId: task.materialId,
       title: task.title,
       rangeLabel: task.rangeLabel,
+      sourceId: task.sourceId,
+      range: task.materialRange ?? (Number.isFinite(task.rangeStart) && Number.isFinite(task.rangeEnd) ? { start: task.rangeStart!, end: task.rangeEnd! } : undefined),
+      type: task.type,
     });
   };
 
