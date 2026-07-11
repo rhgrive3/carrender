@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react';
 import type { PomodoroSettings, TimerMode } from '../../types';
 import { useApp } from '../../state/AppContext';
+import { useAuth } from '../../state/AuthContext';
 import { playChime, vibrate } from '../../lib/audio';
 import { showTimerNotification } from '../../lib/notify';
 
@@ -11,6 +12,9 @@ export interface TimerTarget {
   materialId: string | null;
   title: string;
   rangeLabel: string;
+  sourceId?: string;
+  range?: { start: number; end: number };
+  type?: 'new' | 'review' | 'mockReview' | 'pastExam';
 }
 
 export type TimerPhase = 'work' | 'break' | 'longBreak';
@@ -28,6 +32,10 @@ interface PersistedTimer {
   phaseAccumulatedSec: number;
   /** 完了済み集中フェーズの合計秒(ポモドーロ) */
   workCompletedSec: number;
+  /** 終了済みで、まだ記録シートの保存を確定していない時間(分) */
+  pendingRecordMinutes?: number;
+  /** 共用端末で別アカウントへ復元しないための所有者 */
+  owner: string;
 }
 
 interface TimerContextValue {
@@ -43,6 +51,7 @@ interface TimerContextValue {
   phaseDurationSec: number | null;
   /** 実勉強時間(休憩を除く)の秒数 */
   workSec: number;
+  pendingRecord: boolean;
   pomodoro: PomodoroSettings;
   start: (target: TimerTarget, mode?: TimerMode) => void;
   setMode: (mode: TimerMode) => void;
@@ -52,6 +61,7 @@ interface TimerContextValue {
   skipBreak: () => void;
   /** 終了して実勉強分数を返す */
   finish: () => number;
+  confirmRecordSaved: () => void;
   discard: () => void;
 }
 
@@ -61,12 +71,12 @@ const TimerCtx = createContext<TimerContextValue | null>(null);
 /** アプリを閉じたままフェーズ境界を大きく超えていた場合は境界で自動一時停止する猶予(秒) */
 const AUTO_PAUSE_GRACE_SEC = 90;
 
-function loadPersisted(): PersistedTimer | null {
+function loadPersisted(owner: string | null): PersistedTimer | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const p = JSON.parse(raw) as Partial<PersistedTimer> & { accumulatedSec?: number };
-    if (!p.target) return null;
+    if (!p.target || !owner || p.owner !== owner) return null;
     // 旧形式(ストップウォッチのみ)からの移行
     return {
       target: p.target,
@@ -76,6 +86,8 @@ function loadPersisted(): PersistedTimer | null {
       cycle: p.cycle ?? 0,
       phaseAccumulatedSec: p.phaseAccumulatedSec ?? p.accumulatedSec ?? 0,
       workCompletedSec: p.workCompletedSec ?? 0,
+      pendingRecordMinutes: p.pendingRecordMinutes,
+      owner: p.owner,
     };
   } catch {
     return null;
@@ -131,10 +143,11 @@ function advancePhase(p: PersistedTimer, pomo: PomodoroSettings, now: number): P
 
 export function TimerProvider({ children }: { children: ReactNode }) {
   const { state } = useApp();
+  const { user } = useAuth();
   const timerSettings = state.settings.timer;
   const pomo = timerSettings.pomodoro;
 
-  const [persisted, setPersisted] = useState<PersistedTimer | null>(() => loadPersisted());
+  const [persisted, setPersisted] = useState<PersistedTimer | null>(() => loadPersisted(user?.username ?? null));
   const [now, setNow] = useState(() => Date.now());
   const persistedRef = useRef(persisted);
   persistedRef.current = persisted;
@@ -199,6 +212,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       cycle: 0,
       phaseAccumulatedSec: 0,
       workCompletedSec: 0,
+      owner: user?.username ?? '',
     });
   }, []);
 
@@ -257,17 +271,20 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const finish = useCallback((): number => {
-    const p = persistedRef.current ?? loadPersisted();
+    const p = persistedRef.current ?? loadPersisted(user?.username ?? null);
     if (!p) return 0;
+    if (p.pendingRecordMinutes !== undefined) return p.pendingRecordMinutes;
     const workSec = workSecOf(p, Date.now(), pomoRef.current);
+    const minutes = Math.max(1, Math.round(workSec / 60));
+    const pending = { ...p, runningSince: null, pendingRecordMinutes: minutes };
+    persistedRef.current = pending;
+    setPersisted(pending);
+    return minutes;
+  }, [user?.username]);
+
+  const confirmRecordSaved = useCallback(() => {
     persistedRef.current = null;
     setPersisted(null);
-    try {
-      localStorage.removeItem(KEY);
-    } catch {
-      // 保存失敗は致命的でない
-    }
-    return Math.max(1, Math.round(workSec / 60));
   }, []);
 
   const discard = useCallback(() => {
@@ -295,6 +312,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       phaseElapsedSec,
       phaseDurationSec,
       workSec,
+      pendingRecord: persisted?.pendingRecordMinutes !== undefined,
       pomodoro: pomo,
       start,
       setMode,
@@ -302,9 +320,10 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       resume,
       skipBreak,
       finish,
+      confirmRecordSaved,
       discard,
     }),
-    [persisted, phaseElapsedSec, phaseDurationSec, workSec, pomo, timerSettings.defaultMode, start, setMode, pause, resume, skipBreak, finish, discard],
+    [persisted, phaseElapsedSec, phaseDurationSec, workSec, pomo, timerSettings.defaultMode, start, setMode, pause, resume, skipBreak, finish, confirmRecordSaved, discard],
   );
 
   return <TimerCtx.Provider value={value}>{children}</TimerCtx.Provider>;
