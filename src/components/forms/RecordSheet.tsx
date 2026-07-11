@@ -14,6 +14,7 @@ export interface RecordPreset {
   minutes: number;
   rangeLabel: string;
   source: 'timer' | 'manual';
+  taskLocator?: { sourceId?: string; range?: { start: number; end: number }; type?: 'new' | 'review' | 'mockReview' | 'pastExam' };
 }
 
 interface RecordSheetProps {
@@ -80,6 +81,7 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
         source: preset?.source ?? 'manual',
         rangeLabel: preset?.rangeLabel ?? material?.name ?? '',
         completedTask: !!preset?.taskId && completed,
+        taskLocator: preset?.taskLocator,
       },
     });
     toast('記録を保存しました 🎉');
