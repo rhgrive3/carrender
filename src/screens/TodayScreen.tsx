@@ -62,7 +62,7 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
   const remainingBudget = Math.max(0, todayBudget - plannedMinutes);
   const todaySlots = subtractBusySlots(futureFreeSlotsOn(state, t, new Date()), taskBusySlots(todayTasks.filter((task) => task.status !== 'done')));
   const progressDebt = state.lastScheduleResult?.progressDeficits.reduce((sum, item) => sum + item.minutes, 0) ?? 0;
-  const conflictCount = state.tasks.filter((task) => task.placementStatus === 'conflict').length;
+  const conflictCount = state.tasks.filter((task) => task.scheduledDate === t && task.placementStatus === 'conflict').length;
   const unscheduledCount = state.lastScheduleResult?.unscheduledWork.length ?? 0;
 
   return (
@@ -192,6 +192,9 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
                     materialId: topTask.materialId,
                     title: topTask.title,
                     rangeLabel: topTask.rangeLabel,
+                    sourceId: topTask.sourceId,
+                    range: topTask.materialRange ?? (Number.isFinite(topTask.rangeStart) && Number.isFinite(topTask.rangeEnd) ? { start: topTask.rangeStart!, end: topTask.rangeEnd! } : undefined),
+                    type: topTask.type,
                   })
                 }
               >

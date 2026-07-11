@@ -18,7 +18,6 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         display: 'standalone',
-        orientation: 'portrait',
         theme_color: '#0b0f1a',
         background_color: '#0b0f1a',
         icons: [

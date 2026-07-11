@@ -5,6 +5,8 @@ import { toISODate } from './date';
 const KEY = 'studycommander_state_v1';
 const OWNER_KEY = 'studycommander_owner_v1';
 const BACKUP_KEY = 'studycommander_state_migration_backup';
+const TIMER_KEY = 'studycommander_timer_v1';
+const UPDATED_KEY = 'studycommander_state_updated_at_v1';
 /**
  * v3: placementLockをマイグレーション時に明示化(スケジューラーは実行時に
  * generatedByからロックを推測しない)。完了済みタスクは未来容量を予約しない。
@@ -40,6 +42,9 @@ export function loadState(): AppState | null {
       if (!migration.ok) {
         localStorage.setItem(BACKUP_KEY, raw);
         console.error('一部の保存データに移行エラーがあります', migration.errors);
+        // 正規化済みの壊れた状態を通常保存すると、次回には元データを
+        // 復旧できなくなる。バックアップだけ残して通常起動を止める。
+        return null;
       }
       return migration.state;
     } catch (error) {
@@ -52,6 +57,16 @@ export function loadState(): AppState | null {
   }
 }
 
+/** local cache が実際に最後に確定保存された時刻。クラウド起動同期の世代比較に使う。 */
+export function getLocalStateUpdatedAt(): string | null {
+  try { return localStorage.getItem(UPDATED_KEY); } catch { return null; }
+}
+
+function saveSerialized(state: AppState): void {
+  localStorage.setItem(KEY, JSON.stringify(state));
+  localStorage.setItem(UPDATED_KEY, new Date().toISOString());
+}
+
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 書き込みはデバウンスして負荷を抑える */
@@ -59,7 +74,7 @@ export function saveState(state: AppState): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(state));
+      saveSerialized(state);
     } catch (e) {
       console.error('保存に失敗しました', e);
     }
@@ -70,7 +85,7 @@ export function saveStateNow(state: AppState): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = null;
   try {
-    localStorage.setItem(KEY, JSON.stringify(state));
+    saveSerialized(state);
   } catch (e) {
     console.error('保存に失敗しました', e);
   }
@@ -80,6 +95,7 @@ export function clearState(): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = null;
   localStorage.removeItem(KEY);
+  localStorage.removeItem(UPDATED_KEY);
 }
 
 /** ログアウト時: 端末に残る学習データキャッシュと持ち主情報を消す(共用端末での漏えい防止) */
@@ -87,7 +103,10 @@ export function clearOwnedState(): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = null;
   localStorage.removeItem(KEY);
+  localStorage.removeItem(UPDATED_KEY);
   localStorage.removeItem(OWNER_KEY);
+  localStorage.removeItem(TIMER_KEY);
+  localStorage.removeItem(BACKUP_KEY);
 }
 
 export function exportJSON(state: AppState): string {
@@ -97,7 +116,9 @@ export function exportJSON(state: AppState): string {
 /** 学習ログをExcel/スプレッドシートで開けるCSVに変換する(BOM付きUTF-8) */
 export function exportSessionsCSV(state: AppState): string {
   const esc = (v: string | number | null) => {
-    const s = v === null ? '' : String(v);
+    let s = v === null ? '' : String(v);
+    // Excel等が先頭記号を数式として評価するCSV注入を防ぐ。
+    if (/^[=+\-@]/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const header = ['日付', '開始時刻', '科目', '教材', '学習時間(分)', '進んだ量', '単位', '集中度', '記録方法', 'メモ'];

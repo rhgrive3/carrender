@@ -375,7 +375,14 @@ export function generatePlan(
   const unscheduledTasks = state.tasks
     .filter((task) => unscheduledIds.has(task.id) && !conflictIds.has(task.id))
     .map((task) => ({ ...task, scheduledStart: null, scheduledEnd: null, placementStatus: 'unscheduled' as const }));
-  const merged = [...history, ...schedule.scheduledTasks, ...conflicts, ...unscheduledTasks];
+  // 具体計画期間の外にある日付固定・期限固定の手動タスクは、内部の
+  // feasibility calendar には存在しても scheduledTasks へ変換されない。
+  // 次回の再計算まで state から消さず、そのまま保持する。
+  const futureManuals = state.tasks.filter((task) =>
+    task.status === 'planned'
+    && task.scheduledDate > schedule.capacityReport.horizonEnd
+    && Boolean(task.manualScheduling));
+  const merged = [...history, ...schedule.scheduledTasks, ...conflicts, ...unscheduledTasks, ...futureManuals];
   const unique = [...new Map(merged.map((task) => [task.id, task])).values()];
   return {
     state: {

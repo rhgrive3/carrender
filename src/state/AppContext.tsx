@@ -13,7 +13,7 @@ import type {
   Subject,
   UserGoal,
 } from '../types';
-import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, normalizeState, STATE_VERSION } from '../lib/storage';
+import { loadState, saveState, saveStateNow, clearState, getLocalStateUpdatedAt, getStateOwner, setStateOwner, normalizeState, STATE_VERSION } from '../lib/storage';
 import { generatePlan, normalizeUnitRanges, remainingUnitRanges, sumRangeLengths, updateMinutesPerUnitEstimate } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
 import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
@@ -39,6 +39,8 @@ export interface SessionInput {
   source: 'timer' | 'manual';
   rangeLabel: string;
   completedTask: boolean; // タスクを完了扱いにするか
+  /** 再計算で表示用IDが変わった時に、開始した作業を再解決するための手掛かり */
+  taskLocator?: { sourceId?: string; range?: { start: number; end: number }; type?: StudyTask['type'] };
 }
 
 export interface OnboardingInput {
@@ -162,7 +164,7 @@ export function resolveSessionProgress(state: AppState, input: SessionInput) {
     material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []),
     material.totalAmount,
   );
-  const task = input.taskId ? state.tasks.find((item) => item.id === input.taskId) : undefined;
+  const task = findCurrentTask(state, input);
   const explicit = task?.materialRange
     ?? (task?.rangeStart !== null && task?.rangeStart !== undefined && task.rangeEnd !== null
       ? { start: task.rangeStart, end: task.rangeEnd }
@@ -176,9 +178,27 @@ export function resolveSessionProgress(state: AppState, input: SessionInput) {
   return { amountDone, addedRanges: takeFirstRanges(eligible, amountDone) };
 }
 
+/** タイマー開始後の再計算でIDが変わっても、同一の教材範囲・作業系列へ記録する。 */
+export function findCurrentTask(state: AppState, input: Pick<SessionInput, 'taskId' | 'taskLocator' | 'materialId'>): StudyTask | undefined {
+  const exact = input.taskId ? state.tasks.find((item) => item.id === input.taskId) : undefined;
+  if (exact) return exact;
+  const locator = input.taskLocator;
+  if (!locator?.sourceId) return undefined;
+  return state.tasks.find((task) => {
+    if (task.status === 'done' || task.sourceId !== locator.sourceId || task.materialId !== input.materialId) return false;
+    if (locator.type && task.type !== locator.type) return false;
+    if (!locator.range) return true;
+    const range = task.materialRange
+      ?? (Number.isFinite(task.rangeStart) && Number.isFinite(task.rangeEnd) ? { start: task.rangeStart!, end: task.rangeEnd! } : undefined);
+    return range?.start === locator.range.start && range.end === locator.range.end;
+  });
+}
+
 function deferTask(task: StudyTask, date: ISODate): StudyTask {
   let manualScheduling = task.manualScheduling;
-  let placementLock: StudyTask['placementLock'] = 'none';
+  // 延期は「明日より前へ戻さない」という明示的な操作。自動教材・復習も
+  // 日付ロックにして、全体再計算で今日へ吸い戻されないようにする。
+  let placementLock: StudyTask['placementLock'] = 'date';
   if (manualScheduling) {
     const canStayFlexible = manualScheduling.placementPolicy === 'flexibleBeforeDeadline'
       && !!manualScheduling.deadline
@@ -191,7 +211,7 @@ function deferTask(task: StudyTask, date: ISODate): StudyTask {
           fixedDate: date,
           fixedStartTime: undefined,
         };
-    placementLock = canStayFlexible ? 'none' : 'date';
+    placementLock = 'date';
   }
   return {
     ...task,
@@ -459,9 +479,10 @@ export function appReducer(state: AppState, action: Action): AppState {
     case 'RECORD_SESSION': {
       const inp = action.input;
       const progress = resolveSessionProgress(state, inp);
+      const currentTask = findCurrentTask(state, inp);
       const session: StudySession = {
         id: genId('sess'),
-        taskId: inp.taskId,
+        taskId: currentTask?.id ?? inp.taskId,
         subjectId: inp.subjectId,
         materialId: inp.materialId,
         date: t,
@@ -498,7 +519,7 @@ export function appReducer(state: AppState, action: Action): AppState {
       // タスク完了処理 + 復習タスク生成
       let tasks = state.tasks;
       let newReviews: StudyTask[] = [];
-      const task = inp.taskId ? state.tasks.find((x) => x.id === inp.taskId) : undefined;
+      const task = currentTask;
       if (task && inp.completedTask && task.status !== 'done') {
         tasks = tasks.map((x) =>
           x.id === task.id ? { ...x, status: 'done' as const, completedAt: new Date().toISOString() } : x,
@@ -698,6 +719,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const stateRef = useRef(state);
   stateRef.current = state;
+  const skipInitialLocalWrite = useRef(true);
 
   const [syncReady, setSyncReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
@@ -706,9 +728,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const remoteUpdatedAt = useRef<string | null | undefined>(undefined);
   const pushChain = useRef<Promise<void>>(Promise.resolve());
   const syncConflict = useRef(false);
+  const remoteKnown = useRef(false);
+  const [syncAttempt, setSyncAttempt] = useState(0);
 
   useEffect(() => {
     if (!owner) return;
+    // 起動直後の reducer state を「今更新したローカル」と誤認しない。
+    if (skipInitialLocalWrite.current) {
+      skipInitialLocalWrite.current = false;
+      setStateOwner(owner);
+      return;
+    }
     saveState(state);
     setStateOwner(owner);
   }, [state, owner]);
@@ -745,6 +775,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!owner) return;
     let cancelled = false;
     remoteUpdatedAt.current = undefined;
+    remoteKnown.current = false;
     pushChain.current = Promise.resolve();
     syncConflict.current = false;
     setSyncReady(false);
@@ -754,10 +785,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const res = await apiGetData();
         if (cancelled) return;
         remoteUpdatedAt.current = res.updatedAt;
-        if (res.appState) {
+        remoteKnown.current = true;
+        const localUpdatedAt = getLocalStateUpdatedAt();
+        const localIsNewer = Boolean(localUpdatedAt && res.updatedAt && localUpdatedAt > res.updatedAt);
+        if (res.appState && !localIsNewer) {
           dispatch({ type: 'IMPORT_STATE', state: normalizeState(res.appState as AppState) });
         } else if (stateRef.current.onboarded) {
-          const saved = await apiPutData(stateRef.current, null);
+          const saved = await apiPutData(stateRef.current, res.appState ? res.updatedAt : null);
           remoteUpdatedAt.current = saved.updatedAt;
         }
         if (!cancelled) setSyncStatus('synced');
@@ -778,11 +812,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [owner]);
+  }, [owner, syncAttempt]);
 
   const pushToD1 = useCallback((nextState: AppState) => {
     pushChain.current = pushChain.current.then(async () => {
       if (syncConflict.current) return;
+      if (!remoteKnown.current) {
+        // GET失敗後にバージョンなしPUTで新しいD1を消さない。
+        pendingPush.current = true;
+        return;
+      }
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         pendingPush.current = true;
         setSyncStatus('offline');
@@ -808,6 +847,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return pushChain.current;
   }, []);
 
+  // localStorageだけで終わらせず、終了直前にも既知世代への条件付きPUTを発行する。
+  // 完了直後にアプリを閉じた場合でも、次回起動時のD1巻き戻しを最小化する。
+  useEffect(() => {
+    const flushRemote = () => {
+      if (remoteKnown.current && syncReady) void pushToD1(stateRef.current);
+    };
+    window.addEventListener('pagehide', flushRemote);
+    return () => window.removeEventListener('pagehide', flushRemote);
+  }, [pushToD1, syncReady]);
+
   // 状態変化をD1へデバウンス反映(オフライン時はlocalStorageのみに保存し、オンライン復帰後に再送)
   useEffect(() => {
     if (!syncReady || !owner) return;
@@ -822,7 +871,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onOnline = () => {
-      if (pendingPush.current) pushToD1(stateRef.current);
+      if (!remoteKnown.current) setSyncAttempt((attempt) => attempt + 1);
+      else if (pendingPush.current) pushToD1(stateRef.current);
     };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);

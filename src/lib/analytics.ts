@@ -63,7 +63,7 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
   const relevant = tasks7d.filter(isPlacedPlanTask);
   const planned7d = relevant.reduce((sum, t) => sum + t.estimatedMinutes, 0);
   const done7d = relevant.filter((t) => t.status === 'done').reduce((sum, t) => sum + t.estimatedMinutes, 0);
-  const planAchievementRate7d = planned7d > 0 ? Math.min(1, done7d / planned7d) : 1;
+  const planAchievementRate7d = planned7d > 0 ? Math.min(1, done7d / planned7d) : 0;
 
   // --- 科目別統計 (直近14日) ---
   const from14 = addDays(ref, -13);
@@ -79,7 +79,7 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
       subjectId: subj.id,
       plannedMinutes: planned,
       actualMinutes: actual,
-      completionRate: planned > 0 ? Math.min(1, done / planned) : 1,
+      completionRate: planned > 0 ? Math.min(1, done / planned) : 0,
     };
   });
 

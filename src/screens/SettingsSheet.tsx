@@ -162,7 +162,6 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       availabilityWindows: dayException.useWindow ? [{ start: dayException.start, end: dayException.end }] : null,
     };
     dispatch({ type: 'UPDATE_DAY_PLAN', dayPlan });
-    dispatch({ type: 'RESCHEDULE_FROM', fromDate: dayException.date, reason: `${formatDateShort(dayException.date)}の例外設定` });
     toast('日別例外を保存して再計算しました');
   };
 
