@@ -1,0 +1,1 @@
+define(function(){return{STORAGE_OBJECT_STATUS:{STAGED:1,INTO_STORAGE:2,SHOPPING:3,BAG_CELL:4},STORAGE_OBJECT_TYPE:{STORAGE:"storage",WEAPON:"weapon"},TEXT_STYLE:{DEFAULT:{fontFamily:getComputedStyle(document.body).fontFamily,fontSize:12,color:"#f2eee2",shadow:{offsetX:0,offsetY:2,color:"#150f0f"}}}}});

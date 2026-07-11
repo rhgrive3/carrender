@@ -1,0 +1,1 @@
+define(["event/revival016/view/minigame/constant/battle"],e=>class{constructor(a){let t=new createjs.Container;a.parent.addChild(t),t.scaleX=e.BAG_SCALE,t.scaleY=e.BAG_SCALE,t.x=a.x,t.y=a.y,a.cells.forEach((c,l)=>{c.forEach((c,n)=>{if(+c){let c=new createjs.Bitmap(a.src);t.addChild(c),c.x=n*e.BAG_CELL_SPACE,c.y=l*e.BAG_CELL_SPACE}})})}});

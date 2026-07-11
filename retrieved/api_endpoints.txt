@@ -1,0 +1,14 @@
+revival016/rest/minigame/battle_scenario
+revival016/rest/minigame/buy_classup_item
+revival016/rest/minigame/create_new_game
+revival016/rest/minigame/execute_mixed_item_fix
+revival016/rest/minigame/filter_to_item_library
+revival016/rest/minigame/item_detail_info
+revival016/rest/minigame/open_mixed_item_library
+revival016/rest/minigame/reroll_shop_lineup
+revival016/rest/minigame/save_battle_deck
+revival016/rest/minigame/save_deck
+revival016/rest/minigame/save_deck_space
+revival016/rest/minigame/sell_item
+revival016/rest/minigame/update_battle_result_end
+revival016/rest/minigame/update_battle_scenario_end

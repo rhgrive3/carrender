@@ -1,0 +1,12 @@
+event/revival016/view/minigame/battle/bag.js	340 bytes
+event/revival016/view/minigame/battle/item.js	6081 bytes
+event/revival016/view/minigame/battle/util.js	484 bytes
+event/revival016/view/minigame/constant/battle.js	1945 bytes
+event/revival016/view/minigame/constant/object_status.js	304 bytes
+event/revival016/view/minigame/scenes/battle.js	15689 bytes
+event/revival016/view/minigame/scenes/start.js	3410 bytes
+event/revival016/view/minigame/scenes/storage.js	75121 bytes
+event/revival016/view/minigame/subview/item_detail_window.js	4679 bytes
+event/revival016/view/minigame/subview/storage_menu.js	13858 bytes
+event/revival016/view/minigame/util/common.js	2793 bytes
+util/cjs_weapon.js	2966 bytes
