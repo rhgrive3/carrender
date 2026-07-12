@@ -2,16 +2,16 @@
   "form": {
     "status": "200",
     "bytes": 79,
-    "preview": "{\"auth_status\":\"require_auth\",\"state\":\"mobage-connect_6a5332a34fcd17.44261488\"}"
+    "preview": "{\"auth_status\":\"require_auth\",\"state\":\"mobage-connect_6a533324569e51.76080829\"}"
   },
   "json": {
     "status": "200",
     "bytes": 79,
-    "preview": "{\"auth_status\":\"require_auth\",\"state\":\"mobage-connect_6a5332a3a871b5.87307768\"}"
+    "preview": "{\"auth_status\":\"require_auth\",\"state\":\"mobage-connect_6a533324df9ba4.25093383\"}"
   },
   "get": {
     "status": "200",
     "bytes": 79,
-    "preview": "{\"auth_status\":\"require_auth\",\"state\":\"mobage-connect_6a5332a42fe5a9.51088670\"}"
+    "preview": "{\"auth_status\":\"require_auth\",\"state\":\"mobage-connect_6a5333256bc058.19750753\"}"
   }
 }

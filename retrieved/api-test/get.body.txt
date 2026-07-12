@@ -1,1 +1,1 @@
-{"auth_status":"require_auth","state":"mobage-connect_6a5332a42fe5a9.51088670"}
+{"auth_status":"require_auth","state":"mobage-connect_6a5333256bc058.19750753"}
