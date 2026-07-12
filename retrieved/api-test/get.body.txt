@@ -1,0 +1,1 @@
+{"auth_status":"require_auth","state":"mobage-connect_6a530ef560f948.26888243"}

@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+Server: nginx
+Date: Sun, 12 Jul 2026 03:50:13 GMT
+Content-Type: text/html; charset=UTF-8
+Transfer-Encoding: chunked
+X-Cnection: close
+Vary: Accept-Encoding
+Set-Cookie: access_gbtk=b49137fdd716b1038d6e00c1ffbba6310443577f; path=/; domain=game.granbluefantasy.jp
+Set-Cookie: access_gbtk=b49137fdd716b1038d6e00c1ffbba6310443577f; path=/
+Set-Cookie: midship=S%3Adae50BniRV6srLqfTbhiyw1HlbCtMVAPJGPOlQIY1advWBjTPH_hXNgnWn8PfewiWGsgIhumnlbIpEmpN43RK0hA5mqH3YBqf4m0by41haiGMRxrhOfE_fYDiot38xkN0Mj6che3hN2v6Vr9dpAkQctnUZL0er8DlFZaKV9UPKF6seGgtYqca7uYhR-_kIWMwMbdeMVI5fx_oAqUSIpDD9ol7yvE0iCf509AEDyH088Fmw%3D%3D; expires=Tue, 11-Aug-2026 03:50:13 GMT; Max-Age=2592000; path=/
+
