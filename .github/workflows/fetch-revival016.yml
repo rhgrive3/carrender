@@ -21,11 +21,11 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf retrieved/api-test
-          mkdir -p retrieved/shared retrieved/api-test
+          mkdir -p retrieved/shared/model retrieved/shared/util retrieved/api-test
           ASSET='https://prd-game-a-granbluefantasy.akamaized.net/assets/1783577434/js'
           UA='Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
           fetch_js() {
-            local rel="$1" out="retrieved/shared/$2"
+            local rel="$1" out="retrieved/shared/$1"
             mkdir -p "$(dirname "$out")"
             curl -L --fail-with-body --retry 3 --retry-delay 2 \
               -A "$UA" -H 'Accept: */*' \
@@ -33,9 +33,10 @@ jobs:
               -H 'Accept-Language: ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7' \
               "$ASSET/$rel" -o "$out"
           }
-          fetch_js 'util/request.js' 'util/request.js'
-          fetch_js 'util/ajax.js' 'util/ajax.js'
-          fetch_js 'view/content.js' 'view/content.js'
+          fetch_js 'util/request.js'
+          fetch_js 'util/ajax.js'
+          fetch_js 'model/token-data.js'
+          fetch_js 'model/data.js'
 
           API='https://game.granbluefantasy.jp/revival016/rest/minigame/filter_to_item_library'
           common=( -L -sS -A "$UA" -H 'Accept: application/json, text/javascript, */*; q=0.01' -H 'Referer: https://game.granbluefantasy.jp/#event/revival016/minigame' -H 'Origin: https://game.granbluefantasy.jp' -H 'X-Requested-With: XMLHttpRequest' )
@@ -43,12 +44,14 @@ jobs:
           curl "${common[@]}" -D retrieved/api-test/form.headers.txt \
             -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
             --data 'job_group_id=0&item_category_list%5B%5D=&item_rarity_list%5B%5D=' \
+            "$API" \
             -o retrieved/api-test/form.body.txt \
             -w '%{http_code}\n' > retrieved/api-test/form.status.txt || true
 
           curl "${common[@]}" -D retrieved/api-test/json.headers.txt \
             -H 'Content-Type: application/json' \
             --data '{"job_group_id":0,"item_category_list":[],"item_rarity_list":[]}' \
+            "$API" \
             -o retrieved/api-test/json.body.txt \
             -w '%{http_code}\n' > retrieved/api-test/json.status.txt || true
 
@@ -65,10 +68,9 @@ jobs:
           for mode in ('form','json','get'):
               status=(root/f'{mode}.status.txt').read_text(errors='replace').strip() if (root/f'{mode}.status.txt').exists() else None
               body=(root/f'{mode}.body.txt').read_text(errors='replace') if (root/f'{mode}.body.txt').exists() else ''
-              # redact token-looking long strings before committing public diagnostics
               body=re.sub(r'[A-Za-z0-9_\-]{80,}', '[REDACTED_LONG_TOKEN]', body)
               (root/f'{mode}.body.txt').write_text(body)
-              summary[mode]={'status':status,'bytes':len(body.encode()),'preview':body[:500]}
+              summary[mode]={'status':status,'bytes':len(body.encode()),'preview':body[:1000]}
           (root/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
           PY
       - name: Commit fetched diagnostics
@@ -77,5 +79,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add retrieved .github/workflows/fetch-revival016.yml
-          git commit -m 'Test revival016 read-only API access' || exit 0
+          git commit -m 'Retest revival016 read-only API access' || exit 0
           git push origin HEAD:tmp-fetch-revival016-20260712
