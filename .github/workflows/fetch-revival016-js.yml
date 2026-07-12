@@ -15,52 +15,200 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: tmp-fetch-revival016-20260712
-      - name: Fetch weapon-analysis JS with browser headers
+
+      - name: Fetch all minigame JS
         shell: bash
         run: |
           set -euo pipefail
           base='https://prd-game-a-granbluefantasy.akamaized.net/assets/1783577434/js'
           ua='Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-          mkdir -p retrieved/modules
+          mkdir -p retrieved/all-modules
           cat > /tmp/paths.txt <<'EOF'
+          event/revival016/router/revival016-router.js
+          event/revival016/view/minigame/index.js
+          event/revival016/view/minigame/constant/scene_name.js
+          event/revival016/view/minigame/main.js
+          event/revival016/view/minigame/util/scene_factory.js
           event/revival016/view/minigame/scenes/start.js
           event/revival016/view/minigame/scenes/storage.js
           event/revival016/view/minigame/scenes/battle.js
+          event/revival016/view/minigame/constant/start.js
+          event/revival016/view/minigame/util/start.js
+          event/revival016/view/minigame/subview/minigame_help.js
           event/revival016/view/minigame/util/common.js
           event/revival016/view/minigame/constant/object_status.js
           event/revival016/view/minigame/subview/storage_menu.js
           event/revival016/view/minigame/subview/item_detail_window.js
+          event/revival016/view/minigame/util/cjs_storage_effect.js
           event/revival016/view/minigame/constant/battle.js
+          event/revival016/view/minigame/constant/job_motion_label.js
+          event/revival016/view/minigame/battle/cjs_canvas_view.js
+          event/revival016/view/minigame/battle/pc_status_gauges.js
+          event/revival016/view/minigame/subview/minigame_result.js
+          event/revival016/view/minigame/battle/cjs_stage.js
+          event/revival016/view/minigame/battle/cjs_no_stage.js
+          event/revival016/view/minigame/battle/player_character_cjs_view.js
+          event/revival016/view/minigame/battle/buff_icon_list.js
           event/revival016/view/minigame/battle/bag.js
           event/revival016/view/minigame/battle/item.js
+          event/revival016/view/minigame/battle/cjs_special.js
+          event/revival016/view/minigame/battle/cjs_sp_cutin.js
           event/revival016/view/minigame/battle/util.js
+          model/manifest/april2025_reroll.js
+          model/manifest/april2025_sierokarte.js
+          model/manifest/april2025_mix.js
+          model/data.js
+          model/token-data.js
+          util/request.js
+          util/ajax.js
           util/cjs_weapon.js
+          view/content.js
           EOF
-          : > retrieved/weapon_modules.bundle.txt
+          : > retrieved/all_modules.bundle.txt
+          : > retrieved/fetch_failures.tsv
           while IFS= read -r path; do
             [ -n "$path" ] || continue
-            out="retrieved/modules/$path"
+            out="retrieved/all-modules/$path"
             mkdir -p "$(dirname "$out")"
-            curl -L --fail-with-body --retry 3 --retry-delay 2 \
+            if curl -L --fail-with-body --retry 3 --retry-delay 1 \
               -A "$ua" \
               -H 'Accept: */*' \
               -H 'Referer: https://game.granbluefantasy.jp/' \
               -H 'Accept-Language: ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7' \
-              "$base/$path" \
-              -o "$out"
-            test -s "$out"
-            printf '\n===== FILE: %s =====\n' "$path" >> retrieved/weapon_modules.bundle.txt
-            cat "$out" >> retrieved/weapon_modules.bundle.txt
-            printf '\n' >> retrieved/weapon_modules.bundle.txt
+              "$base/$path" -o "$out"; then
+              printf '\n===== FILE: %s =====\n' "$path" >> retrieved/all_modules.bundle.txt
+              cat "$out" >> retrieved/all_modules.bundle.txt
+              printf '\n' >> retrieved/all_modules.bundle.txt
+            else
+              printf '%s\n' "$path" >> retrieved/fetch_failures.tsv
+              rm -f "$out"
+            fi
           done < /tmp/paths.txt
-          grep -RhoE '[A-Za-z0-9_/-]*revival016/rest/minigame/[A-Za-z0-9_/?=&.-]+' retrieved/modules \
-            | sort -u > retrieved/api_endpoints.txt || true
-          find retrieved/modules -type f -printf '%P\t%s bytes\n' | sort > retrieved/files.tsv
+          find retrieved/all-modules -type f -printf '%P\t%s\n' | sort > retrieved/all_files.tsv
+
+      - name: Extract static facts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          root = Path('retrieved/all-modules')
+          files = sorted(root.rglob('*.js'))
+          id_rows = []
+          jp_rows = []
+          deps = set()
+          endpoints = set()
+          field_names = set()
+
+          for path in files:
+              text = path.read_text('utf-8', errors='replace')
+              rel = path.relative_to(root).as_posix()
+              for match in re.finditer(r'(?<!\d)([1-9]\d{5})(?!\d)', text):
+                  start = max(0, match.start() - 100)
+                  end = min(len(text), match.end() + 100)
+                  id_rows.append({
+                      'id': int(match.group(1)),
+                      'file': rel,
+                      'context': re.sub(r'\s+', ' ', text[start:end])
+                  })
+              for endpoint in re.findall(r'revival016/rest/minigame/[A-Za-z0-9_/?=&.\-]+', text):
+                  endpoints.add(endpoint)
+              define = re.search(r'define\(\[([^\]]*)\]', text)
+              if define:
+                  deps.update(re.findall(r'["\']([^"\']+)["\']', define.group(1)))
+              for field in re.findall(r'\.([a-z][a-z0-9_]{2,40})\b', text):
+                  if any(k in field for k in ('item','attack','damage','stamina','hit','recast','buff','debuff','effect','recipe','rarity','category','skill','evolution','hp','special')):
+                      field_names.add(field)
+              for s in re.findall(r'["\']([^"\'\n]*[ぁ-んァ-ヶ一-龠][^"\'\n]*)["\']', text):
+                  if any(k in s for k in ['攻撃','ダメージ','HP','スタミナ','命中','確率','回復','防御','バフ','デバフ','奥義','特殊','アイテム','武器','合成','レシピ']):
+                      jp_rows.append({'file': rel, 'text': s})
+
+          # Dedupe while retaining contexts.
+          seen = set(); dedup_ids = []
+          for row in id_rows:
+              key = (row['id'], row['file'], row['context'])
+              if key not in seen:
+                  seen.add(key); dedup_ids.append(row)
+          seen = set(); dedup_jp = []
+          for row in jp_rows:
+              key = (row['file'], row['text'])
+              if key not in seen:
+                  seen.add(key); dedup_jp.append(row)
+
+          Path('retrieved/static_numeric_ids.json').write_text(json.dumps(dedup_ids, ensure_ascii=False, indent=2), 'utf-8')
+          Path('retrieved/static_japanese_strings.json').write_text(json.dumps(dedup_jp, ensure_ascii=False, indent=2), 'utf-8')
+          Path('retrieved/api_endpoints_all.txt').write_text('\n'.join(sorted(endpoints)) + '\n', 'utf-8')
+          Path('retrieved/dependencies_all.txt').write_text('\n'.join(sorted(deps)) + '\n', 'utf-8')
+          Path('retrieved/weapon_field_names.txt').write_text('\n'.join(sorted(field_names)) + '\n', 'utf-8')
+          PY
+
+      - name: Probe public item image IDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          imgbase='https://prd-game-a-granbluefantasy.akamaized.net/assets/img/sp/event/revival016/minigame/assets/item/base'
+          ua='Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+          mkdir -p retrieved/item-images/base
+          : > /tmp/candidates.txt
+          for prefix in 100 200 300; do
+            for n in $(seq 1 250); do
+              printf '%d%03d\n' "$prefix" "$n" >> /tmp/candidates.txt
+            done
+          done
+          export imgbase ua
+          cat /tmp/candidates.txt | xargs -P 20 -I{} bash -c '
+            id="$1"
+            url="$imgbase/$id.png"
+            code=$(curl -sS -L --range 0-0 -A "$ua" -H "Referer: https://game.granbluefantasy.jp/" -o /tmp/item-"$id".part -w "%{http_code}" "$url" || true)
+            if [ "$code" = 200 ] || [ "$code" = 206 ]; then
+              size=$(wc -c < /tmp/item-"$id".part)
+              printf "%s\t%s\t%s\n" "$id" "$code" "$size"
+            fi
+            rm -f /tmp/item-"$id".part
+          ' _ {} | sort -n > retrieved/public_item_ids.tsv
+          while IFS=$'\t' read -r id code size; do
+            [ -n "$id" ] || continue
+            curl -sS -L --fail -A "$ua" -H 'Referer: https://game.granbluefantasy.jp/' \
+              "$imgbase/$id.png" -o "retrieved/item-images/base/$id.png"
+          done < retrieved/public_item_ids.tsv
+          sha256sum retrieved/item-images/base/*.png 2>/dev/null | sort > retrieved/item_image_sha256.txt || true
+
+      - name: Build static research summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          ids = []
+          p = Path('retrieved/public_item_ids.tsv')
+          if p.exists():
+              for line in p.read_text('utf-8').splitlines():
+                  if line.strip(): ids.append(int(line.split('\t')[0]))
+          static = json.loads(Path('retrieved/static_numeric_ids.json').read_text('utf-8'))
+          summary = {
+              'public_image_item_ids': ids,
+              'public_image_item_count': len(ids),
+              'static_numeric_id_values': sorted(set(r['id'] for r in static)),
+              'static_numeric_occurrence_count': len(static),
+              'api_endpoints': Path('retrieved/api_endpoints_all.txt').read_text('utf-8').splitlines(),
+              'weapon_field_names': Path('retrieved/weapon_field_names.txt').read_text('utf-8').splitlines(),
+              'notes': [
+                  'Public image existence proves an asset ID, not its name or gameplay stats.',
+                  'Complete names/stats remain in authenticated REST responses.'
+              ]
+          }
+          Path('retrieved/static_research_summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), 'utf-8')
+          PY
+
       - name: Commit fetched files
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add retrieved
-          git commit -m 'Fetch revival016 weapon-analysis JS modules' || exit 0
+          git commit -m 'Expand revival016 static research' || exit 0
           git push origin HEAD:tmp-fetch-revival016-20260712
