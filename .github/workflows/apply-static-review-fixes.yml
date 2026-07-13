@@ -24,6 +24,7 @@ jobs:
         shell: bash
         run: |
           set -u
+          rm -f static-review-diagnostic.txt
           cat .github/static-review-payload/code-*.b64 | tr -d '\n' | base64 -d > /tmp/code.patch.gz
           actual_sha=$(sha256sum /tmp/code.patch.gz | awk '{print $1}')
           expected_sha='f88b0f39bc237f0994f2b51088bf1431cf03a849033bf89547291f0755e6c938'
@@ -40,7 +41,8 @@ jobs:
               echo "gzip status: $gzip_status"
               echo "apply status: $apply_status"
               cat /tmp/apply-check.txt
-            } > /tmp/static-review-diagnostic.txt
+            } > static-review-diagnostic.txt
+            cat static-review-diagnostic.txt
             exit 1
           fi
 
@@ -59,6 +61,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: static-review-diagnostic
-          path: /tmp/static-review-diagnostic.txt
+          path: static-review-diagnostic.txt
           if-no-files-found: error
           retention-days: 1
