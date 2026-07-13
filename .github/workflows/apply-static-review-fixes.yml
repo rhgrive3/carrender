@@ -18,18 +18,18 @@ jobs:
         with:
           ref: agent/fix-static-review-findings-20260714
           fetch-depth: 0
+          show-progress: false
 
       - name: Apply reviewed source set
         shell: bash
         run: |
           set -u
-          rm -f static-review-diagnostic.txt
           cat .github/static-review-payload/code-*.b64 | tr -d '\n' | base64 -d > /tmp/code.patch.gz
           actual_sha=$(sha256sum /tmp/code.patch.gz | awk '{print $1}')
           expected_sha='f88b0f39bc237f0994f2b51088bf1431cf03a849033bf89547291f0755e6c938'
           gzip -t /tmp/code.patch.gz
           gzip_status=$?
-          if [ "$gzip_status" -eq 0 ]; then gzip -dc /tmp/code.patch.gz > /tmp/code.patch; fi
+          if [ "$gzip_status" -eq 0 ]; then gzip -dc /tmp/code.patch.gz > /tmp/code.patch; else : > /tmp/code.patch; fi
           git apply --check --verbose /tmp/code.patch > /tmp/apply-check.txt 2>&1
           apply_status=$?
 
@@ -40,13 +40,7 @@ jobs:
               echo "gzip status: $gzip_status"
               echo "apply status: $apply_status"
               cat /tmp/apply-check.txt
-            } > static-review-diagnostic.txt
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add static-review-diagnostic.txt
-            git commit -m 'Record static review patch diagnostic'
-            git push origin HEAD:agent/fix-static-review-findings-20260714
-            cat static-review-diagnostic.txt
+            } > /tmp/static-review-diagnostic.txt
             exit 1
           fi
 
@@ -59,3 +53,12 @@ jobs:
           git add -A
           git commit -m 'Fix offline data safety and static review findings'
           git push origin HEAD:agent/fix-static-review-findings-20260714
+
+      - name: Upload patch diagnostic
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-review-diagnostic
+          path: /tmp/static-review-diagnostic.txt
+          if-no-files-found: error
+          retention-days: 1
