@@ -46,6 +46,26 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Upload review source snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-source-${{ github.sha }}
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            src
+            functions
+            scripts
+            schema
+            migrations
+            package.json
+            package-lock.json
+            tsconfig*.json
+            vite.config.ts
+            wrangler.toml
+            index.html
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
