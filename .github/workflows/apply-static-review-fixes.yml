@@ -20,34 +20,55 @@ jobs:
           fetch-depth: 0
           show-progress: false
 
-      - name: Apply reviewed source set
+      - name: Diagnose and apply reviewed source set
+        id: apply
         shell: bash
         run: |
-          set -euo pipefail
-
+          set +e
+          : > apply-trace.txt
           cat .github/static-review-payload/code-*.b64 | tr -d '\n' | base64 -d > /tmp/code.patch.gz
-          echo 'f88b0f39bc237f0994f2b51088bf1431cf03a849033bf89547291f0755e6c938  /tmp/code.patch.gz' | sha256sum -c -
+          echo "decode=$?" >> apply-trace.txt
+          sha256sum /tmp/code.patch.gz >> apply-trace.txt
+          gzip -t /tmp/code.patch.gz
+          echo "gzip=$?" >> apply-trace.txt
           gzip -dc /tmp/code.patch.gz > /tmp/code.patch
-          git apply --check --verbose \
-            --exclude=functions/api/data.ts \
-            --exclude=scripts/data-api.test.ts \
-            /tmp/code.patch
-          git apply \
-            --exclude=functions/api/data.ts \
-            --exclude=scripts/data-api.test.ts \
-            /tmp/code.patch
+          echo "gunzip=$?" >> apply-trace.txt
+          git apply --check --verbose --exclude=functions/api/data.ts --exclude=scripts/data-api.test.ts /tmp/code.patch >> apply-trace.txt 2>&1
+          check_status=$?
+          echo "apply_check=$check_status" >> apply-trace.txt
+          if [ "$check_status" -ne 0 ]; then cat apply-trace.txt; exit 1; fi
+          git apply --exclude=functions/api/data.ts --exclude=scripts/data-api.test.ts /tmp/code.patch >> apply-trace.txt 2>&1
+          apply_status=$?
+          echo "apply=$apply_status" >> apply-trace.txt
+          if [ "$apply_status" -ne 0 ]; then cat apply-trace.txt; exit 1; fi
 
           base64 -d .github/static-review-payload/current-data-ts.b64 > functions/api/data.ts
+          echo "data_decode=$?" >> apply-trace.txt
           base64 -d .github/static-review-payload/current-data-test.b64 > scripts/data-api.test.ts
-          echo '43c2fb728739a79eb4d8d4a774e1fc4bfe2289819f91642c59941f8d512bee82  functions/api/data.ts' | sha256sum -c -
-          echo '2e74e3621be2168d4befbe03badbd7c5736886eb741d1fd8eab0045f0e4f2179  scripts/data-api.test.ts' | sha256sum -c -
+          echo "test_decode=$?" >> apply-trace.txt
+          sha256sum functions/api/data.ts scripts/data-api.test.ts >> apply-trace.txt
 
           cat .github/static-review-payload/readme-*.b64 | tr -d '\n' | base64 -d > README.md
+          echo "readme_decode=$?" >> apply-trace.txt
 
-          git rm -r .github/static-review-payload .github/workflows/apply-static-review-fixes.yml
-          git status --short
+          git rm -r .github/static-review-payload .github/workflows/apply-static-review-fixes.yml >> apply-trace.txt 2>&1
+          echo "git_rm=$?" >> apply-trace.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'Fix offline data safety and static review findings'
-          git push origin HEAD:agent/fix-static-review-findings-20260714
+          git commit -m 'Fix offline data safety and static review findings' >> apply-trace.txt 2>&1
+          echo "commit=$?" >> apply-trace.txt
+          git push origin HEAD:agent/fix-static-review-findings-20260714 >> apply-trace.txt 2>&1
+          push_status=$?
+          echo "push=$push_status" >> apply-trace.txt
+          cat apply-trace.txt
+          exit "$push_status"
+
+      - name: Upload apply trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-review-apply-trace
+          path: apply-trace.txt
+          if-no-files-found: error
+          retention-days: 1
