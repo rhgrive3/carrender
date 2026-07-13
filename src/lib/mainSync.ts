@@ -108,7 +108,11 @@ export function decideInitialSync(input: {
 }): InitialSyncDecision {
   const { metadata, remoteUpdatedAt, hasRemoteState, hasLocalState } = input;
   if (!hasRemoteState) return hasLocalState ? 'pushLocal' : 'none';
-  if (!metadata?.dirty) return 'useRemote';
+  // On the first launch after upgrading from a client that did not persist
+  // sync metadata, both snapshots may contain valid edits. Never silently pick
+  // the cloud copy in that one ambiguous case.
+  if (!metadata) return hasLocalState ? 'conflict' : 'useRemote';
+  if (!metadata.dirty) return 'useRemote';
   return metadata.baseUpdatedAt === remoteUpdatedAt ? 'pushLocal' : 'conflict';
 }
 
