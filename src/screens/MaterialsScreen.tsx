@@ -227,6 +227,14 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       toast('教材名・科目・総量を入力してください');
       return;
     }
+    if (startDate > targetDate) {
+      toast('開始日は目標完了日以前にしてください');
+      return;
+    }
+    if (preferredFinishDate && (preferredFinishDate < startDate || preferredFinishDate > targetDate)) {
+      toast('推奨完了日は開始日から目標完了日の間にしてください');
+      return;
+    }
     const reviewIntervals = reviewIntervalsText
       .split(',')
       .map((x) => Math.max(1, Number.parseInt(x.trim(), 10)))

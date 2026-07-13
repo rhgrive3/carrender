@@ -39,6 +39,9 @@ export interface SessionInput {
   source: 'timer' | 'manual';
   rangeLabel: string;
   completedTask: boolean; // タスクを完了扱いにするか
+  /** 手入力は過去日を指定できる。タイマー記録は省略して現在日時を使う。 */
+  date?: ISODate;
+  startTime?: string;
   /** 再計算で表示用IDが変わった時に、開始した作業を再解決するための手掛かり */
   taskLocator?: { sourceId?: string; range?: { start: number; end: number }; type?: StudyTask['type'] };
 }
@@ -485,8 +488,10 @@ export function appReducer(state: AppState, action: Action): AppState {
         taskId: currentTask?.id ?? inp.taskId,
         subjectId: inp.subjectId,
         materialId: inp.materialId,
-        date: t,
-        startedAt: new Date().toISOString(),
+        date: inp.date ?? t,
+        startedAt: inp.date && inp.startTime
+          ? new Date(`${inp.date}T${inp.startTime}:00`).toISOString()
+          : new Date().toISOString(),
         minutes: inp.minutes,
         amountDone: progress.amountDone,
         rangeLabel: inp.rangeLabel,

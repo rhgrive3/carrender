@@ -5,7 +5,7 @@ import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
 import { resolveSessionProgress, useApp } from '../../state/AppContext';
 import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
-import { today } from '../../lib/date';
+import { minutesToHM, today } from '../../lib/date';
 
 export interface RecordPreset {
   taskId: string | null;
@@ -40,6 +40,8 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
   const [focus, setFocus] = useState<1 | 2 | 3 | 4 | 5 | null>(null);
   const [memo, setMemo] = useState('');
   const [showMemo, setShowMemo] = useState(false);
+  const [recordDate, setRecordDate] = useState(today());
+  const [startTime, setStartTime] = useState(() => minutesToHM(new Date().getHours() * 60 + new Date().getMinutes()));
 
   const materials = useMemo(
     () => state.materials.filter((m) => !m.archived && m.subjectId === subjectId),
@@ -68,6 +70,10 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
       toast('科目を選択してください');
       return;
     }
+    if (!preset && recordDate > today()) {
+      toast('未来日の記録は追加できません');
+      return;
+    }
     dispatch({
       type: 'RECORD_SESSION',
       input: {
@@ -82,6 +88,8 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
         rangeLabel: preset?.rangeLabel ?? material?.name ?? '',
         completedTask: !!preset?.taskId && completed,
         taskLocator: preset?.taskLocator,
+        date: preset ? undefined : recordDate,
+        startTime: preset ? undefined : startTime,
       },
     });
     toast('記録を保存しました 🎉');
@@ -125,6 +133,10 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
           <div className="field">
             <label>学習時間(分)</label>
             <Stepper value={minutes} onChange={setMinutes} step={5} min={5} max={600} suffix="分" />
+          </div>
+          <div className="field-row">
+            <div className="field"><label htmlFor="rec-date">学習日</label><input id="rec-date" type="date" value={recordDate} max={today()} onChange={(e) => setRecordDate(e.target.value)} /></div>
+            <div className="field"><label htmlFor="rec-start">開始時刻</label><input id="rec-start" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} /></div>
           </div>
         </>
       )}

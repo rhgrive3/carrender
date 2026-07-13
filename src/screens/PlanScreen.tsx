@@ -827,6 +827,7 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
   const toast = useToast();
   const t = today();
   const [subjectId, setSubjectId] = useState(state.subjects[0]?.id ?? '');
+  const [materialId, setMaterialId] = useState('');
   const [title, setTitle] = useState('');
   const [range, setRange] = useState('');
   const [minutes, setMinutes] = useState(30);
@@ -850,7 +851,7 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
       task: {
         id: taskId,
         subjectId,
-        materialId: null,
+        materialId: materialId || null,
         title: title.trim(),
         rangeLabel: range.trim(),
         rangeStart: null,
@@ -909,6 +910,13 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
       <div className="field">
         <label htmlFor="mt-range">範囲(任意)</label>
         <input id="mt-range" value={range} onChange={(e) => setRange(e.target.value)} placeholder="例: 大問1〜3" />
+      </div>
+      <div className="field">
+        <label htmlFor="mt-material">教材(任意)</label>
+        <select id="mt-material" value={materialId} onChange={(e) => setMaterialId(e.target.value)}>
+          <option value="">教材なし</option>
+          {state.materials.filter((material) => material.subjectId === subjectId && !material.archived).map((material) => <option key={material.id} value={material.id}>{material.name}</option>)}
+        </select>
       </div>
       <div className="field-row">
         <div className="field">

@@ -96,7 +96,9 @@ export function NumericInput({
         const next = sanitize(e.target.value);
         setText(next);
         const parsed = parse(next);
-        onChange(parsed ?? emptyValue);
+        // 空欄は編集途中に必ず発生する。ここで0などを親stateへ確定すると、
+        // iPadの全選択→再入力で保存済み値を巻き戻してしまうため、確定値だけ通知する。
+        if (parsed !== null) onChange(parsed);
       }}
       onBlur={() => {
         setFocused(false);
