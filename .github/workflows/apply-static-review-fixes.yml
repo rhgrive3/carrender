@@ -23,9 +23,11 @@ jobs:
       - name: Apply reviewed source set
         shell: bash
         run: |
+          set +e
           set -u
           rm -f static-review-diagnostic.txt
           cat .github/static-review-payload/code-*.b64 | tr -d '\n' | base64 -d > /tmp/code.patch.gz
+          decode_status=$?
           actual_sha=$(sha256sum /tmp/code.patch.gz | awk '{print $1}')
           expected_sha='f88b0f39bc237f0994f2b51088bf1431cf03a849033bf89547291f0755e6c938'
           gzip -t /tmp/code.patch.gz
@@ -34,8 +36,9 @@ jobs:
           git apply --check --verbose /tmp/code.patch > /tmp/apply-check.txt 2>&1
           apply_status=$?
 
-          if [ "$actual_sha" != "$expected_sha" ] || [ "$gzip_status" -ne 0 ] || [ "$apply_status" -ne 0 ]; then
+          if [ "$decode_status" -ne 0 ] || [ "$actual_sha" != "$expected_sha" ] || [ "$gzip_status" -ne 0 ] || [ "$apply_status" -ne 0 ]; then
             {
+              echo "base64 decode status: $decode_status"
               echo "actual gzip sha: $actual_sha"
               echo "expected gzip sha: $expected_sha"
               echo "gzip status: $gzip_status"
@@ -46,6 +49,7 @@ jobs:
             exit 1
           fi
 
+          set -e
           git apply /tmp/code.patch
           cat .github/static-review-payload/readme-*.b64 | tr -d '\n' | base64 -d > README.md
           git rm -r .github/static-review-payload .github/workflows/apply-static-review-fixes.yml
