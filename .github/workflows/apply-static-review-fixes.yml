@@ -1,9 +1,9 @@
 name: Apply static review fixes
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/fix-static-review-findings-20260714
+      - main
 
 permissions:
   contents: write
