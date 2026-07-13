@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { Plus, Rocket, Target } from 'lucide-react';
+import { Plus, Rocket, Target, Trash2 } from 'lucide-react';
 import { useApp, type OnboardingInput } from '../state/AppContext';
-import { addDays, today } from '../lib/date';
+import { addDays, genId, today } from '../lib/date';
 import { SUBJECT_COLOR_PALETTE, SUBJECT_PRESETS, UNIT_OPTIONS } from '../data/defaults';
 import { NumericInput, Stepper } from '../components/ui/bits';
 import type { Material } from '../types';
 
 type DraftMaterial = {
+  draftId: string;
   subjectIndex: number;
   name: string;
   unit: Material['unit'];
@@ -28,6 +29,7 @@ export function OnboardingScreen() {
   const [weekdayMinutes, setWeekdayMinutes] = useState(150);
   const [weekendMinutes, setWeekendMinutes] = useState(300);
   const [materials, setMaterials] = useState<DraftMaterial[]>([]);
+  const [validationError, setValidationError] = useState('');
 
   const toggleSubject = (name: string) => {
     setSelectedSubjects((prev) => (prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]));
@@ -41,14 +43,35 @@ export function OnboardingScreen() {
     }
   };
 
+  const updateExamDate = (next: string) => {
+    const previous = examDate;
+    setExamDate(next);
+    // 教材ごとに変更していない既定期限だけ、試験日の変更へ追従させる。
+    setMaterials((current) => current.map((material) =>
+      material.targetDate === previous ? { ...material, targetDate: next } : material));
+  };
+
   const addMaterial = () => {
     setMaterials((prev) => [
       ...prev,
-      { subjectIndex: 0, name: '', unit: '問題', totalAmount: 100, targetDate: examDate, minutesPerUnit: 10 },
+      { draftId: genId('draft-mat'), subjectIndex: 0, name: '', unit: '問題', totalAmount: 100, targetDate: examDate, minutesPerUnit: 10 },
     ]);
   };
 
   const finish = () => {
+    setValidationError('');
+    if (!examDate || examDate < t) {
+      setValidationError('試験日は今日以降を指定してください');
+      setStep(0);
+      return;
+    }
+    const invalidMaterial = materials.find((material) => material.name.trim()
+      && (!material.targetDate || material.targetDate < t || material.targetDate > examDate
+        || material.totalAmount <= 0 || material.minutesPerUnit <= 0));
+    if (invalidMaterial) {
+      setValidationError('教材の期限は今日から試験日まで、総量と所要時間は正の値で入力してください');
+      return;
+    }
     const input: OnboardingInput = {
       goalName: goalName.trim() || '試験本番',
       examDate,
@@ -61,8 +84,8 @@ export function OnboardingScreen() {
       weekdayMinutes,
       weekendMinutes,
       materials: materials
-        .filter((m) => m.name.trim() && m.totalAmount > 0)
-        .map((m) => ({ ...m, name: m.name.trim() })),
+        .filter((material) => material.name.trim() && material.totalAmount > 0)
+        .map(({ draftId: _draftId, ...material }) => ({ ...material, name: material.name.trim() })),
     };
     dispatch({ type: 'COMPLETE_ONBOARDING', input });
   };
@@ -122,9 +145,14 @@ export function OnboardingScreen() {
           </div>
           <div className="field">
             <label htmlFor="ob-exam">試験日</label>
-            <input id="ob-exam" type="date" value={examDate} min={addDays(t, 1)} onChange={(e) => setExamDate(e.target.value)} />
+            <input id="ob-exam" type="date" value={examDate} min={t} onChange={(e) => updateExamDate(e.target.value)} />
           </div>
-          <button className="btn btn-primary btn-block" onClick={() => setStep(1)}>
+          {validationError && <p className="status-danger mt-8" role="alert">{validationError}</p>}
+          <button className="btn btn-primary btn-block" onClick={() => {
+            if (!examDate || examDate < t) { setValidationError('試験日は今日以降を指定してください'); return; }
+            setValidationError('');
+            setStep(1);
+          }}>
             次へ
           </button>
         </div>
@@ -182,7 +210,7 @@ export function OnboardingScreen() {
           <div className="sheet-title">1日どれくらい勉強できる?</div>
           <div className="field">
             <label>平日(1日あたり)</label>
-            <Stepper value={weekdayMinutes} onChange={setWeekdayMinutes} step={30} min={30} max={720} suffix="分" />
+            <Stepper value={weekdayMinutes} onChange={setWeekdayMinutes} step={30} min={30} max={330} suffix="分" />
           </div>
           <div className="field">
             <label>土日(1日あたり)</label>
@@ -204,7 +232,13 @@ export function OnboardingScreen() {
         <div className="card">
           <div className="sheet-title">使う教材を追加(任意)</div>
           {materials.map((m, i) => (
-            <div key={i} className="card" style={{ padding: 13, marginBottom: 12, background: 'var(--bg-elev2)' }}>
+            <div key={m.draftId} className="card" style={{ padding: 13, marginBottom: 12, background: 'var(--bg-elev2)' }}>
+              <div className="row spread mb-12">
+                <b>教材 {i + 1}</b>
+                <button type="button" className="icon-btn danger" aria-label={`教材${i + 1}を削除`} onClick={() => setMaterials((current) => current.filter((item) => item.draftId !== m.draftId))}>
+                  <Trash2 size={16} aria-hidden="true" />
+                </button>
+              </div>
               <div className="field">
                 <label htmlFor={`ob-mname-${i}`}>教材名</label>
                 <input
@@ -267,12 +301,24 @@ export function OnboardingScreen() {
                   />
                 </div>
               </div>
+              <div className="field mt-12" style={{ marginBottom: 0 }}>
+                <label htmlFor={`ob-mtarget-${i}`}>この教材の期限</label>
+                <input
+                  id={`ob-mtarget-${i}`}
+                  type="date"
+                  min={t}
+                  max={examDate}
+                  value={m.targetDate}
+                  onChange={(event) => setMaterials((current) => current.map((item) => item.draftId === m.draftId ? { ...item, targetDate: event.target.value } : item))}
+                />
+              </div>
             </div>
           ))}
           <button className="btn btn-secondary btn-block mb-12" onClick={addMaterial}>
             <Plus size={14} strokeWidth={2.6} aria-hidden="true" /> 教材を追加
           </button>
           <p className="faint" style={{ marginBottom: 14 }}>教材は後からいつでも追加・編集できます。</p>
+          {validationError && <p className="status-danger mb-12" role="alert">{validationError}</p>}
           <div className="row">
             <button className="btn btn-ghost" onClick={() => setStep(2)}>
               戻る

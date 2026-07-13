@@ -15,12 +15,12 @@ const SYNC_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   syncing: { label: '同期中…', cls: 'status-accent' },
   synced: { label: 'クラウドに保存済み', cls: 'status-ok' },
   offline: { label: 'オフライン(端末に一時保存中)', cls: 'status-warn' },
-  conflict: { label: '別端末の更新を検出(再読み込みでクラウド版を表示)', cls: 'status-danger' },
+  conflict: { label: '端末版とクラウド版が競合しています', cls: 'status-danger' },
   error: { label: '同期エラー(端末には保存済み)', cls: 'status-danger' },
 };
 
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { state, dispatch, execute, syncStatus } = useApp();
+  const { state, dispatch, execute, syncStatus, syncConflict, hasUnsyncedChanges, resolveSyncConflict, retrySync } = useApp();
   const { user, logout, busy: authBusy } = useAuth();
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -115,12 +115,21 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
 
   const saveGoal = () => {
     if (!state.goal || !goalName.trim() || !examDate) return;
+    if (examDate < today()) {
+      toast('試験日は今日以降を指定してください');
+      return;
+    }
     const result = execute({ type: 'UPDATE_GOAL', goal: { ...state.goal, name: goalName.trim(), examDate } });
     toast(result.message ?? '目標を更新しました');
     if (result.changed) { setGoalDirty(false); setOtherExternalUpdate(false); }
   };
 
   const saveAvailability = () => {
+    const invalid = availability.some((slot) => slot.windows.some((window) => !window.start || !window.end || window.start >= window.end));
+    if (invalid) {
+      toast('開始時刻より後の終了時刻を指定してください');
+      return;
+    }
     const result = execute({ type: 'UPDATE_AVAILABILITY', availability });
     toast(result.message ?? '勉強可能時間を更新しました');
     if (result.changed) { setAvailabilityDirty(false); setOtherExternalUpdate(false); }
@@ -162,6 +171,36 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     if (result.changed) clearSection('weekly');
   };
 
+  const exportSyncConflict = () => {
+    if (!syncConflict) return;
+    const bundle = {
+      exportedAt: new Date().toISOString(),
+      localBaseUpdatedAt: syncConflict.localBaseUpdatedAt,
+      cloudUpdatedAt: syncConflict.remoteUpdatedAt,
+      localState: state,
+      cloudState: syncConflict.remoteState,
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `studycommander-sync-conflict-${today()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast('端末版とクラウド版を1つのJSONに保存しました');
+  };
+
+  const chooseSyncVersion = async (choice: 'local' | 'cloud') => {
+    const label = choice === 'local' ? 'この端末版をクラウドへ保存' : 'クラウド版をこの端末へ読み込み';
+    if (!window.confirm(`${label}しますか？ 反対側の版は復旧用バックアップへ退避します。`)) return;
+    try {
+      await resolveSyncConflict(choice);
+      toast(choice === 'local' ? 'この端末版をクラウドへ保存しました' : 'クラウド版を読み込みました');
+    } catch (caught) {
+      toast(caught instanceof Error ? caught.message : '競合を解決できませんでした');
+    }
+  };
+
   const doExportCSV = () => {
     const blob = new Blob([exportSessionsCSV(state)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -180,6 +219,10 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     }
     if (newEvent.mode === 'weekly' && newEvent.startDate && newEvent.endDate && newEvent.startDate > newEvent.endDate) {
       toast('固定予定の有効期間を正しく入力してください');
+      return;
+    }
+    if (newEvent.mode === 'date' && !newEvent.date) {
+      toast('固定予定の日付を指定してください');
       return;
     }
     if (newEvent.mode === 'range' && (!newEvent.startDate || !newEvent.endDate || newEvent.startDate > newEvent.endDate)) {
@@ -220,9 +263,10 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
 
   const updateAvailabilityWindows = (weekday: Weekday, windows: TimeRange[]) => {
     setAvailabilityDirty(true);
-    const clean = windows.filter((w) => w.start && w.end && w.start < w.end);
-    const minutes = clean.reduce((sum, w) => sum + Math.max(0, hmToMinutes(w.end) - hmToMinutes(w.start)), 0);
-    setAvailability((prev) => prev.map((s) => (s.weekday === weekday ? { ...s, windows: clean, minutes } : s)));
+    const minutes = windows.reduce((sum, window) =>
+      sum + (window.start && window.end && window.start < window.end ? hmToMinutes(window.end) - hmToMinutes(window.start) : 0), 0);
+    // 入力途中の start >= end でも行自体を消さない。保存時にまとめて検証する。
+    setAvailability((prev) => prev.map((slot) => (slot.weekday === weekday ? { ...slot, windows, minutes } : slot)));
   };
 
   const removeEvent = (id: string) => {
@@ -304,13 +348,30 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             className="btn btn-secondary btn-sm"
             disabled={authBusy}
             onClick={() => {
-              logout();
+              if (hasUnsyncedChanges && !window.confirm('未同期の端末データがあります。ログアウトすると端末キャッシュは消えます。JSONを書き出すか同期してからのログアウトを推奨します。続けますか？')) return;
+              void logout();
               onClose();
             }}
           >
             ログアウト
           </button>
         </div>
+        {(syncStatus === 'offline' || syncStatus === 'error') && !syncConflict && (
+          <button type="button" className="btn btn-ghost btn-sm mt-8" onClick={retrySync}>同期を再試行</button>
+        )}
+        {syncConflict && (
+          <div className="card status-danger mt-12" role="alert" style={{ padding: 12 }}>
+            <b>両方に未統合の変更があります</b>
+            <p className="muted mt-8" style={{ lineHeight: 1.6 }}>自動では上書きしません。まず両方をJSONで保存し、残す版を選んでください。</p>
+            <button type="button" className="btn btn-secondary btn-sm btn-block mt-8" onClick={exportSyncConflict}>
+              <Download size={14} aria-hidden="true" /> 両方をJSONで保存
+            </button>
+            <div className="row mt-8" style={{ alignItems: 'stretch' }}>
+              <button type="button" className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => void chooseSyncVersion('local')}>この端末版を残す</button>
+              <button type="button" className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => void chooseSyncVersion('cloud')}>クラウド版を残す</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {(externalSections.size > 0 || otherExternalUpdate) && (

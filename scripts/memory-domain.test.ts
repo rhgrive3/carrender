@@ -625,6 +625,33 @@ console.log('--- Memory: target generation and selection ---');
     modeWeights: { output: 0.5, input: 0.2, context: 0.2, composition: 0.1 },
   });
   check('対象がないモードの割合を他モードへ再配分', redistributed.length === 10 && redistributed.every((target) => target.mode !== 'composition'), redistributed);
+
+  const weakPool = selectionPool.filter((target) => target.mode === 'output').slice(0, 3);
+  const weakStats: MemoryStat[] = weakPool.map((target, index) => ({
+    ...createEmptyStat({
+      id: `weak-stat-${index}`,
+      targetType: 'exercise',
+      targetId: target.exerciseId!,
+      mode: target.mode,
+      now: timestamp,
+    }),
+    attempts: index + 1,
+    weaknessScore: [10, 90, 20][index],
+    manualWeak: index === 2,
+  }));
+  const weakest = selectLearningTargets({
+    targets: weakPool,
+    stats: weakStats,
+    count: 2,
+    seed: 'weak-only-seed',
+    strategy: 'weak',
+  });
+  check('苦手モードはmanualWeakを最優先し次に弱点スコア順で選ぶ',
+    weakest.some((target) => target.id === weakPool[2].id)
+      && weakest.some((target) => target.id === weakPool[1].id)
+      && !weakest.some((target) => target.id === weakPool[0].id),
+    weakest,
+  );
 }
 
 console.log(failures === 0 ? '\n🎉 ALL PASS (memory domain)' : `\n💥 ${failures} FAILURES (memory domain)`);

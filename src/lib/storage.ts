@@ -1,6 +1,7 @@
 import type { AppState, ValidationIssue } from '../types';
 import { defaultAvailability, defaultSettings, defaultTimerSettings } from '../data/defaults';
 import { toISODate } from './date';
+import { clearMainSyncMetadata } from './mainSync';
 
 const KEY = 'studycommander_state_v1';
 const OWNER_KEY = 'studycommander_owner_v1';
@@ -12,6 +13,24 @@ const UPDATED_KEY = 'studycommander_state_updated_at_v1';
  * 現在の教材進捗を互換基準として保持し、推測による二重加減算をしない。
  */
 export const STATE_VERSION = 4;
+
+
+export function isAppStateShape(value: unknown): value is AppState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Partial<Record<keyof AppState, unknown>>;
+  return typeof candidate.onboarded === 'boolean'
+    && Array.isArray(candidate.subjects)
+    && Array.isArray(candidate.materials)
+    && Array.isArray(candidate.tasks)
+    && Array.isArray(candidate.sessions)
+    && (candidate.availability === undefined || Array.isArray(candidate.availability))
+    && (candidate.dayPlans === undefined || Array.isArray(candidate.dayPlans))
+    && (candidate.fixedEvents === undefined || Array.isArray(candidate.fixedEvents))
+    && !!candidate.settings
+    && typeof candidate.settings === 'object'
+    && !Array.isArray(candidate.settings);
+}
+
 
 /** どのアカウントのデータがlocalStorageにキャッシュされているかを記録する(別ユーザーへの誤流用を防止) */
 export function getStateOwner(): string | null {
@@ -35,8 +54,8 @@ export function loadState(): AppState | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as AppState;
-    if (typeof parsed !== 'object' || parsed === null) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isAppStateShape(parsed)) return null;
     try {
       const migration = migrateState(parsed);
       if (!migration.ok) {
@@ -107,6 +126,7 @@ export function clearOwnedState(): void {
   localStorage.removeItem(OWNER_KEY);
   localStorage.removeItem(TIMER_KEY);
   localStorage.removeItem(BACKUP_KEY);
+  clearMainSyncMetadata();
 }
 
 export function exportJSON(state: AppState): string {
@@ -136,17 +156,8 @@ export function exportSessionsCSV(state: AppState): string {
 }
 
 export function importJSON(json: string): AppState {
-  const parsed = JSON.parse(json) as AppState;
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    !Array.isArray(parsed.subjects) ||
-    !Array.isArray(parsed.materials) ||
-    !Array.isArray(parsed.tasks) ||
-    !Array.isArray(parsed.sessions)
-  ) {
-    throw new Error('不正なデータ形式です');
-  }
+  const parsed: unknown = JSON.parse(json);
+  if (!isAppStateShape(parsed)) throw new Error('不正なデータ形式です');
   const migration = migrateState(parsed);
   if (!migration.ok) throw new Error(`移行できない項目があります: ${migration.errors.map((error) => `${error.targetId}.${error.field}`).join(', ')}`);
   return migration.state;
