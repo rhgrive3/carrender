@@ -2611,6 +2611,11 @@ svg.lucide {
   margin: -8px 0 12px;
 }
 
+.memory-sync-error {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .memory-sync-dot {
   width: 8px;
   height: 8px;

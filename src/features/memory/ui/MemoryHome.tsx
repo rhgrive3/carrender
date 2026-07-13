@@ -108,6 +108,7 @@ export function MemoryHome() {
     error,
     activeSession,
     syncStatus,
+    syncError,
     pendingCount,
     conflictCount,
     navigate,
@@ -190,6 +191,7 @@ export function MemoryHome() {
                 ? '端末へ保存済み・サーバー同期に失敗'
                 : '端末へ保存済み'}
         {pendingCount > 0 && `・同期待ち ${pendingCount}件`}
+        {syncStatus === 'error' && syncError && <span className="memory-sync-error" role="alert">・{syncError}</span>}
         {conflictCount > 0 && <button type="button" className="memory-inline-button" onClick={() => setConflictsOpen(true)}>競合 {conflictCount}件を確認</button>}
         <button type="button" className="memory-inline-button" onClick={() => void requestSync(true)} aria-label="暗記データを同期">
           <RefreshCw size={15} aria-hidden="true" />

@@ -418,6 +418,51 @@ check('分析コメントが生成される', a.comments.length >= 1);
     requiredPacePerDay: forecast.requiredPacePerDay,
     quota: todayQuotaFor(analyticsState, material.id, ref),
   });
+
+  const inclusiveMaterial: Material = {
+    ...material,
+    id: 'mat_analytics_inclusive',
+    totalAmount: 20,
+    doneAmount: 10,
+    startDate: addDays(ref, -4),
+    targetDate: addDays(ref, 4),
+  };
+  const inclusiveState: AppState = {
+    ...analyticsState,
+    materials: [inclusiveMaterial],
+    sessions: [{
+      ...analyticsState.sessions[0],
+      id: 'sess_inclusive',
+      materialId: inclusiveMaterial.id,
+      date: ref,
+      amountDone: 10,
+    }],
+  };
+  const inclusiveForecast = computeAnalytics(inclusiveState, ref).materialForecasts[0];
+  check('完了見込みは今日を1日目に含め、5日分なら4日後', inclusiveForecast.projectedFinishDate === inclusiveMaterial.targetDate && inclusiveForecast.delayDays === 0, inclusiveForecast);
+
+  const futureMaterial: Material = {
+    ...material,
+    id: 'mat_analytics_future',
+    totalAmount: 18,
+    doneAmount: 0,
+    startDate: addDays(ref, 2),
+    targetDate: addDays(ref, 4),
+  };
+  const futureState: AppState = { ...analyticsState, materials: [futureMaterial], sessions: [] };
+  const futureForecast = computeAnalytics(futureState, ref).materialForecasts[0];
+  check('開始日前は開始日〜期限で必要ペースを算出し今日の目安は0', futureForecast.requiredPacePerDay === 6 && todayQuotaFor(futureState, futureMaterial.id, ref) === 0, futureForecast);
+
+  const boundaryMaterial: Material = {
+    ...material,
+    id: 'mat_analytics_boundary',
+    totalAmount: 100,
+    doneAmount: 0,
+    startDate: addDays(ref, -10),
+    targetDate: addDays(ref, 90),
+  };
+  const boundaryForecast = computeAnalytics({ ...analyticsState, materials: [boundaryMaterial], sessions: [] }, ref).materialForecasts[0];
+  check('実績なしでも遅れ日数と状態の境界を一致させる', boundaryForecast.delayDays === 10 && boundaryForecast.status === 'behind', boundaryForecast);
 }
 
 console.log('--- 実績バッジ ---');

@@ -21,6 +21,7 @@ interface MemoryContextValue {
   sets: MemorySet[];
   activeSession: MemorySession | null;
   syncStatus: MemorySyncStatus;
+  syncError: string | null;
   pendingCount: number;
   conflictCount: number;
   view: MemoryView;
@@ -39,6 +40,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
   const [sets, setSets] = useState<MemorySet[]>([]);
   const [activeSession, setActiveSession] = useState<MemorySession | null>(null);
   const [syncStatus, setSyncStatus] = useState<MemorySyncStatus>('idle');
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [conflictCount, setConflictCount] = useState(0);
   const [view, setView] = useState<MemoryView>({ name: 'home' });
@@ -76,10 +78,14 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
         if (mounted.current && activeRepository.current === next) setReady(true);
         if (typeof navigator === 'undefined' || navigator.onLine !== false) {
           if (mounted.current && activeRepository.current === next) setSyncStatus('syncing');
+          if (mounted.current && activeRepository.current === next) setSyncError(null);
           // Startup also drains pending offline edits and paginated remote changes.
           // Five-record transport chunks keep each Pages Function under D1 limits.
           const result = await flushMemorySync(next, 100);
-          if (mounted.current && activeRepository.current === next) setSyncStatus(result.status);
+          if (mounted.current && activeRepository.current === next) {
+            setSyncStatus(result.status);
+            setSyncError(result.errorMessage ?? null);
+          }
           await refreshRepository(next);
         }
       } catch (caught) {
@@ -111,8 +117,12 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
       return;
     }
     setSyncStatus('syncing');
+    setSyncError(null);
     const result = await flushMemorySync(repository);
-    if (mounted.current && activeRepository.current === repository) setSyncStatus(result.status);
+    if (mounted.current && activeRepository.current === repository) {
+      setSyncStatus(result.status);
+      setSyncError(result.errorMessage ?? null);
+    }
     await refreshRepository(repository);
   }, [refreshRepository, repository]);
 
@@ -145,6 +155,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     sets,
     activeSession,
     syncStatus,
+    syncError,
     pendingCount,
     conflictCount,
     view,
@@ -159,6 +170,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     sets,
     activeSession,
     syncStatus,
+    syncError,
     pendingCount,
     conflictCount,
     view,

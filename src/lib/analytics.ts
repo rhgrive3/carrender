@@ -128,23 +128,29 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
 export function computeMaterialForecast(state: AppState, materialId: string, ref: ISODate): MaterialForecast | null {
   const m = state.materials.find((x) => x.id === materialId);
   if (!m) return null;
+  const startDate = m.startDate ?? m.createdAt.slice(0, 10);
   const remainingAmount = Math.max(0, m.totalAmount - m.doneAmount);
   const remainingMinutes = remainingAmount * m.minutesPerUnit;
-  const daysToTarget = daysInclusive(ref, m.targetDate);
+  // 開始日前の教材は、開始日から期限までの実働期間で必要ペースを出す。
+  // 今日からで割ると、まだ着手できない日まで分母に入り必要量が過小になる。
+  const paceStartDate = maxDate(ref, startDate);
+  const daysToTarget = daysInclusive(paceStartDate, m.targetDate);
   const requiredPacePerDay = remainingAmount / daysToTarget;
 
   // 直近14日の実績ペース
-  const from = maxDate(addDays(ref, -13), m.startDate ?? m.createdAt.slice(0, 10));
+  const from = maxDate(addDays(ref, -13), startDate);
   const recent = state.sessions.filter((s) => s.materialId === m.id && s.date >= from && s.date <= ref);
   const recentAmount = recent.reduce((sum, s) => sum + s.amountDone, 0);
-  const activeDays = daysInclusive(from, ref);
-  const currentPacePerDay = recentAmount / activeDays;
+  const activeDays = startDate > ref ? 0 : daysInclusive(from, ref);
+  const currentPacePerDay = activeDays > 0 ? recentAmount / activeDays : 0;
 
   let projectedFinishDate: ISODate | null = null;
   if (remainingAmount === 0) {
     projectedFinishDate = ref;
   } else if (currentPacePerDay > 0.01) {
-    projectedFinishDate = addDays(ref, Math.ceil(remainingAmount / currentPacePerDay));
+    // 今日も1日目に含む。残りを1日で終えられるなら完了日は今日であり、明日ではない。
+    const requiredDays = Math.ceil(remainingAmount / currentPacePerDay);
+    projectedFinishDate = addDays(ref, Math.max(0, requiredDays - 1));
   }
 
   let status: MaterialForecast['status'];
@@ -153,16 +159,18 @@ export function computeMaterialForecast(state: AppState, materialId: string, ref
     status = 'ahead';
   } else if (projectedFinishDate === null) {
     // 実績がまだない → 期待進捗との比較で判定
-    const total = Math.max(1, diffDays(m.startDate ?? m.createdAt.slice(0, 10), m.targetDate));
-    const elapsed = Math.max(0, diffDays(m.startDate ?? m.createdAt.slice(0, 10), ref));
+    const total = Math.max(1, diffDays(startDate, m.targetDate));
+    const elapsed = Math.min(total, Math.max(0, diffDays(startDate, ref)));
     const expected = Math.min(1, elapsed / total);
     const actual = m.totalAmount > 0 ? m.doneAmount / m.totalAmount : 1;
     const gap = expected - actual;
-    status = gap > 0.25 ? 'risk' : gap > 0.1 ? 'behind' : 'onTrack';
     delayDays = Math.round(gap * total);
+    // 「遅れ日数」とバッジの基準を揃える。以前は10日遅れ相当でも
+    // 進捗率差の境界次第で「順調」になることがあった。
+    status = statusForDelay(delayDays);
   } else {
     delayDays = diffDays(m.targetDate, projectedFinishDate);
-    status = delayDays <= -7 ? 'ahead' : delayDays <= 2 ? 'onTrack' : delayDays <= 10 ? 'behind' : 'risk';
+    status = statusForDelay(delayDays);
   }
 
   return {
@@ -182,11 +190,16 @@ export function todayQuotaFor(state: AppState, materialId: string, ref: ISODate)
   const m = state.materials.find((x) => x.id === materialId);
   if (!m) return 0;
   if (m.paused || m.archived) return 0;
+  if (m.startDate && ref < m.startDate) return 0;
   const remaining = Math.max(0, m.totalAmount - m.doneAmount);
   const days = daysInclusive(ref, m.targetDate);
   const required = Math.ceil(remaining / days);
   const custom = Math.ceil(Math.max(m.dailyTarget ?? 0, (m.weeklyTarget ?? 0) / 7));
   return Math.max(required, custom);
+}
+
+function statusForDelay(delayDays: number): MaterialForecast['status'] {
+  return delayDays <= -7 ? 'ahead' : delayDays <= 2 ? 'onTrack' : delayDays <= 10 ? 'behind' : 'risk';
 }
 
 function daysInclusive(from: ISODate, to: ISODate): number {
