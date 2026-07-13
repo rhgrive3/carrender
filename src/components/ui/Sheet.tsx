@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
@@ -13,6 +13,7 @@ interface SheetProps {
 /** モバイル向けボトムシート */
 export function Sheet({ open, onClose, title, children }: SheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -22,7 +23,28 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     sheetRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !sheetRef.current) return;
+      const focusable = [...sheetRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      )].filter((element) => !element.hasAttribute('hidden'));
+      if (focusable.length === 0) {
+        e.preventDefault();
+        sheetRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -40,14 +62,11 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
     >
-      <div className="sheet" ref={sheetRef} tabIndex={-1}>
+      <div className="sheet" ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : 'ダイアログ'}>
         <div className="sheet-grabber" />
         <div className="sheet-title-row">
-          {title && <div className="sheet-title">{title}</div>}
+          {title && <div className="sheet-title" id={titleId}>{title}</div>}
           <button className="sheet-close" type="button" aria-label="閉じる" onClick={onClose}>
             <X size={18} strokeWidth={2.2} aria-hidden="true" />
           </button>

@@ -227,6 +227,7 @@ interface TargetEvidence {
   attempts: number;
   weakness: number;
   directionBoost: number;
+  manualWeak: boolean;
 }
 
 function evidenceForTarget(
@@ -247,7 +248,7 @@ function evidenceForTarget(
     const context = masteryForStat(senseModeStats.get(`${target.senseId}\u0000context`));
     if (output !== null && context !== null) directionBoost = Math.max(0, output - context) * 40;
   }
-  return { attempts: stat?.attempts ?? 0, weakness: stat?.weaknessScore ?? 0, directionBoost };
+  return { attempts: stat?.attempts ?? 0, weakness: stat?.weaknessScore ?? 0, directionBoost, manualWeak: stat?.manualWeak ?? false };
 }
 
 function weightedPick<T>(
@@ -331,6 +332,25 @@ function adaptivePick(
   return { targets: mixed.values, state: mixed.state };
 }
 
+function weakestPick(
+  targets: readonly LearningTarget[],
+  count: number,
+  statMap: ReadonlyMap<string, MemoryStat>,
+  senseModeStats: ReadonlyMap<string, MemoryStat>,
+  initialState: number,
+): { targets: LearningTarget[]; state: number } {
+  const shuffled = deterministicShuffle(targets, initialState);
+  const evidence = new Map(shuffled.values.map((target) => [target.id, evidenceForTarget(target, statMap, senseModeStats)]));
+  const ranked = [...shuffled.values].sort((left, right) => {
+    const a = evidence.get(left.id)!;
+    const b = evidence.get(right.id)!;
+    return Number(b.manualWeak) - Number(a.manualWeak)
+      || (b.weakness + b.directionBoost) - (a.weakness + a.directionBoost)
+      || b.attempts - a.attempts;
+  });
+  return { targets: ranked.slice(0, Math.min(count, ranked.length)), state: shuffled.state };
+}
+
 function allocateModeCounts(
   total: number,
   available: Readonly<Record<MemoryMode, number>>,
@@ -386,6 +406,7 @@ export interface SelectLearningTargetsInput {
   count: number;
   seed: string;
   modeWeights?: Partial<Record<MemoryMode, number>>;
+  strategy?: 'adaptive' | 'weak';
 }
 
 /** 70% weakness, 20% low evidence, 10% random with deterministic weighted draws. */
@@ -401,8 +422,9 @@ export function selectLearningTargets(input: SelectLearningTargetsInput): Learni
   );
   let state = seedToRandomState(input.seed);
 
+  const pick = input.strategy === 'weak' ? weakestPick : adaptivePick;
   if (!input.modeWeights) {
-    return adaptivePick(targets, count, statMap, senseModeStats, state).targets;
+    return pick(targets, count, statMap, senseModeStats, state).targets;
   }
   const pools = Object.fromEntries(
     MEMORY_MODES.map((mode) => [mode, targets.filter((target) => target.mode === mode)]),
@@ -413,7 +435,7 @@ export function selectLearningTargets(input: SelectLearningTargetsInput): Learni
   const allocations = allocateModeCounts(count, available, input.modeWeights);
   const selected: LearningTarget[] = [];
   for (const mode of MEMORY_MODES) {
-    const picked = adaptivePick(pools[mode], allocations[mode], statMap, senseModeStats, state);
+    const picked = pick(pools[mode], allocations[mode], statMap, senseModeStats, state);
     state = picked.state;
     selected.push(...picked.targets);
   }

@@ -944,7 +944,7 @@ export function computeDayStatus(state: AppState, date: ISODate, capacity?: Capa
     (t) => t.status === 'planned' && t.scheduledDate < date,
   ).length;
   const behindMaterials = state.materials.filter((m) => {
-    if (m.archived || m.totalAmount === 0) return false;
+    if (m.archived || m.paused || m.totalAmount === 0) return false;
     const total = Math.max(1, diffDays(m.startDate ?? m.createdAt.slice(0, 10), m.targetDate));
     const elapsed = Math.max(0, diffDays(m.startDate ?? m.createdAt.slice(0, 10), date));
     return m.doneAmount / m.totalAmount < Math.min(1, elapsed / total) - 0.1;

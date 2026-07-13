@@ -1,5 +1,6 @@
 import type { Env } from '../_shared/env';
 import { getSessionUser } from '../_shared/auth';
+import { validateAppStatePayload } from '../_shared/appState';
 import { json } from '../_shared/http';
 
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5MB
@@ -32,6 +33,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     return json({ error: '保存データの読み込みに失敗しました' }, { status: 500 });
   }
 
+  const validation = validateAppStatePayload(appState);
+  if (!validation.ok) {
+    return json({ error: `保存データが破損しています: ${validation.error ?? '形式不明'}` }, { status: 500 });
+  }
+
   return json({ appState, updatedAt: row.updated_at });
 };
 
@@ -51,8 +57,9 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
     return json({ error: 'リクエストの形式が正しくありません' }, { status: 400 });
   }
 
-  if (typeof appState !== 'object' || appState === null || Array.isArray(appState)) {
-    return json({ error: '学習データの形式が正しくありません' }, { status: 400 });
+  const validation = validateAppStatePayload(appState);
+  if (!validation.ok) {
+    return json({ error: validation.error ?? '学習データの形式が正しくありません' }, { status: 400 });
   }
 
   const expectedHeader = request.headers.get('X-Data-Version');

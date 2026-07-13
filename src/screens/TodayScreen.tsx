@@ -11,6 +11,14 @@ import { SubjectChip, TaskTypeChip, EmptyState } from '../components/ui/bits';
 import { TaskRow } from '../components/cards/TaskRow';
 import { Confetti } from '../components/ui/Confetti';
 import { useToast } from '../components/ui/Toast';
+import type { StudyTask } from '../types';
+
+
+export function plannedTaskCompletionRate(tasks: readonly StudyTask[]): number {
+  const planned = tasks.filter((task) => task.status !== 'skipped');
+  if (planned.length === 0) return 0;
+  return planned.filter((task) => task.status === 'done').length / planned.length;
+}
 
 const STATUS_UI = {
   ahead: { label: '余裕あり', cls: 'status-ok', icon: '🚀' },
@@ -67,7 +75,7 @@ export function TodayScreen({
 
   const topTask = [...pending].sort((a, b) => b.priority - a.priority)[0] ?? null;
   const plannedMinutes = todayTasks.filter((x) => x.status !== 'skipped').reduce((s, x) => s + x.estimatedMinutes, 0);
-  const doneRate = plannedMinutes > 0 ? Math.min(1, analytics.todayMinutes / plannedMinutes) : analytics.todayMinutes > 0 ? 1 : 0;
+  const doneRate = plannedTaskCompletionRate(todayTasks);
   const daysLeft = state.goal ? diffDays(t, state.goal.examDate) : null;
   const su = STATUS_UI[dayStatus];
   const topSubject = topTask ? state.subjects.find((s) => s.id === topTask.subjectId) : null;
@@ -114,7 +122,7 @@ export function TodayScreen({
         </div>
         <div className="hero-stats">
           <div className="hero-ring">
-            <ProgressRing value={doneRate} label={`${Math.round(doneRate * 100)}%`} sublabel="達成率" />
+            <ProgressRing value={doneRate} label={`${Math.round(doneRate * 100)}%`} sublabel="予定完了" />
           </div>
           <div className="hero-numbers">
             <div className="stat-block">

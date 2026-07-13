@@ -1,18 +1,39 @@
-/** D1全体保存の楽観的ロック・応答安全性の回帰テスト。 */
+/** D1全体保存の楽観的ロック・応答安全性・構造検証の回帰テスト。 */
 /// <reference types="node" />
 /// <reference types="@cloudflare/workers-types" />
 import { nextDataVersion, onRequestGet, onRequestPut, utf8ByteLength } from '../functions/api/data';
 
 let failures = 0;
 function check(name: string, condition: boolean, detail?: unknown) {
-  if (condition) console.log(`  ✅ ${name}`);
+  if (condition) console.log(`  PASS ${name}`);
   else {
     failures += 1;
-    console.error(`  ❌ ${name}`, detail ?? '');
+    console.error(`  FAIL ${name}`, detail ?? '');
   }
 }
 
-let appState = JSON.stringify({ value: 'initial' });
+function validState(value: string) {
+  return {
+    version: 4,
+    schemaVersion: 4,
+    isDemo: false,
+    onboarded: true,
+    goal: null,
+    subjects: [],
+    materials: [],
+    tasks: [],
+    sessions: [],
+    availability: [],
+    dayPlans: [],
+    fixedEvents: [],
+    settings: { theme: 'auto' },
+    lastReschedule: null,
+    lastPlannedDate: null,
+    value,
+  };
+}
+
+let appState = JSON.stringify(validState('initial'));
 let version = '2026-07-11T00:00:00.000Z';
 
 const db = {
@@ -63,7 +84,7 @@ async function putBody(body: string, expectedVersion?: string) {
 }
 
 async function put(value: string, expectedVersion?: string) {
-  return putBody(JSON.stringify({ value }), expectedVersion);
+  return putBody(JSON.stringify(validState(value)), expectedVersion);
 }
 
 console.log('--- D1全体保存API ---');
@@ -90,6 +111,24 @@ check('UTF-8バイト数で日本語・絵文字を計測する', utf8ByteLength
 
 const arrayResponse = await putBody('[]', version);
 check('配列をAppStateとして受理しない', arrayResponse.status === 400, arrayResponse.status);
+const malformedResponse = await putBody(JSON.stringify({
+  onboarded: true,
+  settings: {},
+  subjects: [],
+  materials: 'broken',
+  tasks: [],
+  sessions: [],
+}), version);
+check('構造が壊れたAppStateを保存しない', malformedResponse.status === 400, malformedResponse.status);
+
+const validSnapshot = appState;
+appState = JSON.stringify({ onboarded: true, settings: {}, subjects: [], materials: 'broken', tasks: [], sessions: [] });
+const corruptedGet = await onRequestGet({
+  request: new Request('https://example.test/api/data', { headers: { Cookie: 'sc_session=session' } }),
+  env: { DB: db },
+} as Parameters<typeof onRequestGet>[0]) as Response;
+check('D1内の破損AppStateをクライアントへ返さない', corruptedGet.status === 500, corruptedGet.status);
+appState = validSnapshot;
 
 const multibyteOversize = JSON.stringify({ value: '😀'.repeat(1_400_000) });
 check('多バイト本文fixtureは文字数5MB未満かつ実バイト5MB超', multibyteOversize.length < 5 * 1024 * 1024

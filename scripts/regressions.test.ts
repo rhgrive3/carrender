@@ -2,13 +2,14 @@
 /// <reference types="node" />
 import { addDays, today } from '../src/lib/date';
 import { computeAnalytics } from '../src/lib/analytics';
-import { computeCapacity, generatePlan, subjectAchievementMap } from '../src/lib/scheduler';
+import { computeCapacity, computeDayStatus, generatePlan, subjectAchievementMap } from '../src/lib/scheduler';
 import { clearOwnedState, normalizeState, saveState } from '../src/lib/storage';
 import { isPlacedPlanTask, plannedMaterialAmountThrough } from '../src/lib/taskFilters';
 import { adjustCompletedRanges, appReducer, createUndoEntry, emptyState, isUndoEntryValid, UNDO_WINDOW_MS } from '../src/state/AppContext';
 import { parseNumericDraft, sanitizeNumericDraft } from '../src/components/ui/bits';
 import { mergeStudySettings, mergeTimerSettings, reconcileSectionDraft, studySettingsDraft } from '../src/lib/settingsSections';
 import { validateMaterialDates } from '../src/lib/materialValidation';
+import { plannedTaskCompletionRate } from '../src/screens/TodayScreen';
 import type { AppState, Material, StudyTask } from '../src/types';
 
 let failures = 0;
@@ -162,6 +163,9 @@ console.log('--- 表示・分析・容量 ---');
   const hidden = task({ id: 'hidden', estimatedMinutes: 600, placementStatus: 'unscheduled' });
   const postponed = task({ id: 'postponed', estimatedMinutes: 600, status: 'postponed' });
   check('共通フィルターは未配置と延期を除外', isPlacedPlanTask(visible) && !isPlacedPlanTask(hidden) && !isPlacedPlanTask(postponed));
+  const completionTasks = [task({ id: 'completion-done', status: 'done' }), task({ id: 'completion-pending', status: 'planned' })];
+  check('今日の達成率は予定タスクの完了件数で計算', plannedTaskCompletionRate(completionTasks) === 0.5, plannedTaskCompletionRate(completionTasks));
+  check('予定がない日は無関係な学習時間で100%扱いにしない', plannedTaskCompletionRate([]) === 0);
   const duplicate = task({ id: 'duplicate', scheduledDate: visible.scheduledDate });
   check('目標グラフ用の教材範囲は重複タスクを和集合で数える', plannedMaterialAmountThrough([visible, duplicate, hidden], material.id, material.totalAmount, ref) === 11);
   check('旧データの初期進捗と完了タスク範囲を二重計上しない', plannedMaterialAmountThrough(
@@ -188,9 +192,41 @@ console.log('--- 表示・分析・容量 ---');
   ] });
   check('科目達成率は延期・衝突残骸を予定件数へ含めない', subjectAchievementMap(polluted, ref).get(subject.id) === 1, subjectAchievementMap(polluted, ref));
 
+  const pausedBehind = state({
+    materials: [{ ...material, paused: true, startDate: addDays(ref, -20), doneAmount: 0, completedRanges: [] }],
+    tasks: [],
+    goal: { id: 'paused-goal', name: '試験', examDate: addDays(ref, 60), createdAt: new Date().toISOString() },
+  });
+  check('一時停止教材は今日の遅れ判定へ含めない', computeDayStatus(pausedBehind, ref) !== 'slightlyBehind', computeDayStatus(pausedBehind, ref));
+
   const conflict = task({ placementLock: 'time', scheduledStart: '01:00', scheduledEnd: '02:50' });
   const conflictedPlan = generatePlan(state({ tasks: [conflict] }), ref, 'capacity conflict', { now: new Date(`${ref}T12:00:00+09:00`) });
   check('固定衝突がある計画は旧capacity.okをtrueにしない', conflictedPlan.result.capacity.ok === false, conflictedPlan.result.capacity);
+}
+
+console.log('--- 初期設定の時間帯 ---');
+{
+  const initialized = appReducer(emptyState(), {
+    type: 'COMPLETE_ONBOARDING',
+    input: {
+      goalName: '試験',
+      examDate: addDays(ref, 30),
+      subjects: [{ name: '数学', color: '#4f7cff', importance: 3, weakness: 3 }],
+      weekdayMinutes: 720,
+      weekendMinutes: 720,
+      materials: [],
+    },
+  });
+  const weekday = initialized.availability.find((slot) => slot.weekday === 1)!;
+  const weekend = initialized.availability.find((slot) => slot.weekday === 0)!;
+  check('初期設定の長時間入力でも日付をまたぐ無効時間帯を作らない',
+    weekday.windows.length === 1
+      && weekday.windows[0].start < weekday.windows[0].end
+      && weekend.windows.length === 1
+      && weekend.windows[0].start < weekend.windows[0].end,
+    initialized.availability,
+  );
+  check('初期設定の分数は実際の時間帯へクランプ', weekday.minutes <= 359 && weekend.minutes <= 899, initialized.availability);
 }
 
 console.log('--- 記録編集・削除の再構築 ---');

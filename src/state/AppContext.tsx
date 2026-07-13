@@ -13,7 +13,7 @@ import type {
   Subject,
   UserGoal,
 } from '../types';
-import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, normalizeState, STATE_VERSION } from '../lib/storage';
+import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, isAppStateShape, migrateState, STATE_VERSION } from '../lib/storage';
 import { generatePlan, normalizeUnitRanges, remainingUnitRanges, sumRangeLengths, updateMinutesPerUnitEstimate } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
 import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
@@ -23,6 +23,13 @@ import { useAuth } from './AuthContext';
 import { apiGetData, apiPutData } from '../lib/api';
 import type { ApiError } from '../lib/api';
 import { compareTaskDisplayOrder, isPlacedPlanTask } from '../lib/taskFilters';
+import {
+  decideInitialSync,
+  getMainSyncMetadata,
+  markMainSyncClean,
+  markMainSyncDirty,
+  saveMainSyncConflictBackup,
+} from '../lib/mainSync';
 
 // ============================================================
 // アクション定義
@@ -445,12 +452,12 @@ export function appReducer(state: AppState, action: Action): AppState {
 
     case 'COMPLETE_ONBOARDING': {
       const inp = action.input;
-      const subjects: Subject[] = inp.subjects.map((s) => ({
+      const subjects: Subject[] = (inp.subjects.length > 0 ? inp.subjects : [{ name: '未分類', color: '#6366f1', importance: 3 as const, weakness: 3 as const }]).map((subject) => ({
         id: genId('subj'),
-        name: s.name,
-        color: s.color,
-        importance: s.importance,
-        weakness: s.weakness,
+        name: subject.name,
+        color: subject.color,
+        importance: subject.importance,
+        weakness: subject.weakness,
       }));
       const materials: Material[] = inp.materials.map((m) => ({
         id: genId('mat'),
@@ -482,10 +489,13 @@ export function appReducer(state: AppState, action: Action): AppState {
       }));
       const defaultSlots = defaultAvailability();
       const availability: AvailabilitySlot[] = ([0, 1, 2, 3, 4, 5, 6] as const).map((wd) => {
-        const minutes = wd === 0 || wd === 6 ? inp.weekendMinutes : inp.weekdayMinutes;
+        const requestedMinutes = wd === 0 || wd === 6 ? inp.weekendMinutes : inp.weekdayMinutes;
         const fallback = defaultSlots.find((slot) => slot.weekday === wd)!;
         const start = wd === 0 || wd === 6 ? '09:00' : '18:00';
         const startMin = hmToMinutes(start);
+        // Availability windows do not cross midnight. Clamp malformed or old
+        // onboarding input instead of producing an end time earlier than start.
+        const minutes = Math.max(0, Math.min(Math.floor(requestedMinutes), 24 * 60 - 1 - startMin));
         return { ...fallback, minutes, windows: minutes > 0 ? [{ start, end: minutesToHM(startMin + minutes) }] : [] };
       });
       const base: AppState = {
@@ -780,6 +790,12 @@ export function emptyState(): AppState {
 
 export type SyncStatus = 'syncing' | 'synced' | 'offline' | 'conflict' | 'error';
 
+export interface MainSyncConflict {
+  remoteState: AppState;
+  remoteUpdatedAt: string;
+  localBaseUpdatedAt: string | null;
+}
+
 export interface AppCommandResult {
   changed: boolean;
   scheduleStatus?: import('../types').ScheduleGenerationStatus;
@@ -813,11 +829,24 @@ interface AppContextValue {
   dispatch: (action: Action) => void;
   execute: (action: Action) => AppCommandResult;
   syncStatus: SyncStatus;
+  syncConflict: MainSyncConflict | null;
+  hasUnsyncedChanges: boolean;
+  resolveSyncConflict: (choice: 'local' | 'cloud') => Promise<void>;
+  retrySync: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 const DATA_PUSH_DEBOUNCE_MS = 900;
+
+export function normalizeCloudState(value: unknown): AppState {
+  if (!isAppStateShape(value)) throw new Error('クラウドの学習データ形式が正しくありません');
+  const migration = migrateState(value);
+  if (!migration.ok) {
+    throw new Error(`クラウドデータを移行できません: ${migration.errors.map((error) => `${error.targetId}.${error.field}`).join(', ')}`);
+  }
+  return migration.state;
+}
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -892,32 +921,142 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [rememberUndo]);
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
   const skipInitialLocalWrite = useRef(true);
-
+  const lastLocallyTrackedState = useRef(state);
   const [syncReady, setSyncReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
+  const [syncConflictInfo, setSyncConflictInfo] = useState<MainSyncConflict | null>(null);
+  const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPush = useRef(false);
   const remoteUpdatedAt = useRef<string | null | undefined>(undefined);
   const pushChain = useRef<Promise<void>>(Promise.resolve());
   const syncConflict = useRef(false);
   const remoteKnown = useRef(false);
-  // D1から読んだ状態を reducer に反映した直後は、状態変更用 effect がそれを
-  // 再送しないようにする。これにより409後の再読み込みでも古い端末キャッシュが
-  // 最新D1を上書きする経路を作らない。
   const skipNextRemotePush = useRef(false);
+  const skipNextLocalDirty = useRef(false);
   const [syncAttempt, setSyncAttempt] = useState(0);
+
+  const markLocalClean = useCallback((updatedAt: string | null) => {
+    if (owner) markMainSyncClean(owner, updatedAt);
+    setHasUnsyncedChanges(false);
+  }, [owner]);
+
+  const markLocalDirty = useCallback(() => {
+    if (!owner) return;
+    const stored = getMainSyncMetadata(owner);
+    const base = remoteUpdatedAt.current !== undefined
+      ? remoteUpdatedAt.current
+      : stored?.baseUpdatedAt ?? null;
+    markMainSyncDirty(owner, base);
+    setHasUnsyncedChanges(true);
+  }, [owner]);
+
+  const finishSuccessfulPush = useCallback((snapshot: AppState, updatedAt: string) => {
+    remoteUpdatedAt.current = updatedAt;
+    remoteKnown.current = true;
+    syncConflict.current = false;
+    setSyncConflictInfo(null);
+    // A newer local edit may have landed while this request was in flight. In
+    // that case the saved generation becomes the new base, but the device must
+    // remain dirty until the newer snapshot is sent.
+    if (stateRef.current === snapshot) {
+      pendingPush.current = false;
+      markLocalClean(updatedAt);
+      setSyncStatus('synced');
+    } else {
+      pendingPush.current = true;
+      if (owner) {
+        markMainSyncClean(owner, updatedAt);
+        markMainSyncDirty(owner, updatedAt);
+      }
+      setHasUnsyncedChanges(true);
+      setSyncStatus('syncing');
+    }
+  }, [markLocalClean, owner]);
+
+  const establishConflict = useCallback((appState: unknown, updatedAt: string | null, localBaseUpdatedAt: string | null) => {
+    if (!updatedAt) throw new Error('クラウド側の更新世代を確認できません');
+    const remoteState = normalizeCloudState(appState);
+    remoteUpdatedAt.current = updatedAt;
+    remoteKnown.current = true;
+    pendingPush.current = true;
+    syncConflict.current = true;
+    setSyncConflictInfo({ remoteState, remoteUpdatedAt: updatedAt, localBaseUpdatedAt });
+    setHasUnsyncedChanges(true);
+    setSyncStatus('conflict');
+  }, []);
+
+  const applyCloudState = useCallback((remoteState: AppState, updatedAt: string) => {
+    skipNextLocalDirty.current = true;
+    skipNextRemotePush.current = true;
+    dispatch({ type: 'IMPORT_STATE', state: remoteState });
+    saveStateNow(stateRef.current);
+    lastLocallyTrackedState.current = stateRef.current;
+    remoteUpdatedAt.current = updatedAt;
+    remoteKnown.current = true;
+    pendingPush.current = false;
+    syncConflict.current = false;
+    setSyncConflictInfo(null);
+    markLocalClean(updatedAt);
+    setSyncStatus('synced');
+  }, [dispatch, markLocalClean]);
+
+  const pushToD1 = useCallback((nextState: AppState) => {
+    pushChain.current = pushChain.current.then(async () => {
+      if (syncConflict.current) return;
+      if (!remoteKnown.current) {
+        pendingPush.current = true;
+        setSyncStatus(typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'error');
+        return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        pendingPush.current = true;
+        setSyncStatus('offline');
+        return;
+      }
+      try {
+        const saved = await apiPutData(nextState, remoteUpdatedAt.current);
+        finishSuccessfulPush(nextState, saved.updatedAt);
+      } catch (caught) {
+        const error = caught as ApiError;
+        pendingPush.current = true;
+        if (error.status === 409) {
+          try {
+            const latest = await apiGetData();
+            const metadata = owner ? getMainSyncMetadata(owner) : null;
+            if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
+            else setSyncStatus('error');
+          } catch (refreshError) {
+            const refresh = refreshError as ApiError;
+            setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');
+          }
+        } else {
+          setSyncStatus(error.isNetworkError ? 'offline' : 'error');
+        }
+      }
+    });
+    return pushChain.current;
+  }, [establishConflict, finishSuccessfulPush, owner]);
 
   useEffect(() => {
     if (!owner) return;
-    // 起動直後の reducer state を「今更新したローカル」と誤認しない。
     if (skipInitialLocalWrite.current) {
       skipInitialLocalWrite.current = false;
       setStateOwner(owner);
+      setHasUnsyncedChanges(getMainSyncMetadata(owner)?.dirty ?? false);
+      lastLocallyTrackedState.current = state;
       return;
     }
     saveState(state);
     setStateOwner(owner);
-  }, [state, owner]);
+    if (skipNextLocalDirty.current) {
+      skipNextLocalDirty.current = false;
+      lastLocallyTrackedState.current = state;
+      return;
+    }
+    markLocalDirty();
+    lastLocallyTrackedState.current = state;
+  }, [markLocalDirty, owner, state]);
 
   useEffect(() => {
     const checkDate = () => dispatch({ type: 'CHECK_DATE_CHANGE' });
@@ -930,23 +1069,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []);
+  }, [dispatch]);
 
-  // タブ非表示・終了時に即保存(iOS PWA対策)
+  // iOS PWA may suspend the page before debounced effects run. Persist the
+  // latest reducer snapshot and durable dirty marker from refs on pagehide.
   useEffect(() => {
     const onHide = () => {
-      if (document.visibilityState === 'hidden') saveStateNow(state);
+      const current = stateRef.current;
+      saveStateNow(current);
+      if (current !== lastLocallyTrackedState.current && !skipNextLocalDirty.current) {
+        markLocalDirty();
+        lastLocallyTrackedState.current = current;
+      }
+      if (remoteKnown.current && syncReady && !syncConflict.current) void pushToD1(current);
     };
-    document.addEventListener('visibilitychange', onHide);
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') onHide();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onHide);
     return () => {
-      document.removeEventListener('visibilitychange', onHide);
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onHide);
     };
-  }, [state]);
+  }, [markLocalDirty, pushToD1, syncReady]);
 
-  // 初回ログイン時: D1に既存データがあればそれを正として読み込み、
-  // なければ端末内の既存データをD1へ移行する
+  // Startup reconciliation. A durable dirty snapshot is never replaced by a
+  // different remote generation without an explicit user choice.
   useEffect(() => {
     if (!owner) return;
     let cancelled = false;
@@ -954,33 +1103,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
     remoteKnown.current = false;
     pushChain.current = Promise.resolve();
     syncConflict.current = false;
+    setSyncConflictInfo(null);
     setSyncReady(false);
     setSyncStatus('syncing');
     (async () => {
       try {
-        const res = await apiGetData();
+        const response = await apiGetData();
         if (cancelled) return;
-        remoteUpdatedAt.current = res.updatedAt;
+        remoteUpdatedAt.current = response.updatedAt;
         remoteKnown.current = true;
-        // localStorageの保存時刻は「この端末にキャッシュした時刻」にすぎず、
-        // 別端末との世代比較には使えない。D1にデータが存在するなら必ずそれを
-        // 正として読み込み、ローカルの古いスナップショットを自動送信しない。
-        if (res.appState) {
-          skipNextRemotePush.current = true;
-          dispatch({ type: 'IMPORT_STATE', state: normalizeState(res.appState as AppState) });
-        } else if (stateRef.current.onboarded) {
-          const saved = await apiPutData(stateRef.current, res.appState ? res.updatedAt : null);
-          remoteUpdatedAt.current = saved.updatedAt;
-        }
-        if (!cancelled) setSyncStatus('synced');
-      } catch (e) {
-        if (cancelled) return;
-        const err = e as ApiError;
-        if (err.status === 409) {
-          syncConflict.current = true;
-          setSyncStatus('conflict');
+        const metadata = getMainSyncMetadata(owner);
+        const localState = stateRef.current;
+        const decision = decideInitialSync({
+          metadata,
+          remoteUpdatedAt: response.updatedAt,
+          hasRemoteState: Boolean(response.appState),
+          hasLocalState: localState.onboarded,
+        });
+
+        if (decision === 'useRemote') {
+          applyCloudState(normalizeCloudState(response.appState), response.updatedAt!);
+        } else if (decision === 'pushLocal') {
+          if (localState.onboarded) {
+            const saved = await apiPutData(localState, response.updatedAt);
+            finishSuccessfulPush(localState, saved.updatedAt);
+            skipNextRemotePush.current = stateRef.current === localState;
+          } else {
+            markLocalClean(response.updatedAt);
+            pendingPush.current = false;
+            skipNextRemotePush.current = true;
+            setSyncStatus('synced');
+          }
+        } else if (decision === 'conflict') {
+          establishConflict(response.appState, response.updatedAt, metadata?.baseUpdatedAt ?? null);
         } else {
-          setSyncStatus(err.isNetworkError ? 'offline' : 'error');
+          markLocalClean(null);
+          pendingPush.current = false;
+          skipNextRemotePush.current = true;
+          setSyncStatus('synced');
+        }
+      } catch (caught) {
+        if (cancelled) return;
+        const error = caught as ApiError;
+        if (error.status === 409) {
+          try {
+            const latest = await apiGetData();
+            const metadata = getMainSyncMetadata(owner);
+            if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
+            else setSyncStatus('error');
+          } catch (refreshError) {
+            const refresh = refreshError as ApiError;
+            setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');
+          }
+        } else {
+          setSyncStatus(error.isNetworkError ? 'offline' : 'error');
         }
       } finally {
         if (!cancelled) setSyncReady(true);
@@ -989,78 +1165,69 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [owner, syncAttempt]);
+  }, [applyCloudState, establishConflict, finishSuccessfulPush, markLocalClean, owner, syncAttempt]);
 
-  const pushToD1 = useCallback((nextState: AppState) => {
-    pushChain.current = pushChain.current.then(async () => {
-      if (syncConflict.current) return;
-      if (!remoteKnown.current) {
-        // GET失敗後にバージョンなしPUTで新しいD1を消さない。
-        pendingPush.current = true;
-        return;
-      }
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        pendingPush.current = true;
-        setSyncStatus('offline');
-        return;
-      }
-      try {
-        const saved = await apiPutData(nextState, remoteUpdatedAt.current);
-        remoteUpdatedAt.current = saved.updatedAt;
-        pendingPush.current = false;
-        setSyncStatus('synced');
-      } catch (e) {
-        const err = e as ApiError;
-        if (err.status === 409) {
-          syncConflict.current = true;
-          pendingPush.current = false;
-          setSyncStatus('conflict');
-        } else {
-          pendingPush.current = true;
-          setSyncStatus(err.isNetworkError ? 'offline' : 'error');
-        }
-      }
-    });
-    return pushChain.current;
-  }, []);
-
-  // localStorageだけで終わらせず、終了直前にも既知世代への条件付きPUTを発行する。
-  // 完了直後にアプリを閉じた場合でも、次回起動時のD1巻き戻しを最小化する。
   useEffect(() => {
-    const flushRemote = () => {
-      if (remoteKnown.current && syncReady) void pushToD1(stateRef.current);
-    };
-    window.addEventListener('pagehide', flushRemote);
-    return () => window.removeEventListener('pagehide', flushRemote);
-  }, [pushToD1, syncReady]);
-
-  // 状態変化をD1へデバウンス反映(オフライン時はlocalStorageのみに保存し、オンライン復帰後に再送)
-  useEffect(() => {
-    if (!syncReady || !owner) return;
+    if (!syncReady || !owner || syncConflict.current) return;
     if (skipNextRemotePush.current) {
       skipNextRemotePush.current = false;
       return;
     }
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
-      pushToD1(stateRef.current);
+      void pushToD1(stateRef.current);
     }, DATA_PUSH_DEBOUNCE_MS);
     return () => {
       if (pushTimer.current) clearTimeout(pushTimer.current);
     };
-  }, [state, syncReady, owner, pushToD1]);
+  }, [owner, pushToD1, state, syncReady]);
 
   useEffect(() => {
     const onOnline = () => {
+      if (syncConflict.current) return;
       if (!remoteKnown.current) setSyncAttempt((attempt) => attempt + 1);
-      else if (pendingPush.current) pushToD1(stateRef.current);
+      else if (pendingPush.current) void pushToD1(stateRef.current);
     };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
   }, [pushToD1]);
 
-  const value = useMemo(() => ({ state, dispatch, execute, syncStatus }), [state, dispatch, execute, syncStatus]);
+  const resolveSyncConflict = useCallback(async (choice: 'local' | 'cloud') => {
+    const conflict = syncConflictInfo;
+    if (!owner || !conflict) return;
+    saveMainSyncConflictBackup({
+      owner,
+      createdAt: new Date().toISOString(),
+      localBaseUpdatedAt: conflict.localBaseUpdatedAt,
+      remoteUpdatedAt: conflict.remoteUpdatedAt,
+      localState: stateRef.current,
+      remoteState: conflict.remoteState,
+    });
+    setSyncStatus('syncing');
+    if (choice === 'cloud') {
+      applyCloudState(conflict.remoteState, conflict.remoteUpdatedAt);
+      return;
+    }
+    try {
+      const snapshot = stateRef.current;
+      const saved = await apiPutData(snapshot, conflict.remoteUpdatedAt);
+      finishSuccessfulPush(snapshot, saved.updatedAt);
+    } catch (caught) {
+      const error = caught as ApiError;
+      if (error.status === 409) {
+        const latest = await apiGetData();
+        const metadata = getMainSyncMetadata(owner);
+        if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
+      } else {
+        setSyncStatus(error.isNetworkError ? 'offline' : 'error');
+      }
+      throw caught;
+    }
+  }, [applyCloudState, establishConflict, finishSuccessfulPush, owner, syncConflictInfo]);
+
+  const retrySync = useCallback(() => setSyncAttempt((attempt) => attempt + 1), []);
+
+  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync]);
   if (owner && !syncReady) {
     return <div className="screen"><div className="card">クラウドの最新データを確認中…</div></div>;
   }

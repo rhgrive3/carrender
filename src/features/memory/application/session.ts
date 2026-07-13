@@ -141,6 +141,7 @@ export async function createStudySession(input: {
     count,
     seed,
     modeWeights: selectionModeWeights(input.config),
+    strategy: input.config.questionCount.type === 'weak' ? 'weak' : 'adaptive',
   });
   const queue = createSessionQueue(targets, seed);
   const now = new Date().toISOString();
