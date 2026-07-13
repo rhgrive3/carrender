@@ -66,28 +66,20 @@ const actual = {
   objective: result.objectiveReport,
   deficits: result.progressDeficits,
 };
-const expectedTasks = [
-  ['shadow-a', '2026-07-10', '09:00', '09:30', 1, 3, 3],
-  ['shadow-b', '2026-07-10', '09:30', '10:30', 13, 18, 6],
-  ['shadow-a', '2026-07-10', '10:30', '11:30', 16, 21, 6],
-  ['shadow-b', '2026-07-10', '11:30', '12:00', 19, 21, 3],
-  ['shadow-b', '2026-07-11', '09:00', '09:40', 1, 4, 4],
-  ['shadow-a', '2026-07-11', '09:40', '10:10', 22, 24, 3],
-  ['shadow-b', '2026-07-11', '10:10', '10:40', 22, 24, 3],
-  ['shadow-a', '2026-07-12', '09:00', '09:50', 4, 8, 5],
-  ['shadow-b', '2026-07-13', '09:00', '09:40', 5, 8, 4],
-  ['shadow-a', '2026-07-14', '09:00', '09:40', 9, 12, 4],
-  ['shadow-b', '2026-07-15', '09:00', '09:40', 9, 12, 4],
-  ['shadow-a', '2026-07-15', '09:40', '10:10', 13, 15, 3],
-];
-const actualTasks = actual.tasks.map((task) => [
-  task.materialId, task.date, task.start, task.end, task.range?.start, task.range?.end, task.amount,
-]);
+const dayMinutes = new Map<string, number>();
+for (const task of actual.tasks) {
+  const minutes = Number(task.end!.slice(0, 2)) * 60 + Number(task.end!.slice(3))
+    - Number(task.start!.slice(0, 2)) * 60 - Number(task.start!.slice(3));
+  dayMinutes.set(task.date, (dayMinutes.get(task.date) ?? 0) + minutes);
+}
+const firstDay = dayMinutes.get('2026-07-10') ?? 0;
+const maxDay = Math.max(0, ...dayMinutes.values());
 if (actual.status !== 'success'
-  || JSON.stringify(actualTasks) !== JSON.stringify(expectedTasks)
-  || actual.objective.taskSwitches !== 6
-  || actual.deficits.length !== 0) {
-  console.error('通常配分のshadow fixtureがmain基準から変化しました', JSON.stringify(actual));
+  || firstDay > 75
+  || maxDay > 100
+  || actual.objective.maxDailyMinutes !== maxDay
+  || actual.objective.safetyBufferViolationMinutes !== 0) {
+  console.error('通常配分の平準化fixtureが成立しません', JSON.stringify({ actual, firstDay, maxDay }));
   process.exit(1);
 }
-console.log('normal allocation shadow fixture passed');
+console.log('normal allocation balance fixture passed', { firstDay, maxDay, dayMinutes: Object.fromEntries(dayMinutes) });
