@@ -40,35 +40,15 @@ jobs:
       - name: Unit and regression tests
         run: npm test
 
-      - name: Integration tests
-        run: npm run test:integration
+      - name: Cloudflare API integration tests
+        run: npm run test:integration:api
 
       - name: Production build
         run: npm run build
 
-      - name: Upload review source snapshot
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: review-source-${{ github.sha }}
-          retention-days: 1
-          if-no-files-found: error
-          path: |
-            src
-            functions
-            scripts
-            schema
-            migrations
-            package.json
-            package-lock.json
-            tsconfig*.json
-            vite.config.ts
-            wrangler.toml
-            index.html
-
-  e2e:
+  browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,6 +64,9 @@ jobs:
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
+
+      - name: IndexedDB browser integration tests
+        run: npm run test:integration:browser
 
       - name: Browser end-to-end tests
         run: npm run test:e2e
