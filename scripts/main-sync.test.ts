@@ -41,11 +41,17 @@ const v2 = '2026-07-14T00:01:00.000Z';
 
 console.log('--- Main sync: startup reconciliation ---');
 clearMainSyncMetadata();
-check('クラウドだけにデータがあればクラウド版を採用', decideInitialSync({
+check('旧クライアント由来で両方にデータがある場合は自動上書きしない', decideInitialSync({
   metadata: null,
   remoteUpdatedAt: v1,
   hasRemoteState: true,
   hasLocalState: true,
+}) === 'conflict');
+check('端末データがない初回ログインではクラウド版を採用', decideInitialSync({
+  metadata: null,
+  remoteUpdatedAt: v1,
+  hasRemoteState: true,
+  hasLocalState: false,
 }) === 'useRemote');
 check('クラウドが空で端末データがあれば端末版を初回送信', decideInitialSync({
   metadata: null,
