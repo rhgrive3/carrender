@@ -9,6 +9,7 @@ export interface MemorySyncResult {
   uploadedAttempts: number;
   conflicts: number;
   hasMore: boolean;
+  errorMessage?: string;
 }
 
 const activeSyncs = new WeakMap<MemoryRepository, Promise<MemorySyncResult>>();
@@ -113,6 +114,7 @@ async function performSyncRound(repository: MemoryRepository): Promise<MemorySyn
       hasMore: false,
       remoteHasMore: false,
       localBatchFull: false,
+      errorMessage: error.message,
     };
   }
 }
@@ -138,6 +140,7 @@ async function performSync(repository: MemoryRepository): Promise<MemorySyncResu
       uploadedAttempts: aggregate.uploadedAttempts + lastRound.uploadedAttempts,
       conflicts: aggregate.conflicts + lastRound.conflicts,
       hasMore: lastRound.hasMore,
+      ...(lastRound.errorMessage ? { errorMessage: lastRound.errorMessage } : {}),
     };
     if (lastRound.status === 'offline' || lastRound.status === 'error' || !lastRound.remoteHasMore) break;
   }
@@ -170,6 +173,7 @@ export async function flushMemorySync(repository: MemoryRepository, maximumRound
       uploadedAttempts: aggregate.uploadedAttempts + result.uploadedAttempts,
       conflicts: aggregate.conflicts + result.conflicts,
       hasMore: result.hasMore,
+      ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
     };
     if (result.status === 'offline' || result.status === 'error' || !result.hasMore) break;
   }
