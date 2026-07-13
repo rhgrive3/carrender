@@ -34,7 +34,7 @@ export function TodayScreen({
   memoryWeakCount?: number;
   recentMemorySession?: { answerCount: number; needsReviewCount: number };
 }) {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, execute } = useApp();
   const timer = useTimer();
   const toast = useToast();
   const [celebrate, setCelebrate] = useState(0);
@@ -230,8 +230,8 @@ export function TodayScreen({
                 className="btn btn-secondary"
                 style={{ flex: 1 }}
                 onClick={() => {
-                  dispatch({ type: 'POSTPONE_TASK', taskId: topTask.id });
-                  toast('明日以降に再配置しました');
+                  const result = execute({ type: 'POSTPONE_TASK', taskId: topTask.id });
+                  toast(result.message ?? '明日以降に再配置しました');
                 }}
               >
                 延期
@@ -266,8 +266,8 @@ export function TodayScreen({
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => {
-                dispatch({ type: 'RESCHEDULE', reason: '未達成タスクの整理' });
-                toast('未達成分を組み込んで再計算しました');
+                const result = execute({ type: 'RESCHEDULE', reason: '未達成タスクの整理' });
+                toast(result.message ?? '未達成分を組み込んで再計算しました');
               }}
             >
               まとめて再配置

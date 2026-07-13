@@ -8,6 +8,7 @@ import { ProgressBar, EmptyState, Rating, NumericInput, Disclosure, Segmented } 
 import { Sheet } from '../components/ui/Sheet';
 import { useToast } from '../components/ui/Toast';
 import { UNIT_OPTIONS } from '../data/defaults';
+import { validateMaterialDates } from '../lib/materialValidation';
 
 const MemoryFeature = lazy(async () => {
   const module = await import('../features/memory/ui/MemoryFeature');
@@ -30,10 +31,11 @@ export function MaterialsScreen({
   pane?: MaterialsPane;
   onPaneChange?: (pane: MaterialsPane) => void;
 }) {
-  const { state } = useApp();
+  const { state, execute } = useApp();
   const t = today();
   const [editTarget, setEditTarget] = useState<Material | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [archiveTab, setArchiveTab] = useState<'active' | 'archived'>('active');
 
   const materials = useMemo(() => {
     const order = { risk: 0, behind: 1, onTrack: 2, ahead: 3 };
@@ -41,9 +43,9 @@ export function MaterialsScreen({
       state.materials.map((m) => [m.id, order[computeMaterialForecast(state, m.id, t)?.status ?? 'onTrack']]),
     );
     return state.materials
-      .filter((m) => !m.archived)
+      .filter((m) => archiveTab === 'archived' ? m.archived : !m.archived)
       .sort((a, b) => (rank.get(a.id) ?? 2) - (rank.get(b.id) ?? 2));
-  }, [state, t]);
+  }, [archiveTab, state, t]);
 
   if (pane === 'memory') {
     return (
@@ -83,6 +85,13 @@ export function MaterialsScreen({
         ariaLabel="教材画面の切替"
       />
 
+      <Segmented
+        options={[{ value: 'active', label: '使用中' }, { value: 'archived', label: 'アーカイブ' }]}
+        value={archiveTab}
+        onChange={setArchiveTab}
+        ariaLabel="教材の状態"
+      />
+
       {materials.length === 0 ? (
         <EmptyState icon="📚" title="教材がまだありません">
           「＋」から教材を追加すると、試験日までの計画を自動で作ります。
@@ -113,9 +122,10 @@ export function MaterialsScreen({
                   )}
                   {m.paused && <span className="status-badge status-warn">一時停止</span>}
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => setEditTarget(m)} aria-label={`${m.name}を編集`}>
-                  編集
-                </button>
+                <div className="row" style={{ gap: 6 }}>
+                  {m.archived && <button className="btn btn-secondary btn-sm" onClick={() => execute({ type: 'UPDATE_MATERIAL', material: { ...m, archived: false } })}>復元</button>}
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditTarget(m)} aria-label={`${m.name}を編集`}>編集</button>
+                </div>
               </div>
 
               <div style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>{m.name}</div>
@@ -183,12 +193,13 @@ export function MaterialsScreen({
   );
 }
 
+
 // ============================================================
 // 教材追加・編集フォーム
 // ============================================================
 
 export function MaterialFormSheet({ material, onClose }: { material: Material | null; onClose: () => void }) {
-  const { state, dispatch } = useApp();
+  const { state, execute } = useApp();
   const toast = useToast();
   const t = today();
   const isEdit = material !== null;
@@ -227,14 +238,8 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       toast('教材名・科目・総量を入力してください');
       return;
     }
-    if (startDate > targetDate) {
-      toast('開始日は目標完了日以前にしてください');
-      return;
-    }
-    if (preferredFinishDate && (preferredFinishDate < startDate || preferredFinishDate > targetDate)) {
-      toast('推奨完了日は開始日から目標完了日の間にしてください');
-      return;
-    }
+    const dateError = validateMaterialDates(startDate, targetDate, preferredFinishDate);
+    if (dateError) { toast(dateError); return; }
     const reviewIntervals = reviewIntervalsText
       .split(',')
       .map((x) => Math.max(1, Number.parseInt(x.trim(), 10)))
@@ -273,16 +278,21 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       archived,
       createdAt: material?.createdAt ?? new Date().toISOString(),
     };
-    dispatch({ type: isEdit ? 'UPDATE_MATERIAL' : 'ADD_MATERIAL', material: payload });
-    toast(isEdit ? '教材を更新して計画を再計算しました' : '教材を追加して計画を再計算しました');
+    const result = execute({ type: isEdit ? 'UPDATE_MATERIAL' : 'ADD_MATERIAL', material: payload });
+    if (result.scheduleStatus === 'invalidInput') { toast(result.message ?? '入力内容を確認してください'); return; }
+    toast(result.message ?? (isEdit ? '教材を更新しました' : '教材を追加しました'));
     onClose();
   };
 
-  const remove = () => {
+  const remove = (deleteSessions = false) => {
     if (!material) return;
-    if (!window.confirm(`「${material.name}」を削除しますか?関連する未完了タスクも消えます。`)) return;
-    dispatch({ type: 'DELETE_MATERIAL', materialId: material.id });
-    toast('教材を削除しました');
+    const description = deleteSessions
+      ? '教材・関連タスク・この教材の学習記録を完全に削除します。分析の集計も減り、取り消せるのは15秒間です。'
+      : '教材と未完了タスクを削除します。完了済みタスクと過去の学習記録は集計のため保持します。';
+    if (!window.confirm(`「${material.name}」を削除しますか？\n\n${description}`)) return;
+    const result = execute({ type: 'DELETE_MATERIAL', materialId: material.id, deleteSessions });
+    if (!result.changed) { toast(result.message ?? '教材を削除できませんでした'); return; }
+    toast(result.message ?? (deleteSessions ? '教材と関連記録を完全削除しました' : '教材を削除しました（記録は保持）'));
     onClose();
   };
 
@@ -338,7 +348,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       </div>
       <div className="field">
         <label htmlFor="mf-target">目標完了日</label>
-        <input id="mf-target" type="date" value={targetDate} min={t} onChange={(e) => setTargetDate(e.target.value)} />
+        <input id="mf-target" type="date" value={targetDate} min={isEdit ? undefined : t} onChange={(e) => setTargetDate(e.target.value)} />
         <div className="field-hint">この日までに終わるよう毎日の計画を自動で組みます。あとは保存するだけでOK。</div>
       </div>
 
@@ -381,7 +391,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
           </div>
           <div className="field">
             <label htmlFor="mf-day-cap">1日上限({unit})</label>
-            <NumericInput id="mf-day-cap" value={maxUnitsPerDay} min={0} placeholder="上限なし" onChange={(v) => setMaxUnitsPerDay(Math.max(0, v))} />
+            <NumericInput id="mf-day-cap" value={maxUnitsPerDay > 0 ? maxUnitsPerDay : null} emptyValue={0} min={0} placeholder="上限なし" onChange={(v) => setMaxUnitsPerDay(Math.max(0, v))} />
           </div>
         </div>
         <div className="field">
@@ -398,7 +408,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
             </div>
             <div className="field">
               <label htmlFor="mf-max-chunk">最大チャンク({unit})</label>
-              <NumericInput id="mf-max-chunk" value={maximumChunkUnits} min={0} placeholder="自動" onChange={(v) => setMaximumChunkUnits(Math.max(0, v))} />
+              <NumericInput id="mf-max-chunk" value={maximumChunkUnits > 0 ? maximumChunkUnits : null} emptyValue={0} min={0} placeholder="自動" onChange={(v) => setMaximumChunkUnits(Math.max(0, v))} />
             </div>
           </div>
         )}
@@ -424,7 +434,8 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
             <NumericInput
               id="mf-daily"
               decimal
-              value={dailyTarget}
+              value={dailyTarget > 0 ? dailyTarget : null}
+              emptyValue={0}
               min={0}
               placeholder="自動計算"
               onChange={(v) => setDailyTarget(v)}
@@ -435,7 +446,8 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
             <NumericInput
               id="mf-weekly"
               decimal
-              value={weeklyTarget}
+              value={weeklyTarget > 0 ? weeklyTarget : null}
+              emptyValue={0}
               min={0}
               placeholder="自動計算"
               onChange={(v) => setWeeklyTarget(v)}
@@ -497,7 +509,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
           </label>
           <label className="check-row">
             <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
-            完了/非表示
+            アーカイブする
           </label>
         </div>
       </Disclosure>
@@ -506,8 +518,13 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
         {isEdit ? '保存して再計算' : '追加して計画に反映'}
       </button>
       {isEdit && (
-        <button className="btn btn-danger btn-block mt-8" onClick={remove}>
-          この教材を削除
+        <button className="btn btn-danger btn-block mt-12" onClick={() => remove(false)}>
+          教材を削除（記録は保持）
+        </button>
+      )}
+      {isEdit && material && state.sessions.some((session) => session.materialId === material.id) && (
+        <button className="btn btn-ghost btn-block mt-8 danger" onClick={() => remove(true)}>
+          教材と学習記録を完全削除
         </button>
       )}
     </Sheet>

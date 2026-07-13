@@ -26,7 +26,7 @@ function useMediaQuery(query: string): boolean {
 }
 
 export function PlanScreen() {
-  const { state, dispatch } = useApp();
+  const { state, execute } = useApp();
   const toast = useToast();
   const t = today();
   const [selected, setSelected] = useState<StudyTask | null>(null);
@@ -88,8 +88,8 @@ export function PlanScreen() {
           className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
           onClick={() => {
-            dispatch({ type: 'RESCHEDULE', reason: '今週の再設計' });
-            toast('1週間の計画を再設計しました');
+            const result = execute({ type: 'RESCHEDULE', reason: '今週の再設計' });
+            toast(result.message ?? '1週間の計画を再設計しました');
           }}
         >
           <RefreshCw size={14} strokeWidth={2.4} aria-hidden="true" /> 今週を再設計
@@ -98,8 +98,8 @@ export function PlanScreen() {
           className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
           onClick={() => {
-            dispatch({ type: 'TODAY_IMPOSSIBLE' });
-            toast('今日の分を明日以降へ分散しました');
+            const result = execute({ type: 'TODAY_IMPOSSIBLE' });
+            toast(result.message ?? '今日の分を明日以降へ分散しました');
           }}
         >
           😮‍💨 今日は無理
@@ -151,8 +151,8 @@ export function PlanScreen() {
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => {
-                dispatch({ type: 'RESCHEDULE', reason: '未達成タスクの再配置' });
-                toast('未達成分を組み込んで再計算しました');
+                const result = execute({ type: 'RESCHEDULE', reason: '未達成タスクの再配置' });
+                toast(result.message ?? '未達成分を組み込んで再計算しました');
               }}
             >
               再配置
@@ -368,7 +368,7 @@ function DayDetailPanel({
   onTaskSelect: (task: StudyTask) => void;
   onAddTask: (date: string) => void;
 }) {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, execute } = useApp();
   const toast = useToast();
   const t = today();
   const dayPlan = dayPlanOn(state, date);
@@ -403,7 +403,7 @@ function DayDetailPanel({
 
   const applyLoad = (nextLoad: typeof load) => {
     setLoad(nextLoad);
-    dispatch({
+    const result = execute({
       type: 'UPDATE_DAY_PLAN',
       dayPlan: {
         date,
@@ -412,7 +412,7 @@ function DayDetailPanel({
         availabilityWindows: dayPlan?.availabilityWindows ?? null,
       },
     });
-    toast('日別負荷を反映して再計算しました');
+    toast(result.message ?? '日別負荷を反映しました');
   };
 
   return (
@@ -458,8 +458,8 @@ function DayDetailPanel({
           className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
           onClick={() => {
-            dispatch({ type: 'RESCHEDULE_FROM', fromDate: date, reason: `${formatDateShort(date)}だけ再計算` });
-            toast('この日以降を再計算しました');
+            const result = execute({ type: 'RESCHEDULE_FROM', fromDate: date, reason: `${formatDateShort(date)}だけ再計算` });
+            toast(result.message ?? 'この日以降を再計算しました');
           }}
         >
           <RefreshCw size={14} strokeWidth={2.4} aria-hidden="true" /> この日を再計算
@@ -532,7 +532,7 @@ function DayDetailPanel({
 }
 
 function TaskListBlock({ title, tasks, onTaskSelect }: { title: string; tasks: StudyTask[]; onTaskSelect: (task: StudyTask) => void }) {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, execute } = useApp();
   const t = today();
   if (tasks.length === 0) return null;
   return (
@@ -564,11 +564,11 @@ function TaskListBlock({ title, tasks, onTaskSelect }: { title: string; tasks: S
                 aria-label={`${task.title}を翌日へ移動`}
                 title={blockedByDueDate ? '期限を過ぎるため移動できません' : undefined}
                 disabled={moveDisabled}
-                onClick={() => dispatch({ type: 'MOVE_TASK', taskId: task.id, date: moveDate })}
+                onClick={() => execute({ type: 'MOVE_TASK', taskId: task.id, date: moveDate })}
               >
                 <SkipForward size={15} strokeWidth={2.2} aria-hidden="true" />
               </button>
-              <button className="line-icon-btn danger" aria-label={`${task.title}を削除`} onClick={() => dispatch({ type: 'DELETE_TASK', taskId: task.id })}>
+              <button className="line-icon-btn danger" aria-label={`${task.title}を削除`} onClick={() => execute({ type: 'DELETE_TASK', taskId: task.id })}>
                 <Trash2 size={15} strokeWidth={2.2} aria-hidden="true" />
               </button>
             </div>
@@ -584,7 +584,7 @@ function TaskListBlock({ title, tasks, onTaskSelect }: { title: string; tasks: S
 // ============================================================
 
 function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void }) {
-  const { state, dispatch } = useApp();
+  const { state, execute } = useApp();
   const toast = useToast();
   const timer = useTimer();
   const t = today();
@@ -607,8 +607,8 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
       toast(`期限(${formatDateShort(task.dueDate)})を過ぎる日には移動できません`);
       return;
     }
-    dispatch({ type: 'MOVE_TASK', taskId: task.id, date });
-    toast(`${formatDateShort(date)}に移動しました`);
+    const result = execute({ type: 'MOVE_TASK', taskId: task.id, date });
+    toast(result.message ?? `${formatDateShort(date)}に移動しました`);
     onClose();
   };
 
@@ -652,7 +652,7 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
       return;
     }
 
-    dispatch({
+    const result = execute({
       type: 'UPDATE_TASK',
       task: {
         ...task,
@@ -675,7 +675,10 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
         updatedAt: new Date().toISOString(),
       },
     });
-    if (avoidedEvent) {
+    if (result.scheduleStatus === 'invalidInput') { toast(result.message ?? '入力内容を確認してください'); return; }
+    if (result.message) {
+      toast(result.message);
+    } else if (avoidedEvent) {
       toast(`固定予定を避けて${formatDateShort(finalDate)} ${finalStart}〜に調整しました`);
     } else if (!finalStart) {
       toast('開始時刻なしの日付固定タスクとして保存しました');
@@ -776,8 +779,8 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
           style={{ flex: 1 }}
           disabled={isDone}
           onClick={() => {
-            dispatch({ type: 'POSTPONE_TASK', taskId: task.id });
-            toast('明日以降に再配置しました');
+            const result = execute({ type: 'POSTPONE_TASK', taskId: task.id });
+            toast(result.message ?? '明日以降に再配置しました');
             onClose();
           }}
         >
@@ -791,8 +794,8 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
         className="btn btn-ghost btn-block mt-8"
         style={{ color: 'var(--danger)' }}
         onClick={() => {
-          dispatch({ type: 'DELETE_TASK', taskId: task.id });
-          toast('タスクを削除しました');
+          const result = execute({ type: 'DELETE_TASK', taskId: task.id });
+          toast(result.message ?? 'タスクを削除しました');
           onClose();
         }}
       >
@@ -823,7 +826,7 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
 // ============================================================
 
 function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClose: () => void }) {
-  const { state, dispatch } = useApp();
+  const { state, execute } = useApp();
   const toast = useToast();
   const t = today();
   const [subjectId, setSubjectId] = useState(state.subjects[0]?.id ?? '');
@@ -846,7 +849,7 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
     const normalized = fixedTime ? normalizeTaskSchedule(date, startTime, minutes) : null;
     const taskDate = normalized?.date ?? date;
     const taskId = genId('task');
-    dispatch({
+    const result = execute({
       type: 'ADD_MANUAL_TASK',
       task: {
         id: taskId,
@@ -887,7 +890,8 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
         },
       },
     });
-    toast('タスクを追加しました');
+    if (!result.changed) { toast(result.message ?? 'タスクを追加できませんでした'); return; }
+    toast(result.message ?? 'タスクを追加しました');
     onClose();
   };
 
@@ -899,7 +903,7 @@ function ManualTaskSheet({ initialDate, onClose }: { initialDate: string; onClos
       </div>
       <div className="field">
         <label htmlFor="mt-subject">科目</label>
-        <select id="mt-subject" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+        <select id="mt-subject" value={subjectId} onChange={(e) => { setSubjectId(e.target.value); setMaterialId(''); }}>
           {state.subjects.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}

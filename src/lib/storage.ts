@@ -8,10 +8,10 @@ const BACKUP_KEY = 'studycommander_state_migration_backup';
 const TIMER_KEY = 'studycommander_timer_v1';
 const UPDATED_KEY = 'studycommander_state_updated_at_v1';
 /**
- * v3: placementLockをマイグレーション時に明示化(スケジューラーは実行時に
- * generatedByからロックを推測しない)。完了済みタスクは未来容量を予約しない。
+ * v4: 新規StudySessionだけに進捗・タスク由来情報を追加する。旧セッションは
+ * 現在の教材進捗を互換基準として保持し、推測による二重加減算をしない。
  */
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 
 /** どのアカウントのデータがlocalStorageにキャッシュされているかを記録する(別ユーザーへの誤流用を防止) */
 export function getStateOwner(): string | null {
@@ -222,12 +222,23 @@ export function normalizeState(input: AppState): AppState {
           : windowsFromMinutes(slot.weekday, minutes),
     };
   });
+  const rawSubjects = Array.isArray(input.subjects) ? input.subjects : [];
+  // 旧・破損データに参照だけ残っている場合も、存在しないsubjectIdを放置せず
+  // 既存データを消さない受け皿へ寄せる。
+  const hasSubjectReferences = (input.materials?.length ?? 0) > 0 || (input.tasks?.length ?? 0) > 0 || (input.sessions?.length ?? 0) > 0;
+  const subjects = rawSubjects.length > 0 || !hasSubjectReferences
+    ? rawSubjects
+    : [{ id: 'subject_recovered', name: '未分類', color: '#6366f1', importance: 3 as const, weakness: 3 as const }];
+  const validSubjectIds = new Set(subjects.map((subject) => subject.id));
+  const fallbackSubjectId = subjects[0]?.id;
+  const normalizeSubjectId = (candidate: string) => validSubjectIds.has(candidate) || !fallbackSubjectId ? candidate : fallbackSubjectId;
 
   return {
     ...input,
     version: STATE_VERSION,
     schemaVersion: STATE_VERSION,
     settings,
+    subjects,
     availability,
     dayPlans: Array.isArray(input.dayPlans)
       ? input.dayPlans.map((p) => ({
@@ -251,6 +262,7 @@ export function normalizeState(input: AppState): AppState {
       : [],
     materials: (input.materials ?? []).map((m) => ({
       ...m,
+      subjectId: normalizeSubjectId(m.subjectId),
       totalUnits: m.totalUnits ?? m.totalAmount,
       completedRanges: normalizeCompletedRanges(
         Array.isArray(m.completedRanges)
@@ -297,6 +309,7 @@ export function normalizeState(input: AppState): AppState {
       const hasFiniteRange = Number.isFinite(t.rangeStart) && Number.isFinite(t.rangeEnd);
       return {
         ...t,
+        subjectId: normalizeSubjectId(t.subjectId),
         sourceType: t.sourceType ?? (t.generatedBy === 'manual' ? 'manual' : t.type === 'review' ? 'review' : 'material'),
         sourceId: t.sourceId ?? t.materialId ?? t.id,
         placementLock,
@@ -306,6 +319,13 @@ export function normalizeState(input: AppState): AppState {
         updatedAt: t.updatedAt ?? t.createdAt,
       };
     }),
+    sessions: (input.sessions ?? []).map((session) => ({
+      ...session,
+      subjectId: normalizeSubjectId(session.subjectId),
+      taskSnapshotBefore: session.taskSnapshotBefore
+        ? { ...session.taskSnapshotBefore, subjectId: normalizeSubjectId(session.taskSnapshotBefore.subjectId) }
+        : undefined,
+    })),
     lastScheduleResult: input.lastScheduleResult ?? null,
     lastPlanReason: input.lastPlanReason ?? null,
   };

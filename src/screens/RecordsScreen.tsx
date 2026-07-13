@@ -62,6 +62,7 @@ export function RecordsScreen() {
   const t = today();
   const toast = useToast();
   const [addOpen, setAddOpen] = useState(false);
+  const [editSession, setEditSession] = useState<StudySession | null>(null);
   const [period, setPeriod] = useState<Period>('week');
   const [offset, setOffset] = useState(0);
 
@@ -254,7 +255,7 @@ export function RecordsScreen() {
           タイマーで勉強するか、「＋」から手動で記録できます。
         </EmptyState>
       ) : (
-        <SessionLog sessions={sessions} state={state} t={t} />
+        <SessionLog sessions={sessions} state={state} t={t} onEdit={setEditSession} />
       )}
 
       {/* 実績バッジ */}
@@ -278,6 +279,7 @@ export function RecordsScreen() {
       </div>
 
       {addOpen && <RecordSheet open onClose={() => setAddOpen(false)} />}
+      {editSession && <RecordSheet open session={editSession} onClose={() => setEditSession(null)} />}
     </div>
   );
 }
@@ -417,7 +419,7 @@ function MonthHeatCalendar({ month, minutesByDay }: { month: string; minutesByDa
 // 学習ログ(日付見出し付き)
 // ============================================================
 
-function SessionLog({ sessions, state, t }: { sessions: StudySession[]; state: AppState; t: string }) {
+function SessionLog({ sessions, state, t, onEdit }: { sessions: StudySession[]; state: AppState; t: string; onEdit: (session: StudySession) => void }) {
   let lastDate = '';
   const out: JSX.Element[] = [];
   for (const s of sessions) {
@@ -436,7 +438,7 @@ function SessionLog({ sessions, state, t }: { sessions: StudySession[]; state: A
     const subject = state.subjects.find((x) => x.id === s.subjectId);
     const material = state.materials.find((x) => x.id === s.materialId);
     out.push(
-      <div className="task-card" key={s.id}>
+      <button type="button" className="task-card session-log-button" key={s.id} onClick={() => onEdit(s)} aria-label={`${material?.name ?? s.rangeLabel ?? '学習'}の記録を編集`}>
         <div className="subject-bar" style={{ background: subject?.color ?? 'var(--accent)' }} />
         <div className="task-main">
           <div className="task-meta-row">
@@ -459,7 +461,7 @@ function SessionLog({ sessions, state, t }: { sessions: StudySession[]; state: A
           </div>
           {s.memo && <div className="faint mt-8">{s.memo}</div>}
         </div>
-      </div>,
+      </button>,
     );
   }
   return <>{out}</>;

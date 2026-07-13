@@ -3,9 +3,12 @@
 import { addDays, today } from '../src/lib/date';
 import { computeAnalytics } from '../src/lib/analytics';
 import { computeCapacity, generatePlan, subjectAchievementMap } from '../src/lib/scheduler';
-import { clearOwnedState, saveState } from '../src/lib/storage';
+import { clearOwnedState, normalizeState, saveState } from '../src/lib/storage';
 import { isPlacedPlanTask, plannedMaterialAmountThrough } from '../src/lib/taskFilters';
-import { adjustCompletedRanges, appReducer, emptyState } from '../src/state/AppContext';
+import { adjustCompletedRanges, appReducer, createUndoEntry, emptyState, isUndoEntryValid, UNDO_WINDOW_MS } from '../src/state/AppContext';
+import { parseNumericDraft, sanitizeNumericDraft } from '../src/components/ui/bits';
+import { mergeStudySettings, mergeTimerSettings, reconcileSectionDraft, studySettingsDraft } from '../src/lib/settingsSections';
+import { validateMaterialDates } from '../src/lib/materialValidation';
 import type { AppState, Material, StudyTask } from '../src/types';
 
 let failures = 0;
@@ -96,6 +99,9 @@ console.log('--- 記録範囲と実績量 ---');
 
 console.log('--- 教材進捗編集・固定状態 ---');
 {
+  check('開始日が期限より後なら教材を保存しない判定', validateMaterialDates('2026-02-02', '2026-02-01') !== null);
+  check('推奨完了日が期間外なら教材を保存しない判定', validateMaterialDates('2026-02-01', '2026-02-10', '2026-02-11') !== null);
+  check('既存教材の過去期限同士は日付順が正しければ許可', validateMaterialDates('2020-01-01', '2020-02-01', '2020-01-20') === null);
   const adjusted = adjustCompletedRanges(100, [{ start: 1, end: 5 }, { start: 20, end: 24 }], 11);
   check('進捗量を増やしても非連続の完了範囲を保持', JSON.stringify(adjusted) === JSON.stringify([{ start: 1, end: 6 }, { start: 20, end: 24 }]), adjusted);
 
@@ -185,6 +191,108 @@ console.log('--- 表示・分析・容量 ---');
   const conflict = task({ placementLock: 'time', scheduledStart: '01:00', scheduledEnd: '02:50' });
   const conflictedPlan = generatePlan(state({ tasks: [conflict] }), ref, 'capacity conflict', { now: new Date(`${ref}T12:00:00+09:00`) });
   check('固定衝突がある計画は旧capacity.okをtrueにしない', conflictedPlan.result.capacity.ok === false, conflictedPlan.result.capacity);
+}
+
+console.log('--- 記録編集・削除の再構築 ---');
+{
+  const yesterday = addDays(ref, -1);
+  const added = appReducer(state(), { type: 'RECORD_SESSION', input: { ...record(false, 2).input, date: yesterday, startTime: '08:30' } });
+  const session = added.sessions.at(-1)!;
+  check('昨日の手動記録を登録できる', session.date === yesterday && session.startedAt.includes('T08:30'));
+  const edited = appReducer(added, { type: 'UPDATE_SESSION', sessionId: session.id, input: { ...record(false, 4).input, date: yesterday, startTime: '09:00', minutes: 40 } });
+  check('記録時間を編集すると集計も変わる', edited.sessions.find((entry) => entry.id === session.id)?.minutes === 40);
+  check('記録時間編集後の分析集計も再計算される', computeAnalytics(edited, ref).weekMinutes === 40, computeAnalytics(edited, ref));
+  check('完了量編集で範囲を基準から再構築する', JSON.stringify(edited.materials[0].completedRanges) === JSON.stringify([{ start: 10, end: 13 }]), edited.materials[0]);
+  const editedAgain = appReducer(edited, { type: 'UPDATE_SESSION', sessionId: session.id, input: { ...record(false, 3).input, date: yesterday, startTime: '09:00', minutes: 30 } });
+  check('同じ記録を複数回編集しても二重加算しない', JSON.stringify(editedAgain.materials[0].completedRanges) === JSON.stringify([{ start: 10, end: 12 }]), editedAgain.materials[0]);
+  const deleted = appReducer(editedAgain, { type: 'DELETE_SESSION', sessionId: session.id });
+  check('記録削除で教材進捗を基準値へ戻す', deleted.materials[0].doneAmount === 0 && deleted.sessions.length === 0, deleted.materials[0]);
+
+  const completed = appReducer(state({ materials: [{ ...material, reviewEnabled: true }] }), record(true, 11));
+  const completedSession = completed.sessions.at(-1)!;
+  const afterDelete = appReducer(completed, { type: 'DELETE_SESSION', sessionId: completedSession.id });
+  check('完了記録削除でタスク完了と生成復習を戻す', afterDelete.tasks.some((entry) => entry.materialId === material.id && entry.type === 'new' && entry.status === 'planned')
+    && !(completedSession.generatedReviewTaskIds ?? []).some((id) => afterDelete.tasks.some((entry) => entry.id === id)), afterDelete.tasks);
+
+  const legacySession = { ...session, id: 'legacy', progressRangesAdded: undefined, taskSnapshotBefore: undefined };
+  const legacy = appReducer(state({ materials: [{ ...material, doneAmount: 5, completedRanges: [{ start: 1, end: 5 }] }], sessions: [legacySession], tasks: [] }), { type: 'DELETE_SESSION', sessionId: 'legacy' });
+  check('旧形式セッション削除でも既存進捗を推測で消さない', legacy.materials[0].doneAmount === 5, legacy.materials[0]);
+  const normalizedLegacy = normalizeState({ ...state(), version: 2, schemaVersion: 2, sessions: [legacySession] });
+  check('旧形式セッションを正規化しても記録内容を失わない', normalizedLegacy.sessions[0].id === 'legacy' && normalizedLegacy.sessions[0].minutes === legacySession.minutes);
+}
+
+console.log('--- 数値入力・Undo ---');
+{
+  check('全選択から空欄にしても0ではなく編集中のnullになる', parseNumericDraft('', false) === null);
+  check('小数入力途中の1.を文字列として保持する', sanitizeNumericDraft('1.', true) === '1.' && parseNumericDraft('1.', true) === 1);
+  check('空欄と有効な0を区別する', parseNumericDraft('', false) === null && parseNumericDraft('0', false) === 0);
+  const snapshot = state();
+  const first = createUndoEntry(snapshot, '最初', 1_000);
+  const replacement = createUndoEntry({ ...snapshot, isDemo: true }, '次', 2_000);
+  check('新しい操作で古いUndoスナップショットを置き換えられる', replacement.label === '次' && replacement.state.isDemo && first.label === '最初');
+  check('Undoは15秒以内だけ有効', isUndoEntryValid(first, 1_000 + UNDO_WINDOW_MS) && !isUndoEntryValid(first, 1_001 + UNDO_WINDOW_MS));
+}
+
+console.log('--- 設定セクションdraft ---');
+{
+  const base = emptyState().settings;
+  const latest = { ...base, theme: 'dark' as const, maxDailyMinutes: 500 };
+  const oldStudy = { ...studySettingsDraft(base), sessionMaxMinutes: 75 };
+  const studySaved = mergeStudySettings(latest, oldStudy);
+  check('学習設定だけ保存しても最新テーマを戻さない', studySaved.theme === 'dark' && studySaved.sessionMaxMinutes === 75);
+  const latestStudy = { ...latest, maxDailyMinutes: 620 };
+  const timerSaved = mergeTimerSettings(latestStudy, { ...base.timer, defaultMode: 'pomodoro' });
+  check('タイマー設定保存で最新の学習設定を戻さない', timerSaved.maxDailyMinutes === 620 && timerSaved.timer.defaultMode === 'pomodoro');
+  const clean = reconcileSectionDraft(oldStudy, studySettingsDraft(latestStudy), false);
+  check('未編集draftは外部更新へ追従する', clean.draft.maxDailyMinutes === 620 && !clean.externalUpdate);
+  const dirty = reconcileSectionDraft(oldStudy, studySettingsDraft(latestStudy), true);
+  check('編集中draftは外部更新で消さず競合を通知する', dirty.draft.sessionMaxMinutes === 75 && dirty.externalUpdate);
+}
+
+console.log('--- 科目・アーカイブ・日別例外 ---');
+{
+  const targetSubject = { ...subject, id: 'target-subject', name: '統合先' };
+  const subjectSession = { id: 'subject-session', taskId: 'task', subjectId: subject.id, materialId: material.id, date: ref, startedAt: new Date().toISOString(), minutes: 20, amountDone: 0, rangeLabel: '', focus: null, memo: '', source: 'manual' as const, taskSnapshotBefore: task() };
+  const merged = appReducer(state({ subjects: [subject, targetSubject], sessions: [subjectSession] }), { type: 'MERGE_SUBJECT', sourceId: subject.id, targetId: targetSubject.id });
+  check('科目統合後に古いsubjectIdが参照に残らない', !merged.subjects.some((entry) => entry.id === subject.id)
+    && merged.materials.every((entry) => entry.subjectId === targetSubject.id)
+    && merged.tasks.every((entry) => entry.subjectId === targetSubject.id)
+    && merged.sessions.every((entry) => entry.subjectId === targetSubject.id && entry.taskSnapshotBefore?.subjectId !== subject.id), merged);
+  const addedSubject = appReducer(state(), { type: 'ADD_SUBJECT', subject: targetSubject });
+  const renamedSubject = appReducer(addedSubject, { type: 'UPDATE_SUBJECT', subject: { ...targetSubject, name: '物理', color: '#ff0000' } });
+  check('科目の追加・名前変更・色変更を保存できる', renamedSubject.subjects.some((entry) => entry.id === targetSubject.id && entry.name === '物理' && entry.color === '#ff0000'));
+  check('最後の1科目は削除できない', appReducer(state({ materials: [], tasks: [], sessions: [] }), { type: 'DELETE_SUBJECT', subjectId: subject.id }).subjects.length === 1);
+  check('使用中科目の単純削除を防ぐ', appReducer(state({ subjects: [subject, targetSubject] }), { type: 'DELETE_SUBJECT', subjectId: subject.id }).subjects.length === 2);
+
+  const archived = appReducer(state(), { type: 'UPDATE_MATERIAL', material: { ...material, archived: true } });
+  check('教材アーカイブで未完了自動タスクを計画から外す', archived.materials[0].archived && !archived.tasks.some((entry) => entry.materialId === material.id && entry.status === 'planned'), archived.tasks);
+  const restored = appReducer(archived, { type: 'UPDATE_MATERIAL', material: { ...archived.materials[0], archived: false } });
+  check('教材復元で現在条件から計画を再生成する', !restored.materials[0].archived && restored.tasks.some((entry) => entry.materialId === material.id), restored.tasks);
+  const retainedSession = { ...subjectSession, taskSnapshotBefore: undefined };
+  const archivedWithRecord = appReducer(state({ sessions: [retainedSession] }), { type: 'UPDATE_MATERIAL', material: { ...material, archived: true } });
+  check('教材をアーカイブしても学習記録は保持する', archivedWithRecord.sessions.some((entry) => entry.id === retainedSession.id));
+  const deletedKeepingRecord = appReducer(state({ sessions: [retainedSession] }), { type: 'DELETE_MATERIAL', materialId: material.id });
+  check('通常の教材削除は学習記録を保持する', deletedKeepingRecord.materials.length === 0 && deletedKeepingRecord.sessions.length === 1);
+  const fullyDeleted = appReducer(state({ sessions: [retainedSession] }), { type: 'DELETE_MATERIAL', materialId: material.id, deleteSessions: true });
+  check('完全削除は対象教材の学習記録も明示的に削除する', fullyDeleted.materials.length === 0 && fullyDeleted.sessions.length === 0);
+
+  const plans = Array.from({ length: 7 }, (_, index) => ({ date: addDays(ref, index), load: 'light' as const, memo: String(index), availabilityWindows: null }));
+  const withPlans = state({ dayPlans: plans });
+  const without = appReducer(withPlans, { type: 'DELETE_DAY_PLAN', date: plans[5].date });
+  check('6件以上の日別例外も個別削除できる', without.dayPlans.length === 6 && !without.dayPlans.some((plan) => plan.date === plans[5].date), without.dayPlans);
+  const editedPlan = appReducer(withPlans, { type: 'UPDATE_DAY_PLAN', dayPlan: { ...plans[6], load: 'heavy', memo: '編集済み' } });
+  check('既存の日別例外を同じ日付で編集できる', editedPlan.dayPlans.find((plan) => plan.date === plans[6].date)?.memo === '編集済み');
+
+  const impossibleBase = state();
+  const impossibleChanged = appReducer(impossibleBase, { type: 'TODAY_IMPOSSIBLE' });
+  const impossibleUndo = appReducer(impossibleChanged, { type: 'REPLACE_STATE', state: impossibleBase });
+  check('「今日は無理」のスナップショットUndoで元の配置へ戻る', impossibleUndo.tasks[0].scheduledDate === impossibleBase.tasks[0].scheduledDate);
+  const archiveUndo = appReducer(archived, { type: 'REPLACE_STATE', state: state() });
+  check('教材アーカイブのスナップショットUndoで使用中へ戻る', archiveUndo.materials[0].archived === false);
+
+  const repaired = normalizeState({ ...state(), subjects: [], materials: [{ ...material, subjectId: 'missing' }] });
+  const repairedIds = new Set(repaired.subjects.map((entry) => entry.id));
+  check('normalizerは存在しないsubjectIdを残さない', repaired.materials.every((entry) => repairedIds.has(entry.subjectId)));
 }
 
 console.log('--- ログアウト時の保存タイマー ---');

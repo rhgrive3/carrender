@@ -69,7 +69,7 @@ export type Action =
   | { type: 'COMPLETE_ONBOARDING'; input: OnboardingInput }
   | { type: 'ADD_MATERIAL'; material: Material }
   | { type: 'UPDATE_MATERIAL'; material: Material }
-  | { type: 'DELETE_MATERIAL'; materialId: string }
+  | { type: 'DELETE_MATERIAL'; materialId: string; deleteSessions?: boolean }
   | { type: 'ADD_SUBJECT'; subject: Subject }
   | { type: 'UPDATE_SUBJECT'; subject: Subject }
   | { type: 'ADD_MANUAL_TASK'; task: StudyTask }
@@ -77,6 +77,8 @@ export type Action =
   | { type: 'DELETE_TASK'; taskId: string }
   | { type: 'REORDER_TASK'; taskId: string; direction: 'up' | 'down' }
   | { type: 'RECORD_SESSION'; input: SessionInput }
+  | { type: 'UPDATE_SESSION'; sessionId: string; input: SessionInput }
+  | { type: 'DELETE_SESSION'; sessionId: string }
   | { type: 'POSTPONE_TASK'; taskId: string }
   | { type: 'MOVE_TASK'; taskId: string; date: ISODate }
   | { type: 'UNLOCK_TASK'; taskId: string }
@@ -86,9 +88,13 @@ export type Action =
   | { type: 'UPDATE_GOAL'; goal: UserGoal }
   | { type: 'UPDATE_AVAILABILITY'; availability: AvailabilitySlot[] }
   | { type: 'UPDATE_DAY_PLAN'; dayPlan: DayPlanOverride }
+  | { type: 'DELETE_DAY_PLAN'; date: ISODate }
   | { type: 'UPDATE_DAY_MEMO'; date: ISODate; memo: string }
   | { type: 'UPDATE_FIXED_EVENTS'; fixedEvents: FixedEvent[] }
   | { type: 'UPDATE_SETTINGS'; settings: AppSettings }
+  | { type: 'DELETE_SUBJECT'; subjectId: string }
+  | { type: 'MERGE_SUBJECT'; sourceId: string; targetId: string }
+  | { type: 'REPLACE_STATE'; state: AppState }
   | { type: 'DISMISS_RESCHEDULE_BANNER' }
   | { type: 'CHECK_DATE_CHANGE' };
 
@@ -311,6 +317,116 @@ function settingsAffectPlan(previous: AppSettings, next: AppSettings): boolean {
     || JSON.stringify(previous.reviewRule) !== JSON.stringify(next.reviewRule);
 }
 
+function subtractRanges(ranges: { start: number; end: number }[], removals: { start: number; end: number }[]) {
+  let current = normalizeUnitRanges(ranges, Number.MAX_SAFE_INTEGER);
+  for (const removal of normalizeUnitRanges(removals, Number.MAX_SAFE_INTEGER)) {
+    current = current.flatMap((range) => {
+      if (removal.end < range.start || removal.start > range.end) return [range];
+      return [
+        ...(removal.start > range.start ? [{ start: range.start, end: removal.start - 1 }] : []),
+        ...(removal.end < range.end ? [{ start: removal.end + 1, end: range.end }] : []),
+      ];
+    });
+  }
+  return current;
+}
+
+/**
+ * 旧記録には由来範囲がないため、現在進捗から新形式記録の寄与だけを除いた値を
+ * 互換基準として扱う。これにより旧進捗を推測で消さず、新記録は何度でも再構築できる。
+ */
+export function rebuildMaterialProgress(material: Material, beforeSessions: StudySession[], nextSessions: StudySession[]): Material {
+  const current = material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
+  const beforeContributions = beforeSessions
+    .filter((session) => session.materialId === material.id)
+    .flatMap((session) => session.progressRangesAdded ?? []);
+  const baseline = subtractRanges(current, beforeContributions);
+  const nextContributions = nextSessions
+    .filter((session) => session.materialId === material.id)
+    .flatMap((session) => session.progressRangesAdded ?? []);
+  const completedRanges = normalizeUnitRanges([...baseline, ...nextContributions], material.totalAmount);
+  return { ...material, completedRanges, doneAmount: sumRangeLengths(completedRanges) };
+}
+
+function revertSessionEffects(state: AppState, session: StudySession): AppState {
+  const sessions = state.sessions.filter((entry) => entry.id !== session.id);
+  let tasks = state.tasks.filter((task) =>
+    !(session.generatedReviewTaskIds ?? []).includes(task.id)
+    && !(session.replacementTaskIds ?? []).includes(task.id),
+  );
+  if (session.taskSnapshotBefore) {
+    tasks = [
+      ...tasks.filter((task) => task.id !== session.taskSnapshotBefore!.id),
+      session.taskSnapshotBefore,
+    ];
+  }
+  let materials = state.materials.map((material) => rebuildMaterialProgress(material, state.sessions, sessions));
+  materials = materials.map((material) => {
+    const estimate = updateMinutesPerUnitEstimate(material, sessions, state.settings.estimateAlpha ?? 0.2);
+    return { ...material, minutesPerUnit: estimate.appliedEstimate, estimatedMinutesPerUnit: estimate.suggestedEstimate ?? material.estimatedMinutesPerUnit };
+  });
+  return { ...state, sessions, materials, tasks };
+}
+
+function recordSession(state: AppState, inp: SessionInput, sessionId = genId('sess')): AppState {
+  const t = today();
+  const progress = resolveSessionProgress(state, inp);
+  const currentTask = findCurrentTask(state, inp);
+  const now = new Date().toISOString();
+  let materials = state.materials;
+  if (inp.materialId && progress.amountDone > 0) {
+    materials = materials.map((material) => {
+      if (material.id !== inp.materialId) return material;
+      const completed = material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
+      const merged = normalizeUnitRanges([...completed, ...progress.addedRanges], material.totalAmount);
+      return { ...material, completedRanges: merged, doneAmount: sumRangeLengths(merged) };
+    });
+  }
+  let tasks = state.tasks;
+  let newReviews: StudyTask[] = [];
+  let replacementTaskIds: string[] = [];
+  if (currentTask && inp.completedTask && currentTask.status !== 'done') {
+    tasks = tasks.map((task) => task.id === currentTask.id ? { ...task, status: 'done' as const, completedAt: now } : task);
+    newReviews = generateReviewTasks({ ...state, materials }, currentTask, inp.date ?? t);
+  } else if (currentTask && progress.amountDone > 0 && currentTask.status !== 'done') {
+    const material = currentTask.materialId ? materials.find((item) => item.id === currentTask.materialId) : undefined;
+    const completedRanges = material?.completedRanges ?? [];
+    const replacements = shrinkTaskAfterProgress(currentTask, material, progress.addedRanges.length > 0 ? completedRanges : [{ start: 1, end: progress.amountDone }]);
+    replacementTaskIds = replacements.map((task) => task.id);
+    tasks = tasks.flatMap((task) => task.id === currentTask.id ? replacements : [task]);
+  }
+  const session: StudySession = {
+    id: sessionId,
+    taskId: currentTask?.id ?? inp.taskId,
+    subjectId: inp.subjectId,
+    materialId: inp.materialId,
+    date: inp.date ?? t,
+    startedAt: inp.date && inp.startTime ? new Date(`${inp.date}T${inp.startTime}:00`).toISOString() : now,
+    minutes: inp.minutes,
+    amountDone: progress.amountDone,
+    rangeLabel: inp.rangeLabel,
+    focus: inp.focus,
+    memo: inp.memo,
+    source: inp.source,
+    progressRangesAdded: progress.addedRanges,
+    taskSnapshotBefore: currentTask ? { ...currentTask } : undefined,
+    generatedReviewTaskIds: newReviews.map((task) => task.id),
+    replacementTaskIds,
+    completedTask: Boolean(currentTask && inp.completedTask),
+    updatedAt: now,
+  };
+  const sessions = [...state.sessions, session];
+  materials = materials.map((material) => {
+    if (material.id !== inp.materialId) return material;
+    const estimate = updateMinutesPerUnitEstimate(material, sessions, state.settings.estimateAlpha ?? 0.2);
+    return { ...material, minutesPerUnit: estimate.appliedEstimate, estimatedMinutesPerUnit: estimate.suggestedEstimate ?? material.estimatedMinutesPerUnit };
+  });
+  const replanned = generatePlan({ ...state, materials, tasks: [...tasks, ...newReviews], sessions }, addDays(t, 1), '学習実績の反映');
+  return newReviews.length > 0 || (currentTask && !inp.completedTask)
+    ? replanned.state
+    : { ...replanned.state, lastReschedule: null };
+}
+
 export function appReducer(state: AppState, action: Action): AppState {
   const t = today();
   switch (action.type) {
@@ -414,7 +530,8 @@ export function appReducer(state: AppState, action: Action): AppState {
       const next = {
         ...state,
         materials: state.materials.filter((m) => m.id !== action.materialId),
-        tasks: state.tasks.filter((tk) => tk.materialId !== action.materialId || tk.status === 'done'),
+        tasks: state.tasks.filter((task) => action.deleteSessions ? task.materialId !== action.materialId : task.materialId !== action.materialId || task.status === 'done'),
+        sessions: action.deleteSessions ? state.sessions.filter((session) => session.materialId !== action.materialId) : state.sessions,
       };
       return generatePlan(next, t, `教材「${name}」の削除`).state;
     }
@@ -428,6 +545,33 @@ export function appReducer(state: AppState, action: Action): AppState {
         subjects: state.subjects.map((s) => (s.id === action.subject.id ? action.subject : s)),
       };
       return generatePlan(next, t, `科目「${action.subject.name}」設定の変更`).state;
+    }
+
+    case 'DELETE_SUBJECT': {
+      if (state.subjects.length <= 1) return state;
+      const referenced = state.materials.some((item) => item.subjectId === action.subjectId)
+        || state.tasks.some((item) => item.subjectId === action.subjectId)
+        || state.sessions.some((item) => item.subjectId === action.subjectId);
+      return referenced ? state : { ...state, subjects: state.subjects.filter((subject) => subject.id !== action.subjectId) };
+    }
+
+    case 'MERGE_SUBJECT': {
+      if (action.sourceId === action.targetId || !state.subjects.some((subject) => subject.id === action.targetId)) return state;
+      return generatePlan({
+        ...state,
+        subjects: state.subjects.filter((subject) => subject.id !== action.sourceId),
+        materials: state.materials.map((item) => item.subjectId === action.sourceId ? { ...item, subjectId: action.targetId } : item),
+        tasks: state.tasks.map((item) => item.subjectId === action.sourceId ? { ...item, subjectId: action.targetId } : item),
+        sessions: state.sessions.map((item) => {
+          const subjectId = item.subjectId === action.sourceId ? action.targetId : item.subjectId;
+          const taskSnapshotBefore = item.taskSnapshotBefore?.subjectId === action.sourceId
+            ? { ...item.taskSnapshotBefore, subjectId: action.targetId }
+            : item.taskSnapshotBefore;
+          return subjectId !== item.subjectId || taskSnapshotBefore !== item.taskSnapshotBefore
+            ? { ...item, subjectId, taskSnapshotBefore, updatedAt: new Date().toISOString() }
+            : item;
+        }),
+      }, t, '科目の統合').state;
     }
 
     case 'ADD_MANUAL_TASK': {
@@ -480,76 +624,17 @@ export function appReducer(state: AppState, action: Action): AppState {
     }
 
     case 'RECORD_SESSION': {
-      const inp = action.input;
-      const progress = resolveSessionProgress(state, inp);
-      const currentTask = findCurrentTask(state, inp);
-      const session: StudySession = {
-        id: genId('sess'),
-        taskId: currentTask?.id ?? inp.taskId,
-        subjectId: inp.subjectId,
-        materialId: inp.materialId,
-        date: inp.date ?? t,
-        startedAt: inp.date && inp.startTime
-          ? new Date(`${inp.date}T${inp.startTime}:00`).toISOString()
-          : new Date().toISOString(),
-        minutes: inp.minutes,
-        amountDone: progress.amountDone,
-        rangeLabel: inp.rangeLabel,
-        focus: inp.focus,
-        memo: inp.memo,
-        source: inp.source,
-      };
+      return recordSession(state, action.input);
+    }
 
-      // 教材進捗を更新
-      let materials = state.materials;
-      if (inp.materialId && progress.amountDone > 0) {
-        materials = state.materials.map((m) => {
-          if (m.id !== inp.materialId) return m;
-          const completed = m.completedRanges ?? (m.doneAmount > 0 ? [{ start: 1, end: m.doneAmount }] : []);
-          const merged = normalizeUnitRanges([...completed, ...progress.addedRanges], m.totalAmount);
-          return { ...m, completedRanges: merged, doneAmount: sumRangeLengths(merged) };
-        });
-      }
-      const sessions = [...state.sessions, session];
-      materials = materials.map((material) => {
-        if (material.id !== inp.materialId) return material;
-        const estimate = updateMinutesPerUnitEstimate(material, sessions, state.settings.estimateAlpha ?? 0.2);
-        return {
-          ...material,
-          minutesPerUnit: estimate.appliedEstimate,
-          estimatedMinutesPerUnit: estimate.suggestedEstimate ?? material.estimatedMinutesPerUnit,
-        };
-      });
+    case 'UPDATE_SESSION': {
+      const previous = state.sessions.find((session) => session.id === action.sessionId);
+      return previous ? recordSession(revertSessionEffects(state, previous), action.input, action.sessionId) : state;
+    }
 
-      // タスク完了処理 + 復習タスク生成
-      let tasks = state.tasks;
-      let newReviews: StudyTask[] = [];
-      const task = currentTask;
-      if (task && inp.completedTask && task.status !== 'done') {
-        tasks = tasks.map((x) =>
-          x.id === task.id ? { ...x, status: 'done' as const, completedAt: new Date().toISOString() } : x,
-        );
-        newReviews = generateReviewTasks({ ...state, materials }, task, t);
-      } else if (task && progress.amountDone > 0 && task.status !== 'done') {
-        const material = task.materialId ? materials.find((item) => item.id === task.materialId) : undefined;
-        const completedRanges = material?.completedRanges ?? [];
-        const replacements = shrinkTaskAfterProgress(task, material, progress.addedRanges.length > 0 ? completedRanges : [{ start: 1, end: progress.amountDone }]);
-        tasks = tasks.flatMap((item) => item.id === task.id ? replacements : [item]);
-      }
-
-      const next: AppState = {
-        ...state,
-        materials,
-        tasks: [...tasks, ...newReviews],
-        sessions,
-      };
-
-      // 実績とのズレを翌日以降に反映(今日の残りタスクは維持)
-      const replanned = generatePlan(next, addDays(t, 1), '学習実績の反映');
-      // 当日中の再スケジュールバナーは騒がしいので、復習が生まれた時のみ結果を残す
-      return newReviews.length > 0 || (task && !inp.completedTask)
-        ? replanned.state
-        : { ...replanned.state, lastReschedule: null };
+    case 'DELETE_SESSION': {
+      const previous = state.sessions.find((session) => session.id === action.sessionId);
+      return previous ? generatePlan(revertSessionEffects(state, previous), t, '学習記録の削除').state : state;
     }
 
     case 'POSTPONE_TASK': {
@@ -628,6 +713,9 @@ export function appReducer(state: AppState, action: Action): AppState {
       return generatePlan({ ...state, dayPlans }, action.dayPlan.date < t ? t : action.dayPlan.date, '日別負荷・利用可能時間の変更').state;
     }
 
+    case 'DELETE_DAY_PLAN':
+      return generatePlan({ ...state, dayPlans: state.dayPlans.filter((plan) => plan.date !== action.date) }, action.date < t ? t : action.date, '日別例外の削除').state;
+
     case 'UPDATE_DAY_MEMO': {
       const current = state.dayPlans.find((plan) => plan.date === action.date);
       const dayPlan: DayPlanOverride = current
@@ -648,6 +736,9 @@ export function appReducer(state: AppState, action: Action): AppState {
 
     case 'DISMISS_RESCHEDULE_BANNER':
       return { ...state, lastReschedule: null };
+
+    case 'REPLACE_STATE':
+      return action.state;
 
     case 'CHECK_DATE_CHANGE':
       return state.lastPlannedDate === null
@@ -689,9 +780,38 @@ export function emptyState(): AppState {
 
 export type SyncStatus = 'syncing' | 'synced' | 'offline' | 'conflict' | 'error';
 
+export interface AppCommandResult {
+  changed: boolean;
+  scheduleStatus?: import('../types').ScheduleGenerationStatus;
+  message?: string;
+  errorCode?: string;
+}
+
+const UNDO_LABELS: Partial<Record<Action['type'], string>> = {
+  TODAY_IMPOSSIBLE: '今日の再配置を元に戻す',
+  POSTPONE_TASK: 'タスクの延期を元に戻す',
+  MOVE_TASK: 'タスクの移動を元に戻す',
+  RESCHEDULE: '再設計を元に戻す',
+  DELETE_TASK: 'タスク削除を元に戻す',
+  DELETE_MATERIAL: '教材削除を元に戻す',
+  UPDATE_AVAILABILITY: '勉強可能時間を元に戻す',
+  DELETE_DAY_PLAN: '日別例外削除を元に戻す',
+  DELETE_SUBJECT: '科目削除を元に戻す',
+  MERGE_SUBJECT: '科目統合を元に戻す',
+};
+export const UNDO_WINDOW_MS = 15_000;
+export interface UndoEntry { state: AppState; label: string; expiresAt: number }
+export function createUndoEntry(state: AppState, label: string, now = Date.now()): UndoEntry {
+  return { state, label, expiresAt: now + UNDO_WINDOW_MS };
+}
+export function isUndoEntryValid(entry: UndoEntry, now = Date.now()): boolean {
+  return now <= entry.expiresAt;
+}
+
 interface AppContextValue {
   state: AppState;
   dispatch: (action: Action) => void;
+  execute: (action: Action) => AppCommandResult;
   syncStatus: SyncStatus;
 }
 
@@ -707,7 +827,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // タグ付けされていない=アカウント制導入前からの既存データ)時だけローカルキャッシュを使う。
   // ログアウト時にキャッシュとタグは必ず一緒に消えるため、別ユーザーのデータが
   // 新しいユーザーに混ざることはない(共用端末でも安全)。
-  const [state, dispatch] = useReducer(appReducer, undefined, () => {
+  const [state, reducerDispatch] = useReducer(appReducer, undefined, () => {
     const savedOwner = getStateOwner();
     if (owner && (savedOwner === null || savedOwner === owner)) {
       const loaded = loadState();
@@ -724,6 +844,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const stateRef = useRef(state);
   stateRef.current = state;
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [undoEntry, setUndoEntry] = useState<UndoEntry | null>(null);
+  const [undoNotice, setUndoNotice] = useState<string | null>(null);
+  const rememberUndo = useCallback((action: Action, previous: AppState) => {
+    const label = UNDO_LABELS[action.type]
+      ?? (action.type === 'UPDATE_MATERIAL' && action.material.archived ? '教材アーカイブを元に戻す' : undefined);
+    if (!label) return;
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndoEntry(createUndoEntry(previous, label));
+    undoTimer.current = setTimeout(() => setUndoEntry(null), UNDO_WINDOW_MS);
+  }, []);
+  const dispatch = useCallback((action: Action) => {
+    if (action.type === 'IMPORT_STATE' || action.type === 'RESET_ALL') {
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+      setUndoEntry(null);
+    }
+    const previous = stateRef.current;
+    const next = appReducer(previous, action);
+    if (next === previous) return;
+    rememberUndo(action, previous);
+    // 同一イベント内で複数コマンドが続いても、2件目が古いReact stateを基準にしない。
+    stateRef.current = next;
+    reducerDispatch({ type: 'REPLACE_STATE', state: next });
+  }, [rememberUndo]);
+  const execute = useCallback((action: Action): AppCommandResult => {
+    const previous = stateRef.current;
+    const next = appReducer(previous, action);
+    const changed = next !== previous;
+    const schedule = next.lastScheduleResult !== previous.lastScheduleResult ? next.lastScheduleResult : undefined;
+    const rejected = schedule?.status === 'invalidInput';
+    if (changed && !rejected) {
+      rememberUndo(action, previous);
+      stateRef.current = next;
+      reducerDispatch({ type: 'REPLACE_STATE', state: next });
+    }
+    const status = schedule?.status;
+    return {
+      changed: changed && !rejected,
+      ...(status ? { scheduleStatus: status } : {}),
+      ...(status === 'invalidInput' ? { message: schedule?.validationErrors?.[0]?.reason ?? '入力内容を確認してください', errorCode: 'invalidInput' } : {}),
+      ...(status === 'partial' ? { message: '保存しましたが、一部のタスクは未配置です' } : {}),
+      ...(status === 'conflict' ? { message: '保存しましたが、固定条件に競合があります' } : {}),
+      ...(status === 'infeasible' ? { message: '保存しましたが、期限内に全量を配置できません' } : {}),
+      ...(status === 'indeterminate' ? { message: '保存しましたが、配置可能性を確定できませんでした' } : {}),
+    };
+  }, [rememberUndo]);
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
   const skipInitialLocalWrite = useRef(true);
 
   const [syncReady, setSyncReady] = useState(false);
@@ -893,11 +1060,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('online', onOnline);
   }, [pushToD1]);
 
-  const value = useMemo(() => ({ state, dispatch, syncStatus }), [state, syncStatus]);
+  const value = useMemo(() => ({ state, dispatch, execute, syncStatus }), [state, dispatch, execute, syncStatus]);
   if (owner && !syncReady) {
     return <div className="screen"><div className="card">クラウドの最新データを確認中…</div></div>;
   }
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return <AppContext.Provider value={value}>
+    {children}
+    {undoEntry && isUndoEntryValid(undoEntry) && (
+      <div className="toast undo-toast" role="status">
+        <span>{undoEntry.label}</span>
+        <button type="button" onClick={() => {
+          if (!isUndoEntryValid(undoEntry)) { setUndoEntry(null); setUndoNotice('元に戻せる時間が過ぎています'); return; }
+          stateRef.current = undoEntry.state;
+          reducerDispatch({ type: 'REPLACE_STATE', state: undoEntry.state });
+          setUndoEntry(null);
+          setUndoNotice('元に戻しました');
+          window.setTimeout(() => setUndoNotice(null), 2400);
+          if (undoTimer.current) clearTimeout(undoTimer.current);
+        }}>元に戻す</button>
+      </div>
+    )}
+    {undoNotice && <div className="toast undo-notice" role="status">{undoNotice}</div>}
+  </AppContext.Provider>;
 }
 
 export function useApp(): AppContextValue {

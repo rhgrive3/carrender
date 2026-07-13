@@ -156,6 +156,15 @@ export interface StudySession {
   source: 'timer' | 'manual';
   pausedMinutes?: number;
   excludedFromEstimate?: boolean;
+  /** 新形式の記録が教材進捗へ加えた正確な範囲。旧記録は未定義のまま保持する。 */
+  progressRangesAdded?: UnitRange[];
+  /** 完了・部分完了前のタスク。記録編集/削除時の安全な再構築に使う。 */
+  taskSnapshotBefore?: StudyTask;
+  generatedReviewTaskIds?: string[];
+  replacementTaskIds?: string[];
+  /** 新形式の記録を編集するとき、元タスクを完了扱いにしたかを再現する。 */
+  completedTask?: boolean;
+  updatedAt?: string;
 }
 
 export interface EstimateUpdateResult {

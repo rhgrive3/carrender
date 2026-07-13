@@ -3,6 +3,19 @@ import type { ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { Subject, StudyTask } from '../../types';
 
+export function sanitizeNumericDraft(raw: string, decimal: boolean): string {
+  const base = raw.replace(decimal ? /[^0-9.]/g : /[^0-9]/g, '');
+  if (!decimal) return base;
+  const [head, ...rest] = base.split('.');
+  return rest.length > 0 ? `${head}.${rest.join('')}` : head;
+}
+
+export function parseNumericDraft(raw: string, decimal: boolean): number | null {
+  if (raw.trim() === '') return null;
+  const value = decimal ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
+  return Number.isNaN(value) ? null : value;
+}
+
 export function SubjectChip({ subject }: { subject: Subject | undefined }) {
   if (!subject) return null;
   return (
@@ -57,26 +70,22 @@ export function NumericInput({
   emptyValue?: number;
 }) {
   const [focused, setFocused] = useState(false);
-  const [text, setText] = useState(() => (value === null || value === 0 ? '' : String(value)));
+  const [text, setText] = useState(() => (value === null ? '' : String(value)));
 
   useEffect(() => {
     if (focused) return;
-    setText(value === null || value === 0 ? '' : String(value));
+    setText(value === null ? '' : String(value));
   }, [focused, value]);
 
   const parse = (raw: string): number | null => {
-    if (raw.trim() === '') return null;
-    const n = decimal ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
-    if (Number.isNaN(n)) return null;
+    const n = parseNumericDraft(raw, decimal);
+    if (n === null) return null;
     const clipped = Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min ?? Number.NEGATIVE_INFINITY, n));
     return clipped;
   };
 
   const sanitize = (raw: string): string => {
-    const base = raw.replace(decimal ? /[^0-9.]/g : /[^0-9]/g, '');
-    if (!decimal) return base;
-    const [head, ...rest] = base.split('.');
-    return rest.length > 0 ? `${head}.${rest.join('')}` : head;
+    return sanitizeNumericDraft(raw, decimal);
   };
 
   return (
@@ -90,7 +99,6 @@ export function NumericInput({
       placeholder={placeholder}
       onFocus={() => {
         setFocused(true);
-        if (text === '0') setText('');
       }}
       onChange={(e) => {
         const next = sanitize(e.target.value);

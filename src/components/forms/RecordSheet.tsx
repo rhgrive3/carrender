@@ -6,6 +6,7 @@ import { resolveSessionProgress, useApp } from '../../state/AppContext';
 import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
 import { minutesToHM, today } from '../../lib/date';
+import type { StudySession } from '../../types';
 
 export interface RecordPreset {
   taskId: string | null;
@@ -22,36 +23,41 @@ interface RecordSheetProps {
   onClose: () => void;
   preset?: RecordPreset;
   onDone?: () => void;
+  session?: StudySession;
 }
 
 /**
  * 勉強記録シート。タイマー終了直後は最小限の入力(進んだ量・集中度)で保存できる。
  */
-export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps) {
-  const { state, dispatch } = useApp();
+export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSheetProps) {
+  const { state, execute } = useApp();
   const toast = useToast();
 
-  const [subjectId, setSubjectId] = useState(preset?.subjectId ?? state.subjects[0]?.id ?? '');
-  const [materialId, setMaterialId] = useState<string>(preset?.materialId ?? '');
-  const [minutes, setMinutes] = useState(preset?.minutes ?? 30);
-  const task = preset?.taskId ? state.tasks.find((t) => t.id === preset.taskId) : undefined;
-  const [amountDone, setAmountDone] = useState(() => task?.amount ?? 0);
-  const [completed, setCompleted] = useState(true);
-  const [focus, setFocus] = useState<1 | 2 | 3 | 4 | 5 | null>(null);
-  const [memo, setMemo] = useState('');
-  const [showMemo, setShowMemo] = useState(false);
-  const [recordDate, setRecordDate] = useState(today());
-  const [startTime, setStartTime] = useState(() => minutesToHM(new Date().getHours() * 60 + new Date().getMinutes()));
+  const [subjectId, setSubjectId] = useState(session?.subjectId ?? preset?.subjectId ?? state.subjects[0]?.id ?? '');
+  const [materialId, setMaterialId] = useState<string>(session?.materialId ?? preset?.materialId ?? '');
+  const [minutes, setMinutes] = useState(session?.minutes ?? preset?.minutes ?? 30);
+  const taskId = session?.taskId ?? preset?.taskId;
+  const task = taskId ? state.tasks.find((t) => t.id === taskId) ?? session?.taskSnapshotBefore : undefined;
+  const [amountDone, setAmountDone] = useState(() => session?.amountDone ?? task?.amount ?? 0);
+  const [completed, setCompleted] = useState(session ? (session.completedTask ?? Boolean(session.taskId && !session.replacementTaskIds?.length)) : true);
+  const [focus, setFocus] = useState<1 | 2 | 3 | 4 | 5 | null>(session?.focus ?? null);
+  const [memo, setMemo] = useState(session?.memo ?? '');
+  const [showMemo, setShowMemo] = useState(Boolean(session?.memo));
+  const [recordDate, setRecordDate] = useState(session?.date ?? today());
+  const [startTime, setStartTime] = useState(() => session
+    ? new Date(session.startedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : minutesToHM(new Date().getHours() * 60 + new Date().getMinutes()));
 
   const materials = useMemo(
-    () => state.materials.filter((m) => !m.archived && m.subjectId === subjectId),
-    [state.materials, subjectId],
+    () => state.materials.filter((m) => (!m.archived || m.id === session?.materialId) && m.subjectId === subjectId),
+    [session?.materialId, state.materials, subjectId],
   );
-  const material = state.materials.find((m) => m.id === (preset?.materialId ?? materialId));
+  const selectedMaterialId = preset && !session ? preset.materialId : (materialId || null);
+  const material = state.materials.find((m) => m.id === selectedMaterialId);
   const quota = material ? todayQuotaFor(state, material.id, today()) : 0;
   const remainingAmount = useMemo(() => {
     if (!material) return task?.amount ?? 9999;
-    return resolveSessionProgress(state, {
+    const remaining = resolveSessionProgress(state, {
       taskId: preset?.taskId ?? null,
       subjectId,
       materialId: material.id,
@@ -63,44 +69,49 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
       rangeLabel: preset?.rangeLabel ?? '',
       completedTask: false,
     }).amountDone;
-  }, [material, minutes, preset?.rangeLabel, preset?.source, preset?.taskId, state, subjectId, task?.amount]);
+    // 編集対象自身が加えた範囲は保存時に一度取り消されるため、現在の残量だけで
+    // maxを決めると同じ値すら再入力できない。旧形式も現在量までは失わない。
+    return session?.materialId === material.id ? Math.max(remaining, session.amountDone) : remaining;
+  }, [material, minutes, preset?.rangeLabel, preset?.source, preset?.taskId, session, state, subjectId, task?.amount]);
 
   const save = () => {
     if (!subjectId) {
       toast('科目を選択してください');
       return;
     }
-    if (!preset && recordDate > today()) {
+    if ((!preset || session) && recordDate > today()) {
       toast('未来日の記録は追加できません');
       return;
     }
-    dispatch({
-      type: 'RECORD_SESSION',
-      input: {
-        taskId: preset?.taskId ?? null,
+    const preservesTask = !session || (session.subjectId === subjectId && session.materialId === selectedMaterialId);
+    const input = {
+        taskId: preservesTask ? session?.taskId ?? preset?.taskId ?? null : null,
         subjectId,
-        materialId: preset?.materialId ?? (materialId || null),
+        materialId: selectedMaterialId,
         minutes: Math.max(1, minutes),
         amountDone,
         focus,
         memo,
-        source: preset?.source ?? 'manual',
-        rangeLabel: preset?.rangeLabel ?? material?.name ?? '',
-        completedTask: !!preset?.taskId && completed,
+        source: session?.source ?? preset?.source ?? 'manual',
+        rangeLabel: session?.rangeLabel ?? preset?.rangeLabel ?? material?.name ?? '',
+        completedTask: Boolean(preservesTask && (session?.taskId ?? preset?.taskId) && completed),
         taskLocator: preset?.taskLocator,
-        date: preset ? undefined : recordDate,
-        startTime: preset ? undefined : startTime,
-      },
-    });
-    toast('記録を保存しました 🎉');
+        date: preset && !session ? undefined : recordDate,
+        startTime: preset && !session ? undefined : startTime,
+    };
+    const result = session
+      ? execute({ type: 'UPDATE_SESSION', sessionId: session.id, input })
+      : execute({ type: 'RECORD_SESSION', input });
+    if (!result.changed) { toast(result.message ?? '記録を保存できませんでした'); return; }
+    toast(result.message ?? (session ? '記録を更新しました' : '記録を保存しました 🎉'));
     onDone?.();
     onClose();
   };
 
   return (
-    <Sheet open={open} onClose={onClose} title={preset?.source === 'timer' ? 'おつかれさま!記録しよう' : '勉強を記録'}>
+    <Sheet open={open} onClose={onClose} title={session ? '学習記録を編集' : preset?.source === 'timer' ? 'おつかれさま!記録しよう' : '勉強を記録'}>
       {/* タイマー経由でない場合のみ科目・教材・時間を聞く */}
-      {!preset && (
+      {(!preset || session) && (
         <>
           <div className="field">
             <label htmlFor="rec-subject">科目</label>
@@ -155,7 +166,7 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
         </div>
       )}
 
-      {preset?.taskId && (
+      {(preset?.taskId || session?.taskId) && (
         <div className="field">
           <label>このタスクは終わった?</label>
           <Segmented
@@ -204,8 +215,17 @@ export function RecordSheet({ open, onClose, preset, onDone }: RecordSheetProps)
       )}
 
       <button className="btn btn-primary btn-block mt-16" onClick={save}>
-        保存する
+        {session ? 'この記録を更新' : '保存する'}
       </button>
+      {session && (
+        <button className="btn btn-danger btn-block mt-12" onClick={() => {
+          if (!window.confirm('この学習記録を削除しますか？教材進捗と復習タスクも再計算されます。')) return;
+          const result = execute({ type: 'DELETE_SESSION', sessionId: session.id });
+          if (!result.changed) { toast(result.message ?? '記録を削除できませんでした'); return; }
+          toast(result.message ?? '記録を削除して進捗を再計算しました');
+          onClose();
+        }}>この記録を削除</button>
+      )}
     </Sheet>
   );
 }

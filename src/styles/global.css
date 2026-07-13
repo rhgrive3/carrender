@@ -1998,6 +1998,15 @@ button.mini-block:not(:disabled):active {
   text-align: center;
 }
 
+.undo-toast { display: flex; align-items: center; gap: 12px; max-width: min(92vw, 520px); bottom: calc(var(--nav-height) + var(--safe-bottom) + 76px); }
+.undo-notice { bottom: calc(var(--nav-height) + var(--safe-bottom) + 76px); }
+.undo-toast button { min-height: 44px; border: 0; background: transparent; color: var(--accent); font-weight: 800; white-space: nowrap; }
+.session-log-button { width: 100%; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.toast-success { border: 1px solid color-mix(in srgb, var(--ok), transparent 50%); }
+.toast-warning { border: 1px solid color-mix(in srgb, var(--warn), transparent 40%); }
+.toast-error { border: 1px solid color-mix(in srgb, var(--danger), transparent 40%); }
+.text-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 @keyframes toast-in {
   from {
     transform: translate(-50%, 16px);

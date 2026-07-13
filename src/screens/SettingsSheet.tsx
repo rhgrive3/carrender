@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { AlarmClock, BookOpen, CalendarCog, Database, Download, FileDown, Pin, Repeat, Target, Timer, Trophy, Upload, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlarmClock, BookOpen, CalendarCog, Database, Download, FileDown, Pin, Plus, Repeat, Target, Timer, Trophy, Upload, X } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../state/AuthContext';
 import { Sheet } from '../components/ui/Sheet';
@@ -8,7 +8,8 @@ import { useToast } from '../components/ui/Toast';
 import { exportJSON, exportSessionsCSV, importJSON, saveStateNow } from '../lib/storage';
 import { notificationSupported, requestNotificationPermission } from '../lib/notify';
 import { formatDateShort, genId, hmToMinutes, minutesToHM, today, WEEKDAY_LABELS } from '../lib/date';
-import type { DayLoad, DayPlanOverride, FixedEvent, TimeRange, Weekday } from '../types';
+import type { DayLoad, DayPlanOverride, FixedEvent, Subject, TimeRange, TimerSettings, Weekday } from '../types';
+import { mergeStudySettings, mergeTimerSettings, mergeWeeklyTarget, studySettingsDraft, type StudySettingsDraft } from '../lib/settingsSections';
 
 const SYNC_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   syncing: { label: '同期中…', cls: 'status-accent' },
@@ -19,7 +20,7 @@ const SYNC_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 };
 
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { state, dispatch, syncStatus } = useApp();
+  const { state, dispatch, execute, syncStatus } = useApp();
   const { user, logout, busy: authBusy } = useAuth();
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -29,7 +30,16 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   const [examDate, setExamDate] = useState(state.goal?.examDate ?? '');
   const [availability, setAvailability] = useState(state.availability);
   const [events, setEvents] = useState(state.fixedEvents);
-  const [settingsDraft, setSettingsDraft] = useState(state.settings);
+  const [studyDraft, setStudyDraft] = useState<StudySettingsDraft>(() => studySettingsDraft(state.settings));
+  const [timerDraft, setTimerDraft] = useState<TimerSettings>(state.settings.timer);
+  const [weeklyTargetDraft, setWeeklyTargetDraft] = useState(state.settings.weeklyTargetMinutes);
+  const [dirtySections, setDirtySections] = useState<Set<'study' | 'timer' | 'weekly'>>(new Set());
+  const [externalSections, setExternalSections] = useState<Set<'study' | 'timer' | 'weekly'>>(new Set());
+  const [goalDirty, setGoalDirty] = useState(false);
+  const [availabilityDirty, setAvailabilityDirty] = useState(false);
+  const [otherExternalUpdate, setOtherExternalUpdate] = useState(false);
+  const wasOpen = useRef(false);
+  const remoteSnapshot = useRef({ study: '', timer: '', weekly: '', goal: '', availability: '', events: '' });
   const [newEvent, setNewEvent] = useState<{
     title: string;
     mode: 'weekly' | 'date' | 'range';
@@ -58,30 +68,74 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     end: string;
   }>({ date: today(), load: 'normal', memo: '', useWindow: false, start: '18:00', end: '20:00' });
 
+  useEffect(() => {
+    const signatures = {
+      study: JSON.stringify(studySettingsDraft(state.settings)),
+      timer: JSON.stringify(state.settings.timer),
+      weekly: String(state.settings.weeklyTargetMinutes),
+      goal: JSON.stringify(state.goal),
+      availability: JSON.stringify(state.availability),
+      events: JSON.stringify(state.fixedEvents),
+    };
+    if (open && !wasOpen.current) {
+      setGoalName(state.goal?.name ?? '');
+      setExamDate(state.goal?.examDate ?? '');
+      setAvailability(state.availability);
+      setEvents(state.fixedEvents);
+      setStudyDraft(studySettingsDraft(state.settings));
+      setTimerDraft(state.settings.timer);
+      setWeeklyTargetDraft(state.settings.weeklyTargetMinutes);
+      setDirtySections(new Set());
+      setExternalSections(new Set());
+      setGoalDirty(false);
+      setAvailabilityDirty(false);
+      setOtherExternalUpdate(false);
+    } else if (open) {
+      const changed = (section: 'study' | 'timer' | 'weekly') => remoteSnapshot.current[section] && remoteSnapshot.current[section] !== signatures[section];
+      if (changed('study')) dirtySections.has('study') ? setExternalSections((current) => new Set(current).add('study')) : setStudyDraft(studySettingsDraft(state.settings));
+      if (changed('timer')) dirtySections.has('timer') ? setExternalSections((current) => new Set(current).add('timer')) : setTimerDraft(state.settings.timer);
+      if (changed('weekly')) dirtySections.has('weekly') ? setExternalSections((current) => new Set(current).add('weekly')) : setWeeklyTargetDraft(state.settings.weeklyTargetMinutes);
+      if (remoteSnapshot.current.goal && remoteSnapshot.current.goal !== signatures.goal) goalDirty ? setOtherExternalUpdate(true) : (setGoalName(state.goal?.name ?? ''), setExamDate(state.goal?.examDate ?? ''));
+      if (remoteSnapshot.current.availability && remoteSnapshot.current.availability !== signatures.availability) availabilityDirty ? setOtherExternalUpdate(true) : setAvailability(state.availability);
+      if (remoteSnapshot.current.events && remoteSnapshot.current.events !== signatures.events) setEvents(state.fixedEvents);
+    }
+    remoteSnapshot.current = signatures;
+    wasOpen.current = open;
+  }, [availabilityDirty, dirtySections, goalDirty, open, state.availability, state.fixedEvents, state.goal, state.settings]);
+
+  const markDirty = (section: 'study' | 'timer' | 'weekly') => setDirtySections((current) => new Set(current).add(section));
+  const clearSection = (section: 'study' | 'timer' | 'weekly') => {
+    setDirtySections((current) => { const next = new Set(current); next.delete(section); return next; });
+    setExternalSections((current) => { const next = new Set(current); next.delete(section); return next; });
+  };
+
   const setTheme = (theme: 'auto' | 'dark' | 'light') => {
-    dispatch({ type: 'UPDATE_SETTINGS', settings: { ...state.settings, theme } });
-    setSettingsDraft((prev) => ({ ...prev, theme }));
+    execute({ type: 'UPDATE_SETTINGS', settings: { ...state.settings, theme } });
   };
 
   const saveGoal = () => {
     if (!state.goal || !goalName.trim() || !examDate) return;
-    dispatch({ type: 'UPDATE_GOAL', goal: { ...state.goal, name: goalName.trim(), examDate } });
-    toast('目標を更新し、計画を再計算しました');
+    const result = execute({ type: 'UPDATE_GOAL', goal: { ...state.goal, name: goalName.trim(), examDate } });
+    toast(result.message ?? '目標を更新しました');
+    if (result.changed) { setGoalDirty(false); setOtherExternalUpdate(false); }
   };
 
   const saveAvailability = () => {
-    dispatch({ type: 'UPDATE_AVAILABILITY', availability });
-    toast('勉強可能時間を更新し、計画を再計算しました');
+    const result = execute({ type: 'UPDATE_AVAILABILITY', availability });
+    toast(result.message ?? '勉強可能時間を更新しました');
+    if (result.changed) { setAvailabilityDirty(false); setOtherExternalUpdate(false); }
   };
 
   const saveStudySettings = () => {
-    dispatch({ type: 'UPDATE_SETTINGS', settings: settingsDraft });
-    toast('学習時間の上限を保存し、計画を再計算しました');
+    const result = execute({ type: 'UPDATE_SETTINGS', settings: mergeStudySettings(state.settings, studyDraft) });
+    toast(result.message ?? '学習時間と計画設定を保存しました');
+    if (result.changed) clearSection('study');
   };
 
   const saveTimerSettings = () => {
-    dispatch({ type: 'UPDATE_SETTINGS', settings: settingsDraft });
-    toast('タイマー設定を保存しました');
+    const result = execute({ type: 'UPDATE_SETTINGS', settings: mergeTimerSettings(state.settings, timerDraft) });
+    toast(result.message ?? 'タイマー設定を保存しました');
+    if (result.changed) clearSection('timer');
   };
 
   const setTimerFlag = async (key: 'sound' | 'vibration' | 'notification' | 'keepScreenOn', value: boolean) => {
@@ -92,21 +146,20 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         return;
       }
     }
-    const next = { ...settingsDraft, timer: { ...settingsDraft.timer, [key]: value } };
-    setSettingsDraft(next);
-    dispatch({ type: 'UPDATE_SETTINGS', settings: next });
+    const timer = { ...state.settings.timer, [key]: value };
+    setTimerDraft((current) => ({ ...current, [key]: value }));
+    execute({ type: 'UPDATE_SETTINGS', settings: { ...state.settings, timer } });
   };
 
   const setReviewAutoEnabled = (enabled: boolean) => {
-    const next = { ...settingsDraft, reviewRule: { ...settingsDraft.reviewRule, enabled } };
-    setSettingsDraft(next);
-    dispatch({ type: 'UPDATE_SETTINGS', settings: next });
+    execute({ type: 'UPDATE_SETTINGS', settings: { ...state.settings, reviewRule: { ...state.settings.reviewRule, enabled } } });
     toast(enabled ? '復習の自動生成をオンにしました' : '復習の自動生成をオフにし、生成済みの復習タスクを計画から外しました');
   };
 
   const saveWeeklyGoal = () => {
-    dispatch({ type: 'UPDATE_SETTINGS', settings: settingsDraft });
-    toast(settingsDraft.weeklyTargetMinutes > 0 ? '週間目標を設定しました。記録画面で進捗が見られます' : '週間目標を解除しました');
+    const result = execute({ type: 'UPDATE_SETTINGS', settings: mergeWeeklyTarget(state.settings, weeklyTargetDraft) });
+    toast(result.message ?? (weeklyTargetDraft > 0 ? '週間目標を保存しました' : '週間目標を解除しました'));
+    if (result.changed) clearSection('weekly');
   };
 
   const doExportCSV = () => {
@@ -145,9 +198,9 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     };
     const next = [...events, ev];
     setEvents(next);
-    dispatch({ type: 'UPDATE_FIXED_EVENTS', fixedEvents: next });
+    const result = execute({ type: 'UPDATE_FIXED_EVENTS', fixedEvents: next });
     setNewEvent({ ...newEvent, title: '' });
-    toast('固定予定を追加しました');
+    toast(result.message ?? '固定予定を追加しました');
   };
 
   const saveDayException = () => {
@@ -161,11 +214,12 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       memo: dayException.memo,
       availabilityWindows: dayException.useWindow ? [{ start: dayException.start, end: dayException.end }] : null,
     };
-    dispatch({ type: 'UPDATE_DAY_PLAN', dayPlan });
-    toast('日別例外を保存して再計算しました');
+    const result = execute({ type: 'UPDATE_DAY_PLAN', dayPlan });
+    toast(result.message ?? '日別例外を保存しました');
   };
 
   const updateAvailabilityWindows = (weekday: Weekday, windows: TimeRange[]) => {
+    setAvailabilityDirty(true);
     const clean = windows.filter((w) => w.start && w.end && w.start < w.end);
     const minutes = clean.reduce((sum, w) => sum + Math.max(0, hmToMinutes(w.end) - hmToMinutes(w.start)), 0);
     setAvailability((prev) => prev.map((s) => (s.weekday === weekday ? { ...s, windows: clean, minutes } : s)));
@@ -174,7 +228,8 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   const removeEvent = (id: string) => {
     const next = events.filter((e) => e.id !== id);
     setEvents(next);
-    dispatch({ type: 'UPDATE_FIXED_EVENTS', fixedEvents: next });
+    const result = execute({ type: 'UPDATE_FIXED_EVENTS', fixedEvents: next });
+    toast(result.message ?? '固定予定を削除しました');
   };
 
   const eventLabel = (ev: FixedEvent) => {
@@ -258,6 +313,12 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         </div>
       </div>
 
+      {(externalSections.size > 0 || otherExternalUpdate) && (
+        <div className="card status-warn" role="status" style={{ padding: 12, marginBottom: 14 }}>
+          別の更新があります。編集中の入力は保持しています。保存すると、このセクションの入力項目だけを最新設定へ反映します。
+        </div>
+      )}
+
       {/* デモデータ警告 */}
       {state.isDemo && (
         <div className="card" style={{ padding: 12, marginBottom: 14, borderColor: 'var(--warn)' }}>
@@ -287,11 +348,11 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         <Disclosure title="目標と試験日" icon={<Target size={16} strokeWidth={2.2} />} iconColor="var(--danger)" summary={`${state.goal.name} ・ ${formatDateShort(state.goal.examDate)}`}>
           <div className="field">
             <label htmlFor="st-goal">目標名</label>
-            <input id="st-goal" value={goalName} onChange={(e) => setGoalName(e.target.value)} />
+            <input id="st-goal" value={goalName} onChange={(e) => { setGoalDirty(true); setGoalName(e.target.value); }} />
           </div>
           <div className="field">
             <label htmlFor="st-exam">試験日</label>
-            <input id="st-exam" type="date" value={examDate} onChange={(e) => setExamDate(e.target.value)} />
+            <input id="st-exam" type="date" value={examDate} onChange={(e) => { setGoalDirty(true); setExamDate(e.target.value); }} />
           </div>
           <button className="btn btn-secondary btn-sm btn-block" onClick={saveGoal}>
             目標を保存して再計算
@@ -370,22 +431,22 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           <label htmlFor="st-max-daily">1日の最大(分)</label>
           <NumericInput
             id="st-max-daily"
-            value={settingsDraft.maxDailyMinutes}
+            value={studyDraft.maxDailyMinutes}
             min={0}
             max={1200}
             placeholder="例: 360"
-            onChange={(v) => setSettingsDraft((prev) => ({ ...prev, maxDailyMinutes: v }))}
+            onChange={(v) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, maxDailyMinutes: v })); }}
           />
         </div>
         <div className="field">
           <label htmlFor="st-session-max">1コマの最大(分)</label>
           <NumericInput
             id="st-session-max"
-            value={settingsDraft.sessionMaxMinutes}
+            value={studyDraft.sessionMaxMinutes}
             min={15}
             max={240}
             placeholder="例: 90"
-            onChange={(v) => setSettingsDraft((prev) => ({ ...prev, sessionMaxMinutes: v }))}
+            onChange={(v) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, sessionMaxMinutes: v })); }}
           />
         </div>
       </div>
@@ -393,17 +454,17 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         <label htmlFor="st-session-min">1コマの最小(分)</label>
         <NumericInput
           id="st-session-min"
-          value={settingsDraft.sessionMinMinutes}
+          value={studyDraft.sessionMinMinutes}
           min={5}
           max={120}
           placeholder="例: 25"
-          onChange={(v) => setSettingsDraft((prev) => ({ ...prev, sessionMinMinutes: v }))}
+          onChange={(v) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, sessionMinMinutes: v })); }}
         />
       </div>
       <div className="field-row">
         <div className="field">
           <label htmlFor="st-timezone">タイムゾーン</label>
-          <select id="st-timezone" value={settingsDraft.timezone ?? 'Asia/Tokyo'} onChange={(e) => setSettingsDraft((prev) => ({ ...prev, timezone: e.target.value }))}>
+          <select id="st-timezone" value={studyDraft.timezone ?? 'Asia/Tokyo'} onChange={(e) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, timezone: e.target.value })); }}>
             <option value="Asia/Tokyo">Asia/Tokyo</option>
             <option value="Asia/Seoul">Asia/Seoul</option>
             <option value="Asia/Singapore">Asia/Singapore</option>
@@ -414,7 +475,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         </div>
         <div className="field">
           <label htmlFor="st-horizon">具体計画(日)</label>
-          <NumericInput id="st-horizon" value={settingsDraft.taskGenerationHorizonDays ?? 42} min={7} max={90} onChange={(v) => setSettingsDraft((prev) => ({ ...prev, taskGenerationHorizonDays: Math.max(7, Math.min(90, v)) }))} />
+          <NumericInput id="st-horizon" value={studyDraft.taskGenerationHorizonDays ?? 42} min={7} max={90} onChange={(v) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, taskGenerationHorizonDays: Math.max(7, Math.min(90, v)) })); }} />
         </div>
       </div>
       <button className="btn btn-secondary btn-sm btn-block" onClick={saveStudySettings}>
@@ -432,7 +493,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         <label className="check-row">
           <input
             type="checkbox"
-            checked={settingsDraft.reviewRule.enabled}
+            checked={state.settings.reviewRule.enabled}
             onChange={(e) => setReviewAutoEnabled(e.target.checked)}
           />
           完了した範囲の復習タスク(1・3・7日後など)を自動で作る
@@ -453,12 +514,13 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           <label htmlFor="st-weekly-goal">1週間の目標学習時間(時間)</label>
           <NumericInput
             id="st-weekly-goal"
-            value={settingsDraft.weeklyTargetMinutes > 0 ? Math.round((settingsDraft.weeklyTargetMinutes / 60) * 10) / 10 : 0}
+            value={weeklyTargetDraft > 0 ? Math.round((weeklyTargetDraft / 60) * 10) / 10 : null}
+            emptyValue={0}
             min={0}
             max={100}
             decimal
             placeholder="例: 20(0で解除)"
-            onChange={(v) => setSettingsDraft((prev) => ({ ...prev, weeklyTargetMinutes: Math.round(v * 60) }))}
+            onChange={(v) => { markDirty('weekly'); setWeeklyTargetDraft(Math.round(v * 60)); }}
           />
         </div>
         <p className="field-hint" style={{ marginBottom: 10 }}>記録画面(週表示)に進捗バーが表示され、達成でバッジを獲得できます</p>
@@ -482,11 +544,9 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
               { value: 'stopwatch', label: 'ストップウォッチ' },
               { value: 'pomodoro', label: '🍅 ポモドーロ' },
             ]}
-            value={settingsDraft.timer.defaultMode}
+            value={timerDraft.defaultMode}
             onChange={(defaultMode) => {
-              const next = { ...settingsDraft, timer: { ...settingsDraft.timer, defaultMode } };
-              setSettingsDraft(next);
-              dispatch({ type: 'UPDATE_SETTINGS', settings: next });
+              markDirty('timer'); setTimerDraft((current) => ({ ...current, defaultMode }));
             }}
           />
         </div>
@@ -495,22 +555,22 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             <label htmlFor="st-pomo-work">集中(分)</label>
             <NumericInput
               id="st-pomo-work"
-              value={settingsDraft.timer.pomodoro.workMinutes}
+              value={timerDraft.pomodoro.workMinutes}
               min={5}
               max={120}
               placeholder="25"
-              onChange={(v) => setSettingsDraft((p) => ({ ...p, timer: { ...p.timer, pomodoro: { ...p.timer.pomodoro, workMinutes: Math.max(5, v) } } }))}
+              onChange={(v) => { markDirty('timer'); setTimerDraft((p) => ({ ...p, pomodoro: { ...p.pomodoro, workMinutes: Math.max(5, v) } })); }}
             />
           </div>
           <div className="field">
             <label htmlFor="st-pomo-break">休憩(分)</label>
             <NumericInput
               id="st-pomo-break"
-              value={settingsDraft.timer.pomodoro.breakMinutes}
+              value={timerDraft.pomodoro.breakMinutes}
               min={1}
               max={60}
               placeholder="5"
-              onChange={(v) => setSettingsDraft((p) => ({ ...p, timer: { ...p.timer, pomodoro: { ...p.timer.pomodoro, breakMinutes: Math.max(1, v) } } }))}
+              onChange={(v) => { markDirty('timer'); setTimerDraft((p) => ({ ...p, pomodoro: { ...p.pomodoro, breakMinutes: Math.max(1, v) } })); }}
             />
           </div>
         </div>
@@ -519,22 +579,22 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             <label htmlFor="st-pomo-long">長い休憩(分)</label>
             <NumericInput
               id="st-pomo-long"
-              value={settingsDraft.timer.pomodoro.longBreakMinutes}
+              value={timerDraft.pomodoro.longBreakMinutes}
               min={5}
               max={90}
               placeholder="15"
-              onChange={(v) => setSettingsDraft((p) => ({ ...p, timer: { ...p.timer, pomodoro: { ...p.timer.pomodoro, longBreakMinutes: Math.max(5, v) } } }))}
+              onChange={(v) => { markDirty('timer'); setTimerDraft((p) => ({ ...p, pomodoro: { ...p.pomodoro, longBreakMinutes: Math.max(5, v) } })); }}
             />
           </div>
           <div className="field">
             <label htmlFor="st-pomo-cycles">長い休憩までの回数</label>
             <NumericInput
               id="st-pomo-cycles"
-              value={settingsDraft.timer.pomodoro.cyclesUntilLongBreak}
+              value={timerDraft.pomodoro.cyclesUntilLongBreak}
               min={2}
               max={8}
               placeholder="4"
-              onChange={(v) => setSettingsDraft((p) => ({ ...p, timer: { ...p.timer, pomodoro: { ...p.timer.pomodoro, cyclesUntilLongBreak: Math.min(8, Math.max(2, v)) } } }))}
+              onChange={(v) => { markDirty('timer'); setTimerDraft((p) => ({ ...p, pomodoro: { ...p.pomodoro, cyclesUntilLongBreak: Math.min(8, Math.max(2, v)) } })); }}
             />
           </div>
         </div>
@@ -542,21 +602,21 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           ポモドーロ設定を保存
         </button>
         <label className="check-row">
-          <input type="checkbox" checked={settingsDraft.timer.sound} onChange={(e) => setTimerFlag('sound', e.target.checked)} />
+          <input type="checkbox" checked={state.settings.timer.sound} onChange={(e) => setTimerFlag('sound', e.target.checked)} />
           フェーズ切替時にチャイムを鳴らす
         </label>
         <label className="check-row">
-          <input type="checkbox" checked={settingsDraft.timer.vibration} onChange={(e) => setTimerFlag('vibration', e.target.checked)} />
+          <input type="checkbox" checked={state.settings.timer.vibration} onChange={(e) => setTimerFlag('vibration', e.target.checked)} />
           バイブレーション(対応端末のみ)
         </label>
         {notificationSupported() && (
           <label className="check-row">
-            <input type="checkbox" checked={settingsDraft.timer.notification} onChange={(e) => setTimerFlag('notification', e.target.checked)} />
+            <input type="checkbox" checked={state.settings.timer.notification} onChange={(e) => setTimerFlag('notification', e.target.checked)} />
             集中・休憩の切り替えを通知する
           </label>
         )}
         <label className="check-row">
-          <input type="checkbox" checked={settingsDraft.timer.keepScreenOn} onChange={(e) => setTimerFlag('keepScreenOn', e.target.checked)} />
+          <input type="checkbox" checked={state.settings.timer.keepScreenOn} onChange={(e) => setTimerFlag('keepScreenOn', e.target.checked)} />
           タイマー中は画面を消灯しない
         </label>
       </Disclosure>
@@ -707,23 +767,27 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       </button>
       {state.dayPlans.length > 0 && (
         <div className="mt-12">
-          {state.dayPlans.slice(0, 5).map((plan) => (
-            <div key={plan.date} className="mini-block" style={{ cursor: 'default' }}>
-              <span style={{ fontWeight: 800 }}>{formatDateShort(plan.date)}</span>
-              <span className="faint">{plan.load === 'rest' ? '休養' : plan.load === 'light' ? '軽め' : plan.load === 'heavy' ? '重め' : '通常'}</span>
-              {plan.memo && <span className="muted" style={{ marginLeft: 'auto' }}>{plan.memo}</span>}
-            </div>
-          ))}
+          {(['future', 'past'] as const).map((group) => {
+            const plans = state.dayPlans.filter((plan) => group === 'future' ? plan.date >= today() : plan.date < today());
+            if (plans.length === 0) return null;
+            return <div key={group}><div className="faint mt-8">{group === 'future' ? '今後の例外' : '過去の例外'}</div>{plans.map((plan) => (
+              <div key={plan.date} className="mini-block">
+                <button type="button" className="btn btn-ghost" style={{ flex: 1, justifyContent: 'flex-start', minWidth: 0 }} onClick={() => {
+                  const window = plan.availabilityWindows?.[0];
+                  setDayException({ date: plan.date, load: plan.load, memo: plan.memo, useWindow: Boolean(plan.availabilityWindows), start: window?.start ?? '18:00', end: window?.end ?? '20:00' });
+                }}><span style={{ fontWeight: 800 }}>{formatDateShort(plan.date)}</span><span className="faint">{plan.load === 'rest' ? '休養' : plan.load === 'light' ? '軽め' : plan.load === 'heavy' ? '重め' : '通常'}</span>{plan.memo && <span className="muted text-ellipsis">{plan.memo}</span>}</button>
+                <button type="button" className="icon-btn danger" aria-label={`${formatDateShort(plan.date)}の例外を削除`} onClick={() => {
+                  if (!window.confirm('この日別例外を削除し、曜日テンプレートへ戻しますか？')) return;
+                  execute({ type: 'DELETE_DAY_PLAN', date: plan.date }); toast('日別例外を削除して再計算しました');
+                }}><X size={16} /></button>
+              </div>
+            ))}</div>;
+          })}
         </div>
       )}
       </Disclosure>
 
-      {/* 科目の重要度・苦手度 */}
-      {state.subjects.length > 0 && (
-        <Disclosure title="科目の重要度・苦手度" icon={<BookOpen size={16} strokeWidth={2.2} />} iconColor="var(--ok)" summary={`${state.subjects.length}科目`}>
-          <SubjectTuner />
-        </Disclosure>
-      )}
+      <SubjectManager />
 
       {/* データ管理 */}
       <Disclosure title="データ管理" icon={<Database size={16} strokeWidth={2.2} />} iconColor="var(--text-sub)" summary="バックアップ・初期化">
@@ -762,6 +826,54 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   );
 }
 
+function SubjectManager() {
+  const { state, execute } = useApp();
+  const toast = useToast();
+  const [editing, setEditing] = useState<Subject | null>(null);
+  const [mergeTarget, setMergeTarget] = useState('');
+  const startAdd = () => setEditing({ id: genId('subj'), name: '', color: '#6366f1', importance: 3, weakness: 3 });
+  const referenced = editing ? state.materials.some((item) => item.subjectId === editing.id)
+    || state.tasks.some((item) => item.subjectId === editing.id)
+    || state.sessions.some((item) => item.subjectId === editing.id) : false;
+  return (
+    <Disclosure title="科目管理" icon={<BookOpen size={16} strokeWidth={2.2} />} iconColor="var(--accent)" summary={`${state.subjects.length}科目`}>
+      {state.subjects.map((subject) => (
+        <button type="button" className="btn btn-secondary btn-block mt-8" key={subject.id} onClick={() => { setEditing({ ...subject }); setMergeTarget(''); }}>
+          <span className="subject-chip" style={{ background: `${subject.color}26`, color: subject.color }}>{subject.name}</span>
+          <span className="faint">重要度{subject.importance}・苦手度{subject.weakness}</span>
+        </button>
+      ))}
+      <button type="button" className="btn btn-ghost btn-block mt-8" onClick={startAdd}><Plus size={16} />科目を追加</button>
+      {editing && (
+        <div className="card mt-12" style={{ padding: 12 }}>
+          <div className="field"><label htmlFor="subject-name">科目名</label><input id="subject-name" value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></div>
+          <div className="field"><label htmlFor="subject-color">色</label><input id="subject-color" type="color" value={editing.color.startsWith('#') ? editing.color : '#6366f1'} onChange={(event) => setEditing({ ...editing, color: event.target.value })} /></div>
+          <div className="field"><label>重要度</label><Rating value={editing.importance} onChange={(importance) => setEditing({ ...editing, importance })} label="重要度" /></div>
+          <div className="field"><label>苦手度</label><Rating value={editing.weakness} onChange={(weakness) => setEditing({ ...editing, weakness })} label="苦手度" /></div>
+          <button type="button" className="btn btn-primary btn-block" onClick={() => {
+            if (!editing.name.trim()) { toast('科目名を入力してください'); return; }
+            const exists = state.subjects.some((subject) => subject.id === editing.id);
+            execute({ type: exists ? 'UPDATE_SUBJECT' : 'ADD_SUBJECT', subject: { ...editing, name: editing.name.trim() } });
+            toast(exists ? '科目を更新しました' : '科目を追加しました'); setEditing(null);
+          }}>科目情報を保存</button>
+          {state.subjects.some((subject) => subject.id === editing.id) && state.subjects.length > 1 && (
+            <>
+              {referenced && <div className="field mt-12"><label htmlFor="merge-subject">関連データの移動先</label><select id="merge-subject" value={mergeTarget} onChange={(event) => setMergeTarget(event.target.value)}><option value="">選択してください</option>{state.subjects.filter((subject) => subject.id !== editing.id).map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></div>}
+              <button type="button" className="btn btn-danger btn-block mt-12" onClick={() => {
+                if (referenced && !mergeTarget) { toast('関連データの移動先を選択してください'); return; }
+                if (!window.confirm(referenced ? 'この科目を選択した科目へ統合しますか？' : 'この科目を削除しますか？')) return;
+                execute(referenced ? { type: 'MERGE_SUBJECT', sourceId: editing.id, targetId: mergeTarget } : { type: 'DELETE_SUBJECT', subjectId: editing.id });
+                toast(referenced ? '科目と関連データを統合しました' : '科目を削除しました'); setEditing(null);
+              }}>{referenced ? '選択した科目へ統合' : 'この科目を削除'}</button>
+            </>
+          )}
+          {state.subjects.length <= 1 && <p className="field-hint">最後の1科目は削除できません。</p>}
+        </div>
+      )}
+    </Disclosure>
+  );
+}
+
 const inputStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
@@ -775,55 +887,3 @@ const inputStyle: React.CSSProperties = {
   padding: '8px 6px',
   textAlign: 'center',
 };
-
-function SubjectTuner() {
-  const { state, dispatch } = useApp();
-  const toast = useToast();
-  const [openId, setOpenId] = useState<string | null>(null);
-
-  return (
-    <div>
-      {state.subjects.map((s) => (
-        <div key={s.id} className="card" style={{ padding: 12, marginBottom: 8 }}>
-          <button
-            className="row spread"
-            style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font)', color: 'var(--text)', minHeight: 30 }}
-            onClick={() => setOpenId(openId === s.id ? null : s.id)}
-            aria-expanded={openId === s.id}
-          >
-            <span style={{ fontWeight: 800, fontSize: 14, color: s.color }}>{s.name}</span>
-            <span className="faint">
-              重要度{s.importance} ・ 苦手度{s.weakness} {openId === s.id ? '▲' : '▼'}
-            </span>
-          </button>
-          {openId === s.id && (
-            <div className="mt-12">
-              <div className="field">
-                <label>重要度(配点が大きい・合否に直結)</label>
-                <Rating
-                  value={s.importance}
-                  label={`${s.name}の重要度`}
-                  onChange={(v) => {
-                    dispatch({ type: 'UPDATE_SUBJECT', subject: { ...s, importance: v } });
-                    toast(`${s.name}の重要度を${v}にして再計算しました`);
-                  }}
-                />
-              </div>
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label>苦手度(高いほど優先的に配置)</label>
-                <Rating
-                  value={s.weakness}
-                  label={`${s.name}の苦手度`}
-                  onChange={(v) => {
-                    dispatch({ type: 'UPDATE_SUBJECT', subject: { ...s, weakness: v } });
-                    toast(`${s.name}の苦手度を${v}にして再計算しました`);
-                  }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}

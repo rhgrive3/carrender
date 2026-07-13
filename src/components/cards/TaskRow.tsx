@@ -15,7 +15,7 @@ interface TaskRowProps {
 
 /** タスク1行: 開始 / 完了 / 延期 が3タップ以内で完結する */
 export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, execute } = useApp();
   const timer = useTimer();
   const toast = useToast();
   const [recordOpen, setRecordOpen] = useState(false);
@@ -38,8 +38,8 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
   };
 
   const postpone = () => {
-    dispatch({ type: 'POSTPONE_TASK', taskId: task.id });
-    toast('明日以降に再配置しました');
+    const result = execute({ type: 'POSTPONE_TASK', taskId: task.id });
+    toast(result.message ?? '明日以降に再配置しました');
   };
 
   return (
