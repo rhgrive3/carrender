@@ -431,6 +431,17 @@ export interface ObjectiveReport {
   taskSwitches: number;
   /** 同一教材が同日内で連続したブロック数(旧保存データには存在しない) */
   sameMaterialStreak?: number;
+  /** 自動配置の負荷平準化指標。期限・固定条件より後に比較する。 */
+  maxDailyMinutes: number;
+  dailyLoadVariance: number;
+  adjacentDayDifference: number;
+  consecutiveHeavyDays: number;
+  subjectConcentration: number;
+  materialConcentration: number;
+  cadenceViolations: number;
+  dailyTargetDeviation: number;
+  weeklyTargetDeviation: number;
+  safetyBufferViolationMinutes: number;
 }
 
 export interface ScheduleGenerationResult {

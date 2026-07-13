@@ -648,5 +648,79 @@ console.log('--- 復習・小数時間・将来手動タスクの回帰 ---');
   check('小数分教材でも0分タスクを生成しない', tinyResult.scheduledTasks.every((item) => item.estimatedMinutes >= 1), tinyResult.scheduledTasks);
 }
 
+console.log('--- 19. 負荷平準化・安全完了日・頻度目標 ---');
+{
+  const byDay = (tasks: StudyTask[]) => {
+    const result = new Map<string, number>();
+    for (const task of tasks) result.set(task.scheduledDate, (result.get(task.scheduledDate) ?? 0) + task.estimatedMinutes);
+    return result;
+  };
+  // ケースA: 余裕のある通常教材は、初日の空きを全て前倒しに使わない。
+  const normalA = mat('balanced-a', { deadlinePolicy: 'normal', targetDate: '2026-07-22', totalAmount: 24, totalUnits: 24, minutesPerUnit: 10 });
+  const normalB = mat('balanced-b', { deadlinePolicy: 'normal', targetDate: '2026-07-22', totalAmount: 24, totalUnits: 24, minutesPerUnit: 10 });
+  const resultA = generatePlanV2(baseState([normalA, normalB], [{ start: '09:00', end: '12:00' }], 180, {
+    settings: { ...emptyState().settings, maxDailyMinutes: 180, sessionMinMinutes: 5, sessionMaxMinutes: 90, taskGenerationHorizonDays: 14 },
+  }), context({ generationId: 'balance-a' }));
+  const loadA = byDay(resultA.scheduledTasks);
+  check('通常教材は初日180分へ集中しない', (loadA.get(D1) ?? 0) < 100, Object.fromEntries(loadA));
+  check('通常教材の最大日負荷は必要平均から大きく外れない', resultA.objectiveReport.maxDailyMinutes <= 100, resultA.objectiveReport);
+  check('通常教材の安全予備を侵食しない', resultA.objectiveReport.safetyBufferViolationMinutes === 0, resultA.objectiveReport);
+
+  // ケースB: strictの最遅解を実予定にせず、期限前の安全日まで分散する。
+  const strict = mat('balanced-strict', { deadlinePolicy: 'strict', targetDate: '2026-07-19', totalAmount: 60, totalUnits: 60, minutesPerUnit: 10 });
+  const resultB = generatePlanV2(baseState([strict], [{ start: '09:00', end: '12:00' }], 180, {
+    settings: { ...emptyState().settings, maxDailyMinutes: 180, sessionMinMinutes: 5, sessionMaxMinutes: 90, taskGenerationHorizonDays: 10 },
+  }), context({ generationId: 'balance-b' }));
+  const strictDates = resultB.scheduledTasks.filter((task) => task.materialId === strict.id).map((task) => task.scheduledDate);
+  check('strictは期限直前だけへ集中しない', new Set(strictDates).size >= 5 && Math.max(...strictDates.map((date) => Number(date.slice(-2)))) <= 16, strictDates);
+  check('strictは期限前の安全予備を残す', resultB.objectiveReport.safetyBufferViolationMinutes === 0, resultB.objectiveReport);
+  check('strictは期限保証を維持する', resultB.deadlineReports.find((report) => report.workItemId === `material:${strict.id}`)?.feasible === true, resultB.deadlineReports);
+
+  // ケースC: 週3回は週の前半一日に固めず、選んだ3日程度に分散する。
+  const cadence = mat('cadence-3', {
+    deadlinePolicy: 'normal', targetDate: '2026-08-09', totalAmount: 12, totalUnits: 12, minutesPerUnit: 10,
+    preferredCadence: { type: 'timesPerWeek', count: 3 },
+  });
+  const resultC = generatePlanV2(baseState([cadence], [{ start: '09:00', end: '12:00' }], 180, {
+    settings: { ...emptyState().settings, maxDailyMinutes: 180, sessionMinMinutes: 5, sessionMaxMinutes: 90, taskGenerationHorizonDays: 31 },
+  }), context({ generationId: 'balance-c' }));
+  const cadenceDates = [...new Set(resultC.scheduledTasks.filter((task) => task.materialId === cadence.id).map((task) => task.scheduledDate))];
+  check('週3回指定は1週へ過剰集中しない', cadenceDates.filter((date) => date >= '2026-07-13' && date <= '2026-07-19').length === 3, cadenceDates);
+  check('週3回指定の超過は結果指標から分かる', resultC.objectiveReport.cadenceViolations === 0, resultC.objectiveReport);
+
+  // 日次・週次目標は上限ではなく、余裕がある時の希望ペースとして使う。
+  const dailyGoal = mat('daily-goal', {
+    deadlinePolicy: 'normal', targetDate: '2026-07-19', totalAmount: 36, totalUnits: 36, minutesPerUnit: 10,
+    dailyTarget: 6,
+  });
+  const resultDaily = generatePlanV2(baseState([dailyGoal], [{ start: '09:00', end: '12:00' }], 180, {
+    settings: { ...emptyState().settings, maxDailyMinutes: 180, sessionMinMinutes: 5, sessionMaxMinutes: 90, taskGenerationHorizonDays: 10 },
+  }), context({ generationId: 'balance-daily-target' }));
+  check('dailyTargetがある通常日は目標量へ近づく', resultDaily.objectiveReport.dailyTargetDeviation <= 30 && resultDaily.objectiveReport.maxDailyMinutes <= 90, resultDaily.objectiveReport);
+
+  const weeklyGoal = mat('weekly-goal', {
+    deadlinePolicy: 'normal', targetDate: '2026-08-09', totalAmount: 84, totalUnits: 84, minutesPerUnit: 10,
+    weeklyTarget: 21,
+  });
+  const resultWeekly = generatePlanV2(baseState([weeklyGoal], [{ start: '09:00', end: '12:00' }], 180, {
+    settings: { ...emptyState().settings, maxDailyMinutes: 180, sessionMinMinutes: 5, sessionMaxMinutes: 90, taskGenerationHorizonDays: 31 },
+  }), context({ generationId: 'balance-weekly-target' }));
+  const weekMiddleMinutes = resultWeekly.scheduledTasks
+    .filter((task) => task.materialId === weeklyGoal.id && task.scheduledDate >= '2026-07-13' && task.scheduledDate <= '2026-07-19')
+    .reduce((sum, task) => sum + task.estimatedMinutes, 0);
+  check('weeklyTargetが週内で前半だけへ偏らない', weekMiddleMinutes >= 180 && weekMiddleMinutes <= 240, { weekMiddleMinutes, objective: resultWeekly.objectiveReport });
+  check('期限上必要なら目標より期限を優先できる', resultWeekly.deadlineReports.find((report) => report.workItemId === `material:${weeklyGoal.id}`)?.feasible === true, resultWeekly.deadlineReports);
+
+  // ケースD: 後半の固定予定で容量が消える時は、必要量だけ前半へ寄せて期限を守る。
+  const constrained = mat('future-blocked', { deadlinePolicy: 'normal', targetDate: '2026-07-16', totalAmount: 60, totalUnits: 60, minutesPerUnit: 10 });
+  const resultD = generatePlanV2(baseState([constrained], [{ start: '09:00', end: '12:00' }], 180, {
+    fixedEvents: ['2026-07-12', '2026-07-13', '2026-07-14'].map((date) => ({ id: `block-${date}`, title: '固定', weekday: null, date, start: '09:00', end: '12:00' })),
+    settings: { ...emptyState().settings, maxDailyMinutes: 180, sessionMinMinutes: 5, sessionMaxMinutes: 90, taskGenerationHorizonDays: 7 },
+  }), context({ generationId: 'balance-d' }));
+  const earlyMinutes = resultD.scheduledTasks.filter((task) => task.materialId === constrained.id && task.scheduledDate <= '2026-07-11').reduce((sum, task) => sum + task.estimatedMinutes, 0);
+  check('後半固定予定を見越して必要量を前半へ置く', earlyMinutes >= 300, { earlyMinutes, tasks: resultD.scheduledTasks });
+  check('後半固定予定でも通常期限を守る', resultD.deadlineReports.find((report) => report.workItemId === `material:${constrained.id}`)?.feasible === true, resultD.deadlineReports);
+}
+
 console.log(failures === 0 ? '\n🎉 ALL PASS (schedulerV2 spec)' : `\n💥 ${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

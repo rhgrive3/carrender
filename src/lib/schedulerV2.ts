@@ -68,6 +68,16 @@ const EMPTY_OBJECTIVE: ObjectiveReport = {
   timePreferenceViolations: 0,
   taskSwitches: 0,
   sameMaterialStreak: 0,
+  maxDailyMinutes: 0,
+  dailyLoadVariance: 0,
+  adjacentDayDifference: 0,
+  consecutiveHeavyDays: 0,
+  subjectConcentration: 0,
+  materialConcentration: 0,
+  cadenceViolations: 0,
+  dailyTargetDeviation: 0,
+  weeklyTargetDeviation: 0,
+  safetyBufferViolationMinutes: 0,
 };
 
 const CONFLICT_MESSAGES: Record<ConflictCode, string> = {
@@ -206,6 +216,79 @@ export function preferredFinishDateFor(material: Material): ISODate {
   const proportional = addDays(material.startDate, Math.floor(span * ratio));
   const leadDate = addDays(material.targetDate, -minimumLead);
   return proportional < material.startDate ? material.startDate : proportional > leadDate ? (leadDate < material.startDate ? material.startDate : leadDate) : proportional;
+}
+
+export interface SafetyFinishInput {
+  start: ISODate;
+  deadline: ISODate;
+  deadlinePolicy: Material['deadlinePolicy'];
+  preferredFinishDate?: ISODate;
+  requiredMinutes: number;
+  /** 固定予定を引いた、日ごとの実際に使える容量。 */
+  capacityByDate: ReadonlyArray<{ date: ISODate; minutes: number }>;
+}
+
+/**
+ * 期限当日を通常の完了日として使わない。暦日ではなく、固定予定を引いた容量で
+ * 予備を残せる最も早い日を求める。容量が足りない場合だけ期限へ近づける。
+ */
+export function computeSafetyFinishDate(input: SafetyFinishInput): ISODate {
+  const span = Math.max(0, diffDays(input.start, input.deadline));
+  const baseReserve = span <= 7 ? 1 : span <= 21 ? 2 : span <= 60 ? 5 : Math.ceil(span * 0.12);
+  const reserve = input.deadlinePolicy === 'strict' ? baseReserve + 1 : baseReserve;
+  let finish = input.preferredFinishDate
+    ? (input.preferredFinishDate < input.start ? input.start : input.preferredFinishDate > input.deadline ? input.deadline : input.preferredFinishDate)
+    : addDays(input.deadline, -reserve);
+  if (finish < input.start) finish = input.start;
+  const capacityThrough = (end: ISODate) => input.capacityByDate
+    .filter((day) => day.date >= input.start && day.date <= end)
+    .reduce((sum, day) => sum + Math.max(0, day.minutes), 0);
+  while (finish < input.deadline && capacityThrough(finish) < input.requiredMinutes) finish = addDays(finish, 1);
+  return finish;
+}
+
+function mondayKey(date: ISODate): ISODate {
+  // weekdayOfは日曜=0。既存の週表示と同じ月曜始まりへ寄せる。
+  return addDays(date, -((weekdayOf(date) + 6) % 7));
+}
+
+/** 頻度指定の候補日を週の中で均等に選ぶ。容量不足なら後段で日を追加する。 */
+export function selectCadenceDates(
+  material: Material,
+  dates: ReadonlyArray<ISODate>,
+  capacityForDate: (date: ISODate) => number,
+): Set<ISODate> {
+  const cadence = material.preferredCadence ?? { type: 'auto' as const };
+  const eligible = dates.filter((date) => date >= material.startDate && capacityForDate(date) > 0);
+  if (cadence.type !== 'timesPerWeek') return new Set(eligible);
+  const selected = new Set<ISODate>();
+  const byWeek = new Map<ISODate, ISODate[]>();
+  for (const date of eligible) byWeek.set(mondayKey(date), [...(byWeek.get(mondayKey(date)) ?? []), date]);
+  for (const [, weekDates] of [...byWeek.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const count = Math.min(Math.max(1, cadence.count), weekDates.length);
+    for (let index = 0; index < count; index += 1) {
+      const position = Math.min(weekDates.length - 1, Math.floor((index + 0.5) * weekDates.length / count));
+      selected.add(weekDates[position]);
+    }
+  }
+  return selected;
+}
+
+function extendCadenceForCapacity(
+  selected: Set<ISODate>,
+  dates: ReadonlyArray<ISODate>,
+  capacityForDate: (date: ISODate) => number,
+  requiredMinutes: number,
+): Set<ISODate> {
+  let total = [...selected].reduce((sum, date) => sum + capacityForDate(date), 0);
+  // 指定頻度だけで物理的に無理なら、期限保証を優先して中央寄りの日から増やす。
+  const extras = dates.filter((date) => capacityForDate(date) > 0 && !selected.has(date));
+  for (const date of extras) {
+    if (total >= requiredMinutes) break;
+    selected.add(date);
+    total += capacityForDate(date);
+  }
+  return selected;
 }
 
 export function dateInTimeZone(date: Date, timeZone: string): ISODate {
@@ -713,7 +796,17 @@ export function compareObjectives(a: ObjectiveReport, b: ObjectiveReport): numbe
     'progressDebtMinutes',
     'normalOverdueMinutes',
     'unscheduledMinutes',
+    'safetyBufferViolationMinutes',
+    'maxDailyMinutes',
+    'consecutiveHeavyDays',
+    'dailyLoadVariance',
+    'adjacentDayDifference',
+    'cadenceViolations',
+    'dailyTargetDeviation',
+    'weeklyTargetDeviation',
     'subjectImbalance',
+    'subjectConcentration',
+    'materialConcentration',
     'timePreferenceViolations',
     'taskSwitches',
     'sameMaterialStreak',
@@ -828,6 +921,15 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   const totalAvailable = [...calendar.values()].reduce((sum, day) => sum + day.originalBudget, 0);
   const fixed = placeFixedTasks(state, calendar, context);
   const warnings: ScheduleWarning[] = [...fixed.warnings];
+  for (const material of activeMaterials) {
+    if (material.preferredFinishDate && (material.preferredFinishDate < material.startDate || material.preferredFinishDate > material.targetDate)) {
+      warnings.push({
+        code: 'PREFERRED_FINISH_ADJUSTED',
+        targetId: material.id,
+        message: `${material.name}の推奨完了日が教材期間外のため、期限内の実行可能な安全完了日へ調整しました`,
+      });
+    }
+  }
   const unscheduled: UnscheduledWorkItem[] = [];
   const assignments: Assignment[] = [];
   const deadlineReports: DeadlineReport[] = [];
@@ -901,17 +1003,36 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     .map((day) => ({ date: day.date, slots: day.slots.map((slot) => ({ ...slot })), budget: day.budget }));
 
   const reservations = new Map<string, SlotAllocation[]>();
+  const safetyFinishByMaterial = new Map<string, ISODate>();
+
+  const cumulativeNotBehind = (actual: Map<string, SlotAllocation[]>, latest: Map<string, SlotAllocation[]>) => {
+    const allDates = [...calendar.keys()].sort();
+    for (const work of strictWorks) {
+      let actualMinutes = 0;
+      let latestMinutes = 0;
+      const actualByDate = new Map<ISODate, number>();
+      const latestByDate = new Map<ISODate, number>();
+      for (const allocation of actual.get(work.solverItem.id) ?? []) actualByDate.set(allocation.date, (actualByDate.get(allocation.date) ?? 0) + allocation.minutes);
+      for (const allocation of latest.get(work.solverItem.id) ?? []) latestByDate.set(allocation.date, (latestByDate.get(allocation.date) ?? 0) + allocation.minutes);
+      for (const date of allDates) {
+        actualMinutes += actualByDate.get(date) ?? 0;
+        latestMinutes += latestByDate.get(date) ?? 0;
+        if (actualMinutes < latestMinutes) return false;
+      }
+    }
+    return true;
+  };
 
   if (strictWorks.length > 0) {
     const nodeLimit = context.maxSearchNodes ?? 20000;
     const msLimit = context.maxSearchMilliseconds ?? 400;
     const searchDeadline = Date.now() + msLimit;
     let remainingNodes = nodeLimit;
-    const runSolve = (items: SolverItem[]) => {
-      const result = solveStrict(items, solverDays(), {
+    const runSolve = (items: SolverItem[], days = solverDays(), preferLate = true) => {
+      const result = solveStrict(items, days, {
         maxNodes: Math.max(0, remainingNodes),
         maxMs: Math.max(0, searchDeadline - Date.now()),
-        preferLate: true,
+        preferLate,
       });
       remainingNodes -= result.nodes;
       return result;
@@ -924,7 +1045,45 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     let finalAllocations: Map<string, SlotAllocation[]>;
     if (full.status === 'feasible') {
       for (const work of strictWorks) work.verdict = 'feasible';
-      finalAllocations = full.allocations;
+      // 最遅解は「この日までに必要な累積量」の保証線としてだけ残す。
+      // 実予定は安全完了日までに均して解き、保証線を下回る解は採用しない。
+      const capacityByDate = [...calendar.values()].map((day) => ({ date: day.date, minutes: day.budget }));
+      const balancedItems = ordered.map((work) => {
+        if (!work.material) return work.solverItem;
+        const finish = computeSafetyFinishDate({
+          start: work.solverItem.release,
+          deadline: work.deadline,
+          deadlinePolicy: 'strict',
+          preferredFinishDate: work.material.preferredFinishDate,
+          requiredMinutes: work.requiredMinutes,
+          capacityByDate,
+        });
+        safetyFinishByMaterial.set(work.material.id, finish);
+        return { ...work.solverItem, deadline: finish };
+      });
+      const balancedDaysBase = solverDays();
+      const totalStrictMinutes = strictWorks.reduce((sum, work) => sum + work.requiredMinutes, 0);
+      const activeStrictDays = balancedDaysBase.filter((day) => day.budget > 0
+        && balancedItems.some((item) => day.date >= item.release && day.date <= item.deadline)).length;
+      const perDayTarget = Math.max(sessionMin, Math.ceil(totalStrictMinutes / Math.max(1, activeStrictDays) / 5) * 5);
+      const balancedDays = balancedDaysBase.map((day) => ({ ...day, budget: Math.min(day.budget, perDayTarget) }));
+      let balanced = runSolve(balancedItems, balancedDays, false);
+      // 大きな分割不可チャンク等で均等上限が狭すぎる場合は、同じ安全期限で
+      // 上限なしの早期解へ一度だけ緩める。探索上限は共有のまま。
+      if (balanced.status !== 'feasible' && remainingNodes > 0 && Date.now() < searchDeadline) {
+        balanced = runSolve(balancedItems, balancedDaysBase, false);
+      }
+      if (balanced.status === 'feasible' && cumulativeNotBehind(balanced.allocations, full.allocations)) {
+        finalAllocations = balanced.allocations;
+      } else {
+        // 安全完了日までに物理的に収まらない場合も、期限違反より実行可能性を優先する。
+        const early = remainingNodes > 0 && Date.now() < searchDeadline
+          ? runSolve(ordered.map((work) => work.solverItem), solverDays(), false)
+          : full;
+        finalAllocations = early.status === 'feasible' && cumulativeNotBehind(early.allocations, full.allocations)
+          ? early.allocations
+          : full.allocations;
+      }
     } else if (full.status === 'indeterminate') {
       for (const work of strictWorks) work.verdict = 'indeterminate';
       finalAllocations = new Map();
@@ -1056,8 +1215,6 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   for (let date = today; date <= calendarEnd; date = addDays(date, 1)) dates.push(date);
   const dateIndex = new Map(dates.map((date, index) => [date, index]));
   const capBase = dates.map((date) => calendar.get(date)?.budget ?? 0);
-  const capSuffix = new Array<number>(dates.length + 1).fill(0);
-  for (let i = dates.length - 1; i >= 0; i -= 1) capSuffix[i] = capSuffix[i + 1] + capBase[i];
 
   interface CurveState {
     material: Material;
@@ -1071,33 +1228,57 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     scheduledMinutes: number;
     weight: number;
     perDayCap: number;
+    cadenceDates: Set<ISODate>;
+    dailyTargetMinutes: number | null;
+    weeklyTargetMinutes: number | null;
   }
+  const capacityByDate = dates.map((date, index) => ({ date, minutes: capBase[index] }));
   const curves: CurveState[] = curveMaterials.map((material) => {
     const ranges = rangesByMaterial.get(material.id)!;
-    const finish = preferredFinishDateFor(material);
     const curveStart = material.startDate > today ? material.startDate : today;
+    const requiredMinutes = minutesForUnits(material.minutesPerUnit, sumRangeLengths(ranges));
+    const finish = computeSafetyFinishDate({
+      start: curveStart,
+      deadline: material.targetDate,
+      deadlinePolicy: material.deadlinePolicy,
+      preferredFinishDate: material.preferredFinishDate,
+      requiredMinutes,
+      capacityByDate,
+    });
     const curveEnd = finish < curveStart ? curveStart : finish;
     const startIdx = dateIndex.get(curveStart) ?? 0;
     const endIdx = dateIndex.get(curveEnd) ?? dates.length - 1;
     const subject = state.subjects.find((item) => item.id === material.subjectId);
+    const curveDates = dates.slice(startIdx, endIdx + 1);
+    const cadenceDates = extendCadenceForCapacity(
+      selectCadenceDates(material, curveDates, (date) => calendar.get(date)?.budget ?? 0),
+      curveDates,
+      (date) => calendar.get(date)?.budget ?? 0,
+      requiredMinutes,
+    );
     return {
       material,
       ranges,
       curveStart,
       curveEnd,
-      windowCapacity: capSuffix[startIdx] - capSuffix[endIdx + 1],
+      windowCapacity: curveDates
+        .filter((date) => cadenceDates.has(date))
+        .reduce((sum, date) => sum + (calendar.get(date)?.budget ?? 0), 0),
       targetByDate: new Map<ISODate, number>(),
       cumTarget: 0,
-      needMinutes: minutesForUnits(material.minutesPerUnit, sumRangeLengths(ranges)),
+      needMinutes: requiredMinutes,
       scheduledMinutes: 0,
       weight: 0.6 + (material.priority + (subject?.importance ?? 3) + (subject?.weakness ?? 3) + material.examRelevance) / 20,
       perDayCap: Math.min(
         material.maxMinutesPerDay ?? Number.POSITIVE_INFINITY,
         material.maxUnitsPerDay !== undefined ? minutesForUnits(material.minutesPerUnit, material.maxUnitsPerDay) : Number.POSITIVE_INFINITY,
       ),
+      cadenceDates,
+      dailyTargetMinutes: material.dailyTarget ? minutesForUnits(material.minutesPerUnit, material.dailyTarget) : null,
+      weeklyTargetMinutes: material.weeklyTarget ? minutesForUnits(material.minutesPerUnit, material.weeklyTarget) : null,
     };
   });
-  const curveByMaterial = new Map(curves.map((curve) => [curve.material.id, curve]));
+  for (const curve of curves) safetyFinishByMaterial.set(curve.material.id, curve.curveEnd);
   const progressDeficits: ProgressDeficit[] = [];
   for (const curve of curves) {
     if (curve.needMinutes > 0 && curve.windowCapacity <= 0) {
@@ -1108,15 +1289,24 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   for (let i = 0; i < dates.length; i += 1) {
     const date = dates[i];
     const capacity = capBase[i];
-    const active = curves.filter((curve) => curve.needMinutes > 0 && date >= curve.curveStart && date <= curve.curveEnd);
+    const active = curves.filter((curve) => curve.needMinutes > 0
+      && date >= curve.curveStart && date <= curve.curveEnd && curve.cadenceDates.has(date));
     if (active.length === 0 || capacity <= 0) {
       for (const curve of active) curve.targetByDate.set(date, curve.cumTarget);
       continue;
     }
     const rated = active.map((curve) => {
       const endIdx = dateIndex.get(curve.curveEnd) ?? dates.length - 1;
-      const remainingWindow = Math.max(1, capSuffix[i] - capSuffix[endIdx + 1]);
-      return { curve, rate: Math.min(1, curve.needMinutes / remainingWindow) };
+      const remainingWindow = Math.max(1, dates.slice(i, endIdx + 1)
+        .filter((candidate) => curve.cadenceDates.has(candidate))
+        .reduce((sum, candidate) => sum + (calendar.get(candidate)?.budget ?? 0), 0));
+      const weeklyDays = dates.filter((candidate) => mondayKey(candidate) === mondayKey(date) && curve.cadenceDates.has(candidate)).length;
+      const preferredMinutes = Math.max(
+        curve.dailyTargetMinutes ?? 0,
+        curve.weeklyTargetMinutes === null ? 0 : curve.weeklyTargetMinutes / Math.max(1, weeklyDays),
+      );
+      // 目標量は上限でなく通常時の希望ペース。期限に必要なrateの方が強い。
+      return { curve, rate: Math.min(1, Math.max(curve.needMinutes / remainingWindow, preferredMinutes / Math.max(1, capacity))) };
     });
     const totalRate = rated.reduce((sum, item) => sum + item.rate, 0);
     const totalWeighted = rated.reduce((sum, item) => sum + item.rate * item.curve.weight, 0);
@@ -1134,18 +1324,18 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   };
 
   // strict作業は上で実区間を消費済み。ここでは残り容量へ通常教材だけを配分する。
-  const chunkUnitsFor = (material: Material) =>
-    material.maximumChunkUnits ?? Math.max(material.unitStep ?? 1, Math.floor(sessionMax / material.minutesPerUnit));
   for (let dateIdx = 0; dateIdx < dates.length && dates[dateIdx] <= concreteEnd; dateIdx += 1) {
     const date = dates[dateIdx];
     const candidates = curves
-      .filter((curve) => curve.ranges.length > 0 && date >= curve.curveStart)
+      .filter((curve) => curve.ranges.length > 0 && date >= curve.curveStart && curve.cadenceDates.has(date))
       .map((curve) => ({ curve, debt: Math.max(0, curveTargetAt(curve, date) - curve.scheduledMinutes) }))
       .filter((candidate) => candidate.debt > 0)
       .sort((a, b) => b.debt - a.debt || a.curve.curveEnd.localeCompare(b.curve.curveEnd) || b.curve.material.priority - a.curve.material.priority || a.curve.material.id.localeCompare(b.curve.material.id));
     for (const { curve, debt } of candidates) {
       const material = curve.material;
-      const wantedUnits = Math.min(Math.ceil(debt / material.minutesPerUnit), chunkUnitsFor(material));
+      // debtはその日の基準ペース。大きなチャンクしか置けない/将来容量が消えた時は
+      // 1チャンクに切らず必要量まで置く。通常時はdebt自体が基準+許容範囲に留まる。
+      const wantedUnits = Math.ceil(debt / material.minutesPerUnit);
       if (wantedUnits <= 0) continue;
       const placed = allocateMaterial(material, curve.ranges, calendar, date, date, wantedUnits, 70, sessionMin, sessionMax, assignments, fixed.valid);
       if (placed.length === 0) continue;
@@ -1154,53 +1344,8 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     }
   }
 
-  // ---------- 余剰時間による前倒し(決定的スコア順) ----------
-  const scored = curveMaterials
-    .map((material) => {
-      const ranges = rangesByMaterial.get(material.id)!;
-      const curve = curveByMaterial.get(material.id);
-      const debt = curve ? Math.max(0, curveTargetAt(curve, concreteEnd < curve.curveEnd ? concreteEnd : curve.curveEnd) - curve.scheduledMinutes) : 0;
-      const remainingMinutes = Math.max(1, sumRangeLengths(ranges) * material.minutesPerUnit);
-      const pressureCapacity = eligibleCapacity(calendar, today, material.targetDate);
-      const originalCapacity = Math.max(1, totalAvailable);
-      const score = 0.35 * Math.min(1, debt / remainingMinutes)
-        + 0.2 * Math.max(0, Math.min(1, 1 - pressureCapacity / originalCapacity))
-        + 0.1 * ((state.subjects.find((subject) => subject.id === material.subjectId)?.importance ?? 3) / 5)
-        + 0.08 * ((state.subjects.find((subject) => subject.id === material.subjectId)?.weakness ?? 3) / 5)
-        + 0.07 * (material.priority / 5)
-        + 0.12 * (material.examRelevance / 5);
-      return { material, score };
-    })
-    .sort((a, b) => b.score - a.score || a.material.id.localeCompare(b.material.id));
-  let lastSurplusMaterial: string | null = null;
-  for (let date = today; date <= concreteEnd; date = addDays(date, 1)) {
-    const existingOnDay = assignments
-      .filter((assignment) => assignment.date === date && assignment.materialId)
-      .sort((a, b) => a.start - b.start || a.workItemId.localeCompare(b.workItemId));
-    lastSurplusMaterial = existingOnDay[existingOnDay.length - 1]?.materialId ?? null;
-    while ((calendar.get(date)?.budget ?? 0) >= sessionMin) {
-      const pool = scored
-        .filter(({ material }) => material.startDate <= date && (rangesByMaterial.get(material.id)?.length ?? 0) > 0)
-        .sort((a, b) =>
-          Number(a.material.id === lastSurplusMaterial) - Number(b.material.id === lastSurplusMaterial)
-          || sumRangeLengths(rangesByMaterial.get(b.material.id) ?? []) - sumRangeLengths(rangesByMaterial.get(a.material.id) ?? [])
-          || b.score - a.score
-          || a.material.id.localeCompare(b.material.id));
-      let placedAny = false;
-      for (const { material, score } of pool) {
-        const ranges = rangesByMaterial.get(material.id)!;
-        const placed = allocateMaterial(material, ranges, calendar, date, date, chunkUnitsFor(material), score * 100, sessionMin, sessionMax, assignments, fixed.valid);
-        if (placed.length === 0) continue;
-        assignments.push(...placed);
-        const curve = curveByMaterial.get(material.id);
-        if (curve) curve.scheduledMinutes += placed.reduce((sum, item) => sum + item.end - item.start, 0);
-        lastSurplusMaterial = material.id;
-        placedAny = true;
-        break;
-      }
-      if (!placedAny) break;
-    }
-  }
+  // 意図的に空き時間を残す。以前の「残り予算を最小セッションまで埋める」
+  // 前倒しループは、期限に余裕がある教材を初日に集中させていたため廃止した。
 
   // ---------- 進捗負債(共有容量で正規化した目標に対する不足) ----------
   for (const curve of curves) {
@@ -1327,6 +1472,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     timePreferenceViolations: countTimePreferenceViolations(state, scheduledTasks),
     taskSwitches: countSwitches(scheduledTasks),
     sameMaterialStreak: countMaterialStreaks(scheduledTasks),
+    ...computeLoadBalanceMetrics(state, scheduledTasks, safetyFinishByMaterial),
   };
   const result: ScheduleGenerationResult = {
     status: fixed.conflicts.length > 0
@@ -1375,6 +1521,98 @@ function countMaterialStreaks(tasks: StudyTask[]) {
     previous = task;
   }
   return streaks;
+}
+
+/**
+ * 期限・固定条件を満たした候補同士だけを比較するための負荷指標。
+ * ここでは重み付き合計にせず、compareObjectivesの後半で辞書式に扱う。
+ */
+export function computeLoadBalanceMetrics(
+  state: AppState,
+  tasks: StudyTask[],
+  safetyFinishByMaterial: ReadonlyMap<string, ISODate> = new Map(),
+): Pick<ObjectiveReport,
+  'maxDailyMinutes' | 'dailyLoadVariance' | 'adjacentDayDifference' | 'consecutiveHeavyDays'
+  | 'subjectConcentration' | 'materialConcentration' | 'cadenceViolations'
+  | 'dailyTargetDeviation' | 'weeklyTargetDeviation' | 'safetyBufferViolationMinutes'> {
+  const planned = tasks.filter((task) => task.status === 'planned');
+  const dates = [...new Set(planned.map((task) => task.scheduledDate))].sort();
+  const daily = new Map<ISODate, number>();
+  const byDaySubject = new Map<ISODate, Map<string, number>>();
+  const byDayMaterial = new Map<ISODate, Map<string, number>>();
+  const byMaterialDate = new Map<string, Map<ISODate, number>>();
+  for (const task of planned) {
+    daily.set(task.scheduledDate, (daily.get(task.scheduledDate) ?? 0) + task.estimatedMinutes);
+    const subjects = byDaySubject.get(task.scheduledDate) ?? new Map<string, number>();
+    subjects.set(task.subjectId, (subjects.get(task.subjectId) ?? 0) + task.estimatedMinutes);
+    byDaySubject.set(task.scheduledDate, subjects);
+    if (task.materialId) {
+      const materials = byDayMaterial.get(task.scheduledDate) ?? new Map<string, number>();
+      materials.set(task.materialId, (materials.get(task.materialId) ?? 0) + task.estimatedMinutes);
+      byDayMaterial.set(task.scheduledDate, materials);
+      const materialDays = byMaterialDate.get(task.materialId) ?? new Map<ISODate, number>();
+      materialDays.set(task.scheduledDate, (materialDays.get(task.scheduledDate) ?? 0) + task.estimatedMinutes);
+      byMaterialDate.set(task.materialId, materialDays);
+    }
+  }
+  const loads = dates.map((date) => daily.get(date) ?? 0);
+  const average = loads.length === 0 ? 0 : loads.reduce((sum, value) => sum + value, 0) / loads.length;
+  const dailyLoadVariance = loads.length === 0 ? 0 : Math.round(loads.reduce((sum, value) => sum + (value - average) ** 2, 0) / loads.length);
+  const adjacentDayDifference = loads.slice(1).reduce((sum, value, index) => sum + Math.abs(value - loads[index]), 0);
+  let run = 0;
+  let consecutiveHeavyDays = 0;
+  const heavyThreshold = Math.max(90, average * 1.25);
+  for (const load of loads) {
+    run = load >= heavyThreshold ? run + 1 : 0;
+    consecutiveHeavyDays = Math.max(consecutiveHeavyDays, run);
+  }
+  const concentration = (source: Map<ISODate, Map<string, number>>) => [...source.values()].reduce((sum, values) => {
+    const total = [...values.values()].reduce((inner, value) => inner + value, 0);
+    const largest = Math.max(0, ...values.values());
+    return sum + Math.max(0, largest * 2 - total);
+  }, 0);
+  let cadenceViolations = 0;
+  let dailyTargetDeviation = 0;
+  let weeklyTargetDeviation = 0;
+  let safetyBufferViolationMinutes = 0;
+  for (const material of state.materials) {
+    const byDate = byMaterialDate.get(material.id) ?? new Map<ISODate, number>();
+    const sessions = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const cadence = material.preferredCadence ?? { type: 'auto' as const };
+    if (cadence.type === 'daily') {
+      // daily指定で同じ日に複数チャンクへ偏った分だけを違反として扱う。
+      const taskCount = planned.filter((task) => task.materialId === material.id).length;
+      cadenceViolations += Math.max(0, taskCount - sessions.length);
+    } else if (cadence.type === 'timesPerWeek') {
+      const weeks = new Map<ISODate, number>();
+      for (const [date] of sessions) weeks.set(mondayKey(date), (weeks.get(mondayKey(date)) ?? 0) + 1);
+      for (const count of weeks.values()) cadenceViolations += Math.max(0, count - cadence.count);
+    }
+    const dailyTarget = material.dailyTarget ? minutesForUnits(material.minutesPerUnit, material.dailyTarget) : null;
+    if (dailyTarget !== null) dailyTargetDeviation += sessions.reduce((sum, [, minutes]) => sum + Math.abs(minutes - dailyTarget), 0);
+    const weeklyTarget = material.weeklyTarget ? minutesForUnits(material.minutesPerUnit, material.weeklyTarget) : null;
+    if (weeklyTarget !== null) {
+      const weeks = new Map<ISODate, number>();
+      for (const [date, minutes] of sessions) weeks.set(mondayKey(date), (weeks.get(mondayKey(date)) ?? 0) + minutes);
+      for (const minutes of weeks.values()) weeklyTargetDeviation += Math.abs(minutes - weeklyTarget);
+    }
+    const safetyFinish = safetyFinishByMaterial.get(material.id);
+    if (safetyFinish) safetyBufferViolationMinutes += sessions
+      .filter(([date]) => date > safetyFinish && date <= material.targetDate)
+      .reduce((sum, [, minutes]) => sum + minutes, 0);
+  }
+  return {
+    maxDailyMinutes: Math.max(0, ...loads),
+    dailyLoadVariance,
+    adjacentDayDifference,
+    consecutiveHeavyDays,
+    subjectConcentration: concentration(byDaySubject),
+    materialConcentration: concentration(byDayMaterial),
+    cadenceViolations,
+    dailyTargetDeviation,
+    weeklyTargetDeviation,
+    safetyBufferViolationMinutes,
+  };
 }
 
 function computeSubjectImbalance(state: AppState, tasks: StudyTask[]): number {
