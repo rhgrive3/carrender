@@ -13,7 +13,7 @@ import type {
   Subject,
   UserGoal,
 } from '../types';
-import { loadState, saveState, saveStateNow, clearState, getLocalStateUpdatedAt, getStateOwner, setStateOwner, normalizeState, STATE_VERSION } from '../lib/storage';
+import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, normalizeState, STATE_VERSION } from '../lib/storage';
 import { generatePlan, normalizeUnitRanges, remainingUnitRanges, sumRangeLengths, updateMinutesPerUnitEstimate } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
 import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
@@ -729,6 +729,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pushChain = useRef<Promise<void>>(Promise.resolve());
   const syncConflict = useRef(false);
   const remoteKnown = useRef(false);
+  // D1から読んだ状態を reducer に反映した直後は、状態変更用 effect がそれを
+  // 再送しないようにする。これにより409後の再読み込みでも古い端末キャッシュが
+  // 最新D1を上書きする経路を作らない。
+  const skipNextRemotePush = useRef(false);
   const [syncAttempt, setSyncAttempt] = useState(0);
 
   useEffect(() => {
@@ -786,9 +790,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         remoteUpdatedAt.current = res.updatedAt;
         remoteKnown.current = true;
-        const localUpdatedAt = getLocalStateUpdatedAt();
-        const localIsNewer = Boolean(localUpdatedAt && res.updatedAt && localUpdatedAt > res.updatedAt);
-        if (res.appState && !localIsNewer) {
+        // localStorageの保存時刻は「この端末にキャッシュした時刻」にすぎず、
+        // 別端末との世代比較には使えない。D1にデータが存在するなら必ずそれを
+        // 正として読み込み、ローカルの古いスナップショットを自動送信しない。
+        if (res.appState) {
+          skipNextRemotePush.current = true;
           dispatch({ type: 'IMPORT_STATE', state: normalizeState(res.appState as AppState) });
         } else if (stateRef.current.onboarded) {
           const saved = await apiPutData(stateRef.current, res.appState ? res.updatedAt : null);
@@ -860,6 +866,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // 状態変化をD1へデバウンス反映(オフライン時はlocalStorageのみに保存し、オンライン復帰後に再送)
   useEffect(() => {
     if (!syncReady || !owner) return;
+    if (skipNextRemotePush.current) {
+      skipNextRemotePush.current = false;
+      return;
+    }
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
       pushToD1(stateRef.current);

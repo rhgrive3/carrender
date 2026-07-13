@@ -58,11 +58,13 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
     ).bind(JSON.stringify(appState), now, user.id, expectedHeader).run();
     saved = result.meta.changes === 1;
   } else {
-    // 旧クライアントとの互換経路。新クライアントは常にX-Data-Versionを送る。
-    await env.DB.prepare(
-      `INSERT INTO user_data (user_id, app_state, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET app_state = excluded.app_state, updated_at = excluded.updated_at`,
+    // X-Data-Version を送れない旧クライアントは、まだクラウドにデータがない
+    // 初回移行だけを許可する。既存データへの無条件 UPDATE は別端末の更新を
+    // 巻き戻してしまうため、競合(409)として扱う。
+    const result = await env.DB.prepare(
+      'INSERT INTO user_data (user_id, app_state, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO NOTHING',
     ).bind(user.id, JSON.stringify(appState), now).run();
+    saved = result.meta.changes === 1;
   }
 
   if (!saved) {

@@ -28,6 +28,10 @@ const db = {
               }
               return { meta: { changes: 0 } };
             }
+            if (sql.startsWith('INSERT INTO user_data')) {
+              // このfixtureでは既に user_data があるため、DO NOTHING は競合になる。
+              return { meta: { changes: 0 } };
+            }
             return { meta: { changes: 1 } };
           },
         };
@@ -36,14 +40,15 @@ const db = {
   },
 } as unknown as D1Database;
 
-async function put(value: string, expectedVersion: string) {
+async function put(value: string, expectedVersion?: string) {
+  const headers: Record<string, string> = {
+    Cookie: 'sc_session=session',
+    'Content-Type': 'application/json',
+  };
+  if (expectedVersion !== undefined) headers['X-Data-Version'] = expectedVersion;
   const request = new Request('https://example.test/api/data', {
     method: 'PUT',
-    headers: {
-      Cookie: 'sc_session=session',
-      'Content-Type': 'application/json',
-      'X-Data-Version': expectedVersion,
-    },
+    headers,
     body: JSON.stringify({ value }),
   });
   return await onRequestPut({ request, env: { DB: db } } as Parameters<typeof onRequestPut>[0]) as Response;
@@ -53,12 +58,14 @@ const originalVersion = version;
 const first = await put('first-device', originalVersion);
 const firstSavedVersion = version;
 const second = await put('stale-second-device', originalVersion);
+const legacy = await put('legacy-unconditional-client');
 
 const ok = first.status === 200
   && second.status === 409
+  && legacy.status === 409
   && JSON.parse(appState).value === 'first-device'
   && firstSavedVersion === version;
 console.log(ok
   ? '✅ 古いupdatedAtでの後勝ち上書きを409で拒否'
-  : '❌ D1競合検出に失敗', { first: first.status, second: second.status, appState, version });
+  : '❌ D1競合検出に失敗', { first: first.status, second: second.status, legacy: legacy.status, appState, version });
 process.exit(ok ? 0 : 1);

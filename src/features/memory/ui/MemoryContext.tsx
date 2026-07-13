@@ -111,8 +111,14 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
 
   const requestSync = useCallback(async (force = false) => {
     if (!repository) return;
-    const unsynced = await repository.unsyncedAttempts(force ? 20 : 21);
-    if (!force && unsynced.length < 20) {
+    const [unsynced, hasPendingContentMutations] = await Promise.all([
+      repository.unsyncedAttempts(force ? 20 : 21),
+      repository.hasPendingContentMutations(),
+    ]);
+    // 回答だけは20件ごとにバッチ送信する一方、カード/セットの編集は
+    // 1件でも即時同期する。以前は未同期回答数だけを見ていたため、編集だけが
+    // 次の回答・画面遷移まで端末に残ることがあった。
+    if (!force && !hasPendingContentMutations && unsynced.length < 20) {
       await refreshRepository(repository);
       return;
     }

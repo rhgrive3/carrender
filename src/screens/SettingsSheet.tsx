@@ -14,7 +14,7 @@ const SYNC_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   syncing: { label: '同期中…', cls: 'status-accent' },
   synced: { label: 'クラウドに保存済み', cls: 'status-ok' },
   offline: { label: 'オフライン(端末に一時保存中)', cls: 'status-warn' },
-  conflict: { label: '別端末の更新を検出(再読み込みが必要)', cls: 'status-danger' },
+  conflict: { label: '別端末の更新を検出(再読み込みでクラウド版を表示)', cls: 'status-danger' },
   error: { label: '同期エラー(端末には保存済み)', cls: 'status-danger' },
 };
 

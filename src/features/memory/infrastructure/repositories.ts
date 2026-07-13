@@ -869,6 +869,15 @@ export class MemoryRepository {
     return sortPendingMutationsForSync(rows).slice(0, limit);
   }
 
+  /**
+   * 回答ログのバッチ送信とは別に、カード・セット・苦手フラグ等の編集は
+   * 保存直後に同期する。session/attempt_void は回答処理で作られるため除外する。
+   */
+  async hasPendingContentMutations(): Promise<boolean> {
+    const rows = await this.syncablePendingMutations(10_000);
+    return rows.some((mutation) => mutation.entityType !== 'session' && mutation.entityType !== 'attempt_void');
+  }
+
   async syncablePendingMutations(limit = 100): Promise<MemoryPendingMutation[]> {
     const [rows, conflicts, attempts] = await Promise.all([
       this.store.getAll<MemoryPendingMutation>(MEMORY_STORES.pendingMutations),
