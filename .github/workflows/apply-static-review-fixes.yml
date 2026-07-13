@@ -25,26 +25,29 @@ jobs:
           set -u
           rm -f static-review-diagnostic.txt
           cat .github/static-review-payload/code-*.b64 | tr -d '\n' | base64 -d > /tmp/code.patch.gz
-          {
-            echo "actual gzip sha: $(sha256sum /tmp/code.patch.gz)"
-            echo "expected gzip sha: f88b0f39bc237f0994f2b51088bf1431cf03a849033bf89547291f0755e6c938"
-            gzip -t /tmp/code.patch.gz
-            echo "gzip test: $?"
-            gzip -dc /tmp/code.patch.gz > /tmp/code.patch
-            git apply --check --verbose /tmp/code.patch
-            echo "apply check: $?"
-          } > /tmp/diagnostic.txt 2>&1
-          status=$?
+          actual_sha=$(sha256sum /tmp/code.patch.gz | awk '{print $1}')
+          expected_sha='f88b0f39bc237f0994f2b51088bf1431cf03a849033bf89547291f0755e6c938'
+          gzip -t /tmp/code.patch.gz
+          gzip_status=$?
+          if [ "$gzip_status" -eq 0 ]; then gzip -dc /tmp/code.patch.gz > /tmp/code.patch; fi
+          git apply --check --verbose /tmp/code.patch > /tmp/apply-check.txt 2>&1
+          apply_status=$?
 
-          if [ "$status" -ne 0 ]; then
-            cp /tmp/diagnostic.txt static-review-diagnostic.txt
+          if [ "$actual_sha" != "$expected_sha" ] || [ "$gzip_status" -ne 0 ] || [ "$apply_status" -ne 0 ]; then
+            {
+              echo "actual gzip sha: $actual_sha"
+              echo "expected gzip sha: $expected_sha"
+              echo "gzip status: $gzip_status"
+              echo "apply status: $apply_status"
+              cat /tmp/apply-check.txt
+            } > static-review-diagnostic.txt
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add static-review-diagnostic.txt
             git commit -m 'Record static review patch diagnostic'
             git push origin HEAD:agent/fix-static-review-findings-20260714
-            cat /tmp/diagnostic.txt
-            exit "$status"
+            cat static-review-diagnostic.txt
+            exit 1
           fi
 
           git apply /tmp/code.patch
