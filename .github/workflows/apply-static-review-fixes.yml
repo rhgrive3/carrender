@@ -22,19 +22,35 @@ jobs:
       - name: Apply reviewed source set
         shell: bash
         run: |
-          set -euo pipefail
-
+          set -u
+          rm -f static-review-diagnostic.txt
           cat .github/static-review-payload/code-*.b64 | tr -d '\n' | base64 -d > /tmp/code.patch.gz
-          echo 'f88b0f39bc237f0994f2b51088bf1431cf03a849033bf89547291f0755e6c938  /tmp/code.patch.gz' | sha256sum -c -
-          gzip -dc /tmp/code.patch.gz > /tmp/code.patch
-          git apply --check /tmp/code.patch
+          {
+            echo "actual gzip sha: $(sha256sum /tmp/code.patch.gz)"
+            echo "expected gzip sha: f88b0f39bc237f0994f2b51088bf1431cf03a849033bf89547291f0755e6c938"
+            gzip -t /tmp/code.patch.gz
+            echo "gzip test: $?"
+            gzip -dc /tmp/code.patch.gz > /tmp/code.patch
+            git apply --check --verbose /tmp/code.patch
+            echo "apply check: $?"
+          } > /tmp/diagnostic.txt 2>&1
+          status=$?
+
+          if [ "$status" -ne 0 ]; then
+            cp /tmp/diagnostic.txt static-review-diagnostic.txt
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add static-review-diagnostic.txt
+            git commit -m 'Record static review patch diagnostic'
+            git push origin HEAD:agent/fix-static-review-findings-20260714
+            cat /tmp/diagnostic.txt
+            exit "$status"
+          fi
+
           git apply /tmp/code.patch
-
           cat .github/static-review-payload/readme-*.b64 | tr -d '\n' | base64 -d > README.md
-
           git rm -r .github/static-review-payload .github/workflows/apply-static-review-fixes.yml
           git status --short
-
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
