@@ -1,13 +1,18 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { Dumbbell, Flag, Plus, Star } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import type { Material } from '../types';
 import { addDays, diffDays, formatDateShort, genId, today } from '../lib/date';
 import { computeMaterialForecast, todayQuotaFor } from '../lib/analytics';
-import { ProgressBar, EmptyState, Rating, NumericInput, Disclosure } from '../components/ui/bits';
+import { ProgressBar, EmptyState, Rating, NumericInput, Disclosure, Segmented } from '../components/ui/bits';
 import { Sheet } from '../components/ui/Sheet';
 import { useToast } from '../components/ui/Toast';
 import { UNIT_OPTIONS } from '../data/defaults';
+
+const MemoryFeature = lazy(async () => {
+  const module = await import('../features/memory/ui/MemoryFeature');
+  return { default: module.MemoryFeature };
+});
 
 const FORECAST_UI = {
   ahead: { label: '余裕', cls: 'status-ok' },
@@ -16,7 +21,15 @@ const FORECAST_UI = {
   risk: { label: '危険', cls: 'status-danger' },
 } as const;
 
-export function MaterialsScreen() {
+export type MaterialsPane = 'materials' | 'memory';
+
+export function MaterialsScreen({
+  pane = 'materials',
+  onPaneChange,
+}: {
+  pane?: MaterialsPane;
+  onPaneChange?: (pane: MaterialsPane) => void;
+}) {
   const { state } = useApp();
   const t = today();
   const [editTarget, setEditTarget] = useState<Material | null>(null);
@@ -32,6 +45,25 @@ export function MaterialsScreen() {
       .sort((a, b) => (rank.get(a.id) ?? 2) - (rank.get(b.id) ?? 2));
   }, [state, t]);
 
+  if (pane === 'memory') {
+    return (
+      <div className="screen memory-screen">
+        <div className="screen-header memory-entry-header">
+          <div><div className="screen-title">教材</div><div className="screen-sub">教材と暗記カードを管理</div></div>
+        </div>
+        <Segmented
+          options={[{ value: 'materials', label: '教材' }, { value: 'memory', label: '暗記カード' }]}
+          value={pane}
+          onChange={(value) => onPaneChange?.(value)}
+          ariaLabel="教材画面の切替"
+        />
+        <Suspense fallback={<div className="card memory-loading">暗記機能を準備しています…</div>}>
+          <MemoryFeature />
+        </Suspense>
+      </div>
+    );
+  }
+
   return (
     <div className="screen">
       <div className="screen-header">
@@ -43,6 +75,13 @@ export function MaterialsScreen() {
           <Plus size={22} strokeWidth={2.2} aria-hidden="true" />
         </button>
       </div>
+
+      <Segmented
+        options={[{ value: 'materials', label: '教材' }, { value: 'memory', label: '暗記カード' }]}
+        value={pane}
+        onChange={(value) => onPaneChange?.(value)}
+        ariaLabel="教材画面の切替"
+      />
 
       {materials.length === 0 ? (
         <EmptyState icon="📚" title="教材がまだありません">

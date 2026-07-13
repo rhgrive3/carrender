@@ -41,6 +41,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export interface AuthResponse {
+  userId: string;
   username: string;
 }
 

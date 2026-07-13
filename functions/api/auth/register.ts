@@ -42,5 +42,5 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const sessionId = await createSession(env, userId);
 
-  return withSetCookie(json({ username: uname }, { status: 201 }), sessionCookieHeader(sessionId));
+  return withSetCookie(json({ userId, username: uname }, { status: 201 }), sessionCookieHeader(sessionId));
 };

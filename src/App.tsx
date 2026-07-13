@@ -6,6 +6,7 @@ import { ToastProvider } from './components/ui/Toast';
 import { TodayScreen } from './screens/TodayScreen';
 import { PlanScreen } from './screens/PlanScreen';
 import { MaterialsScreen } from './screens/MaterialsScreen';
+import type { MaterialsPane } from './screens/MaterialsScreen';
 import { RecordsScreen } from './screens/RecordsScreen';
 import { AnalyticsScreen } from './screens/AnalyticsScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
@@ -18,6 +19,7 @@ import { IconHome, IconPlan, IconBook, IconTimer, IconChart } from './components
 import { InstallGate } from './components/pwa/InstallGate';
 import { InstallBanner } from './components/pwa/InstallBanner';
 import { shouldShowInstallGate } from './lib/pwa';
+import { MemoryProvider, useMemory } from './features/memory/ui/MemoryContext';
 
 type Tab = 'today' | 'plan' | 'materials' | 'records' | 'analytics';
 
@@ -31,8 +33,51 @@ const TABS: { id: Tab; label: string; Icon: (p: { active: boolean }) => JSX.Elem
 
 function Shell() {
   const { state } = useApp();
+  const {
+    immersive,
+    navigate: navigateMemory,
+    repository: memoryRepository,
+    sets: memorySets,
+    activeSession: activeMemorySession,
+    pendingCount: memoryPendingCount,
+  } = useMemory();
   const [tab, setTab] = useState<Tab>('today');
+  const [materialsPane, setMaterialsPane] = useState<MaterialsPane>('materials');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [memoryTodaySummary, setMemoryTodaySummary] = useState<{
+    weakCount: number;
+    recent?: { answerCount: number; needsReviewCount: number };
+  }>({ weakCount: 0 });
+
+  // Auth may replace a legacy username owner with the stable user ID after an
+  // offline launch reconnects. AppProvider/Shell remounts at that boundary,
+  // while the MemoryProvider deliberately keeps the active study view. Keep
+  // the shell on the memory pane too, otherwise Today is rendered underneath
+  // an invisible immersive session and the bottom navigation stays hidden.
+  useEffect(() => {
+    if (!immersive) return;
+    setMaterialsPane('memory');
+    setTab('materials');
+  }, [immersive]);
+
+  useEffect(() => {
+    if (tab !== 'today' || !memoryRepository) return;
+    let cancelled = false;
+    void Promise.all([memoryRepository.getStats(), memoryRepository.listSessions(20)]).then(([stats, sessions]) => {
+      if (cancelled) return;
+      const weakTargetIds = new Set(stats
+        .filter((stat) => stat.manualWeak || stat.weaknessScore >= 60)
+        .map((stat) => `${stat.targetType}:${stat.targetId}`));
+      const latest = sessions.find((session) => session.status === 'completed');
+      setMemoryTodaySummary({
+        weakCount: weakTargetIds.size,
+        recent: latest ? { answerCount: latest.answerCount, needsReviewCount: latest.needsReviewTargetIds.length } : undefined,
+      });
+    }).catch(() => {
+      // Today remains usable when the optional memory overview cannot be read.
+    });
+    return () => { cancelled = true; };
+  }, [activeMemorySession?.updatedAt, memoryPendingCount, memoryRepository, tab]);
 
   // テーマ適用
   useEffect(() => {
@@ -59,13 +104,25 @@ function Shell() {
 
   return (
     <div className="app-shell">
-      {tab === 'today' && <TodayScreen onOpenSettings={() => setSettingsOpen(true)} />}
+      {tab === 'today' && <TodayScreen
+        onOpenSettings={() => setSettingsOpen(true)}
+        memorySetCount={memorySets.length}
+        hasActiveMemorySession={Boolean(activeMemorySession)}
+        memoryWeakCount={memoryTodaySummary.weakCount}
+        recentMemorySession={memoryTodaySummary.recent}
+        onOpenMemory={() => {
+          navigateMemory(activeMemorySession
+            ? { name: 'study', sessionId: activeMemorySession.id }
+            : { name: 'home' });
+          setMaterialsPane('memory');
+          setTab('materials');
+        }} />}
       {tab === 'plan' && <PlanScreen />}
-      {tab === 'materials' && <MaterialsScreen />}
+      {tab === 'materials' && <MaterialsScreen pane={materialsPane} onPaneChange={setMaterialsPane} />}
       {tab === 'records' && <RecordsScreen />}
       {tab === 'analytics' && <AnalyticsScreen />}
 
-      <nav className="bottom-nav" aria-label="メインナビゲーション">
+      {!immersive && <nav className="bottom-nav" aria-label="メインナビゲーション">
         {TABS.map((item) => (
           <button
             key={item.id}
@@ -80,7 +137,7 @@ function Shell() {
             {item.label}
           </button>
         ))}
-      </nav>
+      </nav>}
 
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TimerOverlay />
@@ -114,14 +171,17 @@ function AuthGate({ children }: { children: JSX.Element }) {
  * 新しい owner 名で保存・同期する経路を持たせない。 */
 function AuthenticatedApp() {
   const { user } = useAuth();
+  const owner = user?.memoryOwner ?? user?.id ?? user?.username ?? 'anonymous';
   return (
-    <AppProvider key={user?.username ?? 'anonymous'}>
-      <TimerProvider>
-        <ToastProvider>
-          <Shell />
-        </ToastProvider>
-      </TimerProvider>
-    </AppProvider>
+    <MemoryProvider owner={owner}>
+      <AppProvider key={owner}>
+        <TimerProvider>
+          <ToastProvider>
+            <Shell />
+          </ToastProvider>
+        </TimerProvider>
+      </AppProvider>
+    </MemoryProvider>
   );
 }
 

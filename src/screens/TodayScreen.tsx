@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Lightbulb, Play, RefreshCw, Settings, Timer, TriangleAlert, X } from 'lucide-react';
+import { Brain, Lightbulb, Play, RefreshCw, Settings, Timer, TriangleAlert, X } from 'lucide-react';
 import { QuickStartSheet } from '../components/timer/QuickStartSheet';
 import { useApp } from '../state/AppContext';
 import { useTimer } from '../components/timer/TimerContext';
@@ -19,7 +19,21 @@ const STATUS_UI = {
   danger: { label: '危険', cls: 'status-danger', icon: '🔥' },
 } as const;
 
-export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function TodayScreen({
+  onOpenSettings,
+  onOpenMemory,
+  memorySetCount = 0,
+  hasActiveMemorySession = false,
+  memoryWeakCount = 0,
+  recentMemorySession,
+}: {
+  onOpenSettings: () => void;
+  onOpenMemory?: () => void;
+  memorySetCount?: number;
+  hasActiveMemorySession?: boolean;
+  memoryWeakCount?: number;
+  recentMemorySession?: { answerCount: number; needsReviewCount: number };
+}) {
   const { state, dispatch } = useApp();
   const timer = useTimer();
   const toast = useToast();
@@ -132,6 +146,18 @@ export function TodayScreen({ onOpenSettings }: { onOpenSettings: () => void }) 
         <div className="faint mt-8">空き区間 {todaySlots.map((slot) => `${minutesToHM(slot.start)}〜${minutesToHM(slot.end)}`).join(' / ') || 'なし'}</div>
         {conflictCount > 0 && <div className="faint mt-8" style={{ color: 'var(--danger)' }}>固定条件の衝突 {conflictCount}件</div>}
       </div>
+
+      {onOpenMemory && (
+        <button type="button" className="card today-memory-shortcut mt-12" onClick={onOpenMemory} aria-label="暗記カード学習を開く">
+          <Brain size={22} aria-hidden="true" />
+          <span>
+            <b>{hasActiveMemorySession ? '暗記学習を続ける' : '暗記カードを学習'}</b>
+            <small>{memorySetCount > 0 ? `${memorySetCount}セット・苦手 ${memoryWeakCount}項目・オフライン対応` : 'セットを作成してすぐ始められます'}</small>
+            {recentMemorySession && <small>直近：回答 {recentMemorySession.answerCount}回・要確認 {recentMemorySession.needsReviewCount}項目</small>}
+          </span>
+          <Play size={18} fill="currentColor" aria-hidden="true" />
+        </button>
+      )}
 
       {/* 再スケジュール通知 */}
       {state.lastReschedule && (
