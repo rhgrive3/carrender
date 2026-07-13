@@ -4,6 +4,17 @@ import { json } from '../_shared/http';
 
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5MB
 
+export function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+/** 同一ミリ秒内の連続更新でも、楽観ロック用versionを必ず前進させる。 */
+export function nextDataVersion(expectedVersion: string | null, nowMs = Date.now()): string {
+  const expectedMs = expectedVersion ? Date.parse(expectedVersion) : Number.NaN;
+  const nextMs = Number.isFinite(expectedMs) ? Math.max(nowMs, expectedMs + 1) : nowMs;
+  return new Date(nextMs).toISOString();
+}
+
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: 'ログインしていません' }, { status: 401 });
@@ -29,7 +40,7 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
   if (!user) return json({ error: 'ログインしていません' }, { status: 401 });
 
   const raw = await request.text();
-  if (raw.length > MAX_BODY_BYTES) {
+  if (utf8ByteLength(raw) > MAX_BODY_BYTES) {
     return json({ error: '保存データが大きすぎます' }, { status: 413 });
   }
 
@@ -40,12 +51,13 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
     return json({ error: 'リクエストの形式が正しくありません' }, { status: 400 });
   }
 
-  if (typeof appState !== 'object' || appState === null) {
+  if (typeof appState !== 'object' || appState === null || Array.isArray(appState)) {
     return json({ error: '学習データの形式が正しくありません' }, { status: 400 });
   }
 
-  const now = new Date().toISOString();
   const expectedHeader = request.headers.get('X-Data-Version');
+  const expectedVersion = expectedHeader && expectedHeader !== 'null' ? expectedHeader : null;
+  const now = nextDataVersion(expectedVersion);
   let saved = true;
   if (expectedHeader === 'null') {
     const result = await env.DB.prepare(

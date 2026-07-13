@@ -8,7 +8,13 @@ export function parseCookie(request: Request, name: string): string | null {
     const idx = part.indexOf('=');
     if (idx === -1) continue;
     const key = part.slice(0, idx).trim();
-    if (key === name) return decodeURIComponent(part.slice(idx + 1).trim());
+    if (key !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(idx + 1).trim());
+    } catch {
+      // 壊れたpercent-encodingを認証API全体の500エラーへ波及させない。
+      return null;
+    }
   }
   return null;
 }
