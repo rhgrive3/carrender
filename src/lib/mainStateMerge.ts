@@ -199,6 +199,9 @@ export function mergeMainStates(
   const settingsCoreValue = output.get('settings')?.get('value') as AppSettings;
   const settings: AppSettings = { ...settingsCoreValue, historyData: mergeHistoryData(local.settings, remote.settings) };
   const values = <T>(section: MainStateEntitySection): T[] => [...(output.get(section)?.values() ?? [])] as T[];
+  const plannedDates = [local.lastPlannedDate, remote.lastPlannedDate]
+    .filter((date): date is string => Boolean(date))
+    .sort();
 
   const merged: AppState = {
     ...remote,
@@ -219,7 +222,7 @@ export function mergeMainStates(
     lastReschedule: local.lastReschedule?.at && remote.lastReschedule?.at
       ? (local.lastReschedule.at >= remote.lastReschedule.at ? local.lastReschedule : remote.lastReschedule)
       : local.lastReschedule ?? remote.lastReschedule,
-    lastPlannedDate: [local.lastPlannedDate, remote.lastPlannedDate].filter(Boolean).sort().at(-1) ?? null,
+    lastPlannedDate: plannedDates.length > 0 ? plannedDates[plannedDates.length - 1] : null,
     lastScheduleResult: local.lastScheduleResult ?? remote.lastScheduleResult,
     lastPlanReason: '端末版とクラウド版の非競合変更を自動統合',
   };
