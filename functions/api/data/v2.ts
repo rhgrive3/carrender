@@ -100,6 +100,29 @@ function versionsMatch(expected: string | null, current: string | null): boolean
   return expected === current;
 }
 
+async function committedGenerationResult(
+  env: Env,
+  userId: string,
+  generation: GenerationRow,
+  manifest: AppStateChunkManifest,
+): Promise<Response> {
+  const head = await env.DB.prepare(
+    'SELECT generation_id, updated_at FROM main_state_heads WHERE user_id = ?',
+  ).bind(userId).first<{ generation_id: string; updated_at: string }>();
+  if (head?.generation_id === generation.generation_id && generation.updated_at) {
+    return json({
+      generationId: generation.generation_id,
+      status: 'committed',
+      updatedAt: generation.updated_at,
+      manifest,
+    }, { headers: NO_STORE_HEADERS });
+  }
+  return json({
+    error: 'この保存操作の後に別の端末またはタブでデータが更新されています。最新データを確認してください',
+    updatedAt: head?.updated_at ?? null,
+  }, { status: 409, headers: NO_STORE_HEADERS });
+}
+
 async function beginGeneration(env: Env, userId: string, body: Record<string, unknown>): Promise<Response> {
   const mutationId = requiredId(body.mutationId, 'mutationId');
   const expectedUpdatedAt = expectedVersion(body.expectedUpdatedAt);
@@ -118,11 +141,13 @@ async function beginGeneration(env: Env, userId: string, body: Record<string, un
     if (existing.request_hash !== requestHash) {
       return json({ error: '同じmutationIdが異なる内容で再利用されています' }, { status: 409, headers: NO_STORE_HEADERS });
     }
+    const existingManifest = parseManifest(existing.manifest_json);
+    if (existing.status === 'committed') return committedGenerationResult(env, userId, existing, existingManifest);
     return json({
       generationId: existing.generation_id,
       status: existing.status,
       updatedAt: existing.updated_at,
-      manifest: parseManifest(existing.manifest_json),
+      manifest: existingManifest,
     }, { headers: NO_STORE_HEADERS });
   }
 
@@ -156,11 +181,13 @@ async function beginGeneration(env: Env, userId: string, body: Record<string, un
       'SELECT generation_id, mutation_id, request_hash, status, base_updated_at, manifest_json, updated_at FROM main_state_generations WHERE user_id = ? AND mutation_id = ?',
     ).bind(userId, mutationId).first<GenerationRow>();
     if (!raced || raced.request_hash !== requestHash) throw error;
+    const racedManifest = parseManifest(raced.manifest_json);
+    if (raced.status === 'committed') return committedGenerationResult(env, userId, raced, racedManifest);
     return json({
       generationId: raced.generation_id,
       status: raced.status,
       updatedAt: raced.updated_at,
-      manifest: parseManifest(raced.manifest_json),
+      manifest: racedManifest,
     }, { headers: NO_STORE_HEADERS });
   }
 
@@ -271,11 +298,9 @@ async function commitGeneration(env: Env, userId: string, body: Record<string, u
     'SELECT generation_id, mutation_id, request_hash, status, base_updated_at, manifest_json, updated_at FROM main_state_generations WHERE user_id = ? AND generation_id = ?',
   ).bind(userId, generationId).first<GenerationRow>();
   if (!generation) return json({ error: '保存世代が見つかりません' }, { status: 404, headers: NO_STORE_HEADERS });
-  if (generation.status === 'committed' && generation.updated_at) {
-    return json({ ok: true, generationId, updatedAt: generation.updated_at, duplicate: true }, { headers: NO_STORE_HEADERS });
-  }
-
   const manifest = parseManifest(generation.manifest_json);
+  if (generation.status === 'committed') return committedGenerationResult(env, userId, generation, manifest);
+
   const rows = await env.DB.prepare(
     `SELECT section_name, chunk_index, data_json, byte_length, content_hash
      FROM main_state_chunks WHERE user_id = ? AND generation_id = ?
@@ -351,7 +376,7 @@ async function commitGeneration(env: Env, userId: string, body: Record<string, u
     await env.DB.batch([
       env.DB.prepare(
         `DELETE FROM main_state_generations
-         WHERE user_id = ? AND status = 'staging' AND created_at < datetime('now', '-7 days')`,
+         WHERE user_id = ? AND status = 'staging' AND datetime(created_at) < datetime('now', '-7 days')`,
       ).bind(userId),
       env.DB.prepare(
         `DELETE FROM main_state_generations
@@ -402,7 +427,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/no such table:\s*main_state_/i.test(message)) {
-      return json({ error: '予定データ用D1 migrationが未適用です' }, { status: 503, headers: NO_STORE_HEADERS });
+      return json({
+        error: '予定データ用D1 migrationが未適用です',
+        code: 'MAIN_STATE_SCHEMA_MISSING',
+      }, { status: 503, headers: NO_STORE_HEADERS });
     }
     console.error(JSON.stringify({ message: 'chunked main state manifest read failed', userId: user.id, error: message }));
     return json({ error: 'クラウド予定データの読み込みに失敗しました' }, { status: 500, headers: NO_STORE_HEADERS });
@@ -423,10 +451,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const schemaMissing = /no such table:\s*main_state_/i.test(message);
     const status = typeof (error as { status?: unknown })?.status === 'number'
       ? (error as { status: number }).status
-      : /no such table:\s*main_state_/i.test(message) ? 503 : 500;
+      : schemaMissing ? 503 : 500;
     console.error(JSON.stringify({ message: 'chunked main state request failed', userId: user.id, error: message, status }));
-    return json({ error: status === 500 ? 'クラウド予定データの保存に失敗しました' : message }, { status, headers: NO_STORE_HEADERS });
+    return json({
+      error: status === 500 ? 'クラウド予定データの保存に失敗しました' : message,
+      ...(schemaMissing ? { code: 'MAIN_STATE_SCHEMA_MISSING' } : {}),
+    }, { status, headers: NO_STORE_HEADERS });
   }
 };
