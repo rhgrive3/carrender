@@ -29,6 +29,7 @@ export interface AiValidationIssue {
     | 'parent_mismatch'
     | 'protected_change'
     | 'new_ai_metadata'
+    | 'example_only_violation'
     | 'base_revision_conflict';
   message: string;
   severity: AiValidationSeverity;
@@ -368,6 +369,24 @@ function checkRelationships(document: AiContentDocument, current: MemoryContentB
   });
 }
 
+function checkExampleOnlyPolicy(
+  document: AiContentDocument,
+  current: MemoryContentBundle | undefined,
+  issues: AiValidationIssue[],
+): void {
+  if (!current) return;
+  const diff = diffAiContent(current, document);
+  for (const operation of diff.operations) {
+    if (operation.kind === 'add' && operation.entityType === 'example') continue;
+    issue(
+      issues,
+      `$.${operation.entityType}s[id=${operation.entityId}]`,
+      'example_only_violation',
+      'AI差分では新しい例文だけ追加できます。既存データや例文以外は変更できません',
+    );
+  }
+}
+
 export function validateAiContentJson(
   input: string | unknown,
   options: ValidateAiContentOptions = {},
@@ -429,6 +448,7 @@ export function validateAiContentJson(
   const candidate = value as unknown as AiContentDocument;
   checkIdsAndMetadata(candidate, options.currentContent, issues);
   checkRelationships(candidate, options.currentContent, issues);
+  checkExampleOnlyPolicy(candidate, options.currentContent, issues);
   const hasBaseRevisionConflict = options.currentBaseRevision !== undefined
     && candidate.baseRevision !== options.currentBaseRevision;
   if (hasBaseRevisionConflict) {
