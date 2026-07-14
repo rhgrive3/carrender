@@ -20,11 +20,15 @@ jobs:
         with:
           ref: audit/full-review-2026-07-14
           fetch-depth: 0
-      - name: Apply validated audit patch
+      - name: Verify and apply audit patch
         shell: bash
         run: |
           set -euo pipefail
+          sha256sum .github/audit-lines/part-*
           cat .github/audit-lines/part-* > /tmp/full-audit.patch
+          wc -c /tmp/full-audit.patch
+          sha256sum /tmp/full-audit.patch
+          test "$(sha256sum /tmp/full-audit.patch | cut -d' ' -f1)" = "4cb14e0071f5f996ca73b301b830ebed7408e2dac989977d58197582a559cc32"
           git apply --check /tmp/full-audit.patch
           git apply /tmp/full-audit.patch
           rm -rf .github/audit-lines .github/audit-patch
