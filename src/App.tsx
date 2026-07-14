@@ -10,21 +10,21 @@ import { MaterialsScreen } from './screens/MaterialsScreen';
 import type { MaterialsPane } from './screens/MaterialsScreen';
 import { RecordsScreen } from './screens/RecordsScreen';
 import { AnalyticsScreen } from './screens/AnalyticsScreen';
-import { PlanHistoryScreen } from './screens/PlanHistoryScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsSheet } from './screens/SettingsSheet';
 import { LoginScreen } from './screens/LoginScreen';
 import { TimerOverlay } from './components/timer/TimerOverlay';
+import { PlanHistoryLauncher } from './components/PlanHistoryLauncher';
 
 import { Target } from 'lucide-react';
-import { IconHome, IconPlan, IconBook, IconTimer, IconChart, IconHistory } from './components/navigation/NavIcons';
+import { IconHome, IconPlan, IconBook, IconTimer, IconChart } from './components/navigation/NavIcons';
 import { InstallGate } from './components/pwa/InstallGate';
 import { InstallBanner } from './components/pwa/InstallBanner';
 import { shouldShowInstallGate } from './lib/pwa';
 import { MemoryProvider, useMemory } from './features/memory/ui/MemoryContext';
 import { resolveAppOwnerIdentity } from './state/ownerIdentity';
 
-type Tab = 'today' | 'plan' | 'materials' | 'records' | 'analytics' | 'history';
+type Tab = 'today' | 'plan' | 'materials' | 'records' | 'analytics';
 
 const TABS: { id: Tab; label: string; Icon: (p: { active: boolean }) => JSX.Element }[] = [
   { id: 'today', label: '今日', Icon: IconHome },
@@ -32,7 +32,6 @@ const TABS: { id: Tab; label: string; Icon: (p: { active: boolean }) => JSX.Elem
   { id: 'materials', label: '教材', Icon: IconBook },
   { id: 'records', label: '記録', Icon: IconTimer },
   { id: 'analytics', label: '分析', Icon: IconChart },
-  { id: 'history', label: '履歴', Icon: IconHistory },
 ];
 
 function Shell() {
@@ -125,7 +124,6 @@ function Shell() {
       {tab === 'materials' && <MaterialsScreen pane={materialsPane} onPaneChange={setMaterialsPane} />}
       {tab === 'records' && <RecordsScreen />}
       {tab === 'analytics' && <AnalyticsScreen />}
-      {tab === 'history' && <PlanHistoryScreen />}
 
       {!immersive && <nav className="bottom-nav" aria-label="メインナビゲーション">
         {TABS.map((item) => (
@@ -144,6 +142,7 @@ function Shell() {
         ))}
       </nav>}
 
+      {!immersive && <PlanHistoryLauncher />}
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TimerOverlay />
     </div>
