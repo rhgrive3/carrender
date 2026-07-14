@@ -21,6 +21,7 @@ import { InstallGate } from './components/pwa/InstallGate';
 import { InstallBanner } from './components/pwa/InstallBanner';
 import { shouldShowInstallGate } from './lib/pwa';
 import { MemoryProvider, useMemory } from './features/memory/ui/MemoryContext';
+import { resolveAppOwnerIdentity } from './state/ownerIdentity';
 
 type Tab = 'today' | 'plan' | 'materials' | 'records' | 'analytics';
 
@@ -172,12 +173,11 @@ function AuthGate({ children }: { children: JSX.Element }) {
  * 新しい owner 名で保存・同期する経路を持たせない。 */
 function AuthenticatedApp() {
   const { user } = useAuth();
-  const memoryOwner = user?.memoryOwner ?? user?.id ?? user?.username ?? 'anonymous';
-  const mainStateOwner = user?.username ?? 'anonymous';
+  const { memoryOwner, mainStateOwner, mainStateProviderKey } = resolveAppOwnerIdentity(user);
   return (
     <MemoryProvider owner={memoryOwner}>
       <MainStateBootstrap owner={mainStateOwner}>
-        <AppProvider key={memoryOwner}>
+        <AppProvider key={mainStateProviderKey}>
           <MainStatePersistence owner={mainStateOwner}>
             <TimerProvider>
               <ToastProvider>
