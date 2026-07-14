@@ -32,21 +32,18 @@ export function buildProgressChartDates(
   plannedDates: ISODate[],
   actualDates: ISODate[],
 ): ISODate[] {
-  const start = materials.reduce<ISODate>((min, material) => {
-    const date = materialStartDate(material);
-    return date < min ? date : min;
-  }, refDate);
-  const end = materials.reduce<ISODate>((max, material) => material.targetDate > max ? material.targetDate : max, refDate);
+  const allDates = [
+    refDate,
+    ...materials.flatMap((material) => [materialStartDate(material), material.targetDate]),
+    ...plannedDates,
+    ...actualDates,
+  ];
+  const start = allDates.reduce((min, date) => date < min ? date : min, refDate);
+  const end = allDates.reduce((max, date) => date > max ? date : max, refDate);
   const span = Math.max(0, diffDays(start, end));
   const step = span > 730 ? 7 : span > 365 ? 2 : 1;
   const dates = new Set<ISODate>();
   for (let index = 0; index <= span; index += step) dates.add(addDays(start, index));
-  dates.add(refDate);
-  for (const material of materials) {
-    dates.add(materialStartDate(material));
-    dates.add(material.targetDate);
-  }
-  for (const date of plannedDates) dates.add(date);
-  for (const date of actualDates) dates.add(date);
+  for (const date of allDates) dates.add(date);
   return [...dates].sort();
 }
