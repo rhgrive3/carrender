@@ -138,6 +138,37 @@ function chooseEntity(input: {
   return { source: 'same', conflict: { section, key, reason: 'bothChanged' } };
 }
 
+function referentialIntegrityConflicts(
+  output: Map<MainStateEntitySection, Map<string, unknown>>,
+  deletedKeys: string[],
+): MainStateMergeConflict[] {
+  const deleted = new Set(deletedKeys);
+  const materials = [...(output.get('materials')?.values() ?? [])] as AppState['materials'];
+  const tasks = [...(output.get('tasks')?.values() ?? [])] as AppState['tasks'];
+  const sessions = [...(output.get('sessions')?.values() ?? [])] as AppState['sessions'];
+  const conflicts: MainStateMergeConflict[] = [];
+
+  for (const key of deleted) {
+    if (key.startsWith('materials:')) {
+      const materialId = key.slice('materials:'.length);
+      if (tasks.some((task) => task.materialId === materialId)
+        || sessions.some((session) => session.materialId === materialId)) {
+        conflicts.push({ section: 'materials', key: materialId, reason: 'deleteVsEdit' });
+      }
+    }
+    if (key.startsWith('subjects:')) {
+      const subjectId = key.slice('subjects:'.length);
+      if (materials.some((material) => material.subjectId === subjectId)
+        || tasks.some((task) => task.subjectId === subjectId)
+        || sessions.some((session) => session.subjectId === subjectId)) {
+        conflicts.push({ section: 'subjects', key: subjectId, reason: 'deleteVsEdit' });
+      }
+    }
+  }
+
+  return conflicts;
+}
+
 export function mergeMainStates(
   baseHashes: MainStateEntityHashSnapshot | null | undefined,
   local: AppState,
@@ -188,6 +219,7 @@ export function mergeMainStates(
     }
     output.set(section, result);
   }
+  conflicts.push(...referentialIntegrityConflicts(output, deletedKeys));
   if (conflicts.length > 0) return { merged: null, conflicts, appliedLocalKeys, appliedRemoteKeys, deletedKeys };
 
   const goal = (output.get('goal')?.get('value') ?? null) as AppState['goal'];
