@@ -15,6 +15,7 @@ export function MainStateWriterLeaseBridge() {
   const toast = useToast();
   const owner = user?.username ?? null;
   const wasWriter = useRef(false);
+  const initialized = useRef(false);
   const [isWriter, setIsWriter] = useState(true);
 
   useEffect(() => {
@@ -29,11 +30,14 @@ export function MainStateWriterLeaseBridge() {
       if (disposed) return;
       setIsWriter(active);
       if (active && !wasWriter.current) {
-        if (announce) toast('この画面がクラウド保存を引き継ぎました');
-        retrySync();
-        channel?.postMessage({ type: 'writer-claimed' });
+        if (initialized.current) {
+          if (announce) toast('この画面がクラウド保存を引き継ぎました');
+          retrySync();
+          channel?.postMessage({ type: 'writer-claimed' });
+        }
       }
       wasWriter.current = active;
+      initialized.current = true;
     };
 
     check(false);
