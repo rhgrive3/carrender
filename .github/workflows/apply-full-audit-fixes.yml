@@ -1,0 +1,33 @@
+name: Apply full audit fixes
+
+on:
+  push:
+    branches:
+      - audit/full-review-2026-07-14
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply validated audit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/audit-lines/part-* > /tmp/full-audit.patch
+          git apply --check /tmp/full-audit.patch
+          git apply /tmp/full-audit.patch
+          rm -rf .github/audit-lines .github/audit-patch
+          rm .github/workflows/apply-full-audit-fixes.yml
+          git add -A
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: resolve full-audit data integrity defects and remove dead code'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
