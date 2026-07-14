@@ -164,6 +164,13 @@ const exported = createAiContentExport(current, {
   check('AI用出力に成績・履歴・セッション・ユーザー情報なし', !/(memorystat|attempt|session|user_id|email|clientid)/u.test(serialized), serialized);
   check('AI用出力で既存IDを維持', exported.items[0].id === currentItem.id && exported.answers[0].id === currentAnswer.id, exported);
   check('ChatGPT依頼文に保護ルールを含む', /既存idを変更しない/.test(CHATGPT_CONTENT_REQUEST) && /成績、回答履歴、セッション/.test(CHATGPT_CONTENT_REQUEST), CHATGPT_CONTENT_REQUEST);
+  check(
+    'ChatGPTへ求める補完は例文だけ',
+    /追加してよいのはexamples配列の新規要素だけ/.test(CHATGPT_CONTENT_REQUEST)
+      && /items、senses、answers、exercisesを追加・変更・削除しない/.test(CHATGPT_CONTENT_REQUEST)
+      && !/別の意味|別表現|穴埋め問題|指定英作問題|文脈選択問題/.test(CHATGPT_CONTENT_REQUEST),
+    CHATGPT_CONTENT_REQUEST,
+  );
 }
 
 console.log('--- Memory AI import: validation and isolation ---');

@@ -351,24 +351,19 @@ export function createAiContentExport(
   };
 }
 
-export const CHATGPT_CONTENT_REQUEST = `このJSONの既存データを削除・置換せず、内容を補完してください。
-各語・熟語・構文について、必要に応じて以下を追加してください。
-- 入試で重要な別の意味
-- 同じ意味を表す自然な別表現
-- 表現ごとのニュアンス・語調・使用条件
-- 例文と和訳
-- よくある誤り
-- 語形・前置詞・語順の注意
-- 穴埋め問題
-- 指定英作問題
-- 文脈選択問題
+export const CHATGPT_CONTENT_REQUEST = `このJSONの既存データを削除・置換せず、例文だけを補完してください。
+各既存Senseについて、学習に有用で自然な例文が不足している場合だけ、examplesへ英文と和訳を追加してください。
 ルール：
+- 追加してよいのはexamples配列の新規要素だけ
+- items、senses、answers、exercisesを追加・変更・削除しない
+- 既存examplesを変更・削除しない
+- 例文は既存Senseの意味と既存Answerの用法に一致させる
+- 特定のAnswerを使う例文は、その既存answerIdを設定する
 - schemaVersionを変更しない
 - 既存idを変更しない
-- 既存データを削除しない
-- 既存内容を書き換える場合は変更として明示する
-- 新規データにはsource: "ai"を付ける
-- 新規データにはverificationStatus: "unverified_ai"を付ける
+- 新規Exampleには重複しないidを付ける
+- 新規Exampleにはsource: "ai"を付ける
+- 新規ExampleにはverificationStatus: "unverified_ai"を付ける
 - 成績、回答履歴、セッション、ユーザー情報を追加しない
 - JSON以外の文章を出力しない`;
 

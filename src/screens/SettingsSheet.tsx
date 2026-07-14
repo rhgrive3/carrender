@@ -535,8 +535,9 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           </select>
         </div>
         <div className="field">
-          <label htmlFor="st-horizon">具体計画(日)</label>
+          <label htmlFor="st-horizon">具体計画の最低日数</label>
           <NumericInput id="st-horizon" value={studyDraft.taskGenerationHorizonDays ?? 42} min={7} max={90} onChange={(v) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, taskGenerationHorizonDays: Math.max(7, Math.min(90, v)) })); }} />
+          <small className="faint">目標日がこれより先なら、目標日まで自動で延長します。</small>
         </div>
       </div>
       <button className="btn btn-secondary btn-sm btn-block" onClick={saveStudySettings}>
