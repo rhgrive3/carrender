@@ -904,7 +904,14 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     .map((task) => task.manualScheduling!.deadline!)
     .sort();
   const pendingStrictTaskDeadlines = taskDeadlineDates[taskDeadlineDates.length - 1];
-  const concreteEnd = addDays(today, Math.max(1, state.settings.taskGenerationHorizonDays ?? 42) - 1);
+  const configuredConcreteEnd = addDays(today, Math.max(1, state.settings.taskGenerationHorizonDays ?? 42) - 1);
+  // The configured horizon is a rolling minimum, not permission to stop before
+  // the user's active goal. Otherwise a 42-day plan generated on July 14 ends
+  // on August 24 even when the goal itself is August 27, making the calendar
+  // appear to break off while goal-scoped work still exists.
+  const concreteEnd = state.goal?.examDate && state.goal.examDate > configuredConcreteEnd
+    ? state.goal.examDate
+    : configuredConcreteEnd;
   const horizonDates = [latestStrict, pendingStrictTaskDeadlines, concreteEnd].filter((date): date is string => Boolean(date)).sort();
   const feasibilityEnd = horizonDates[horizonDates.length - 1] ?? concreteEnd;
   const preferredDates = activeMaterials.filter((material) => material.deadlinePolicy !== 'strict').map(preferredFinishDateFor).sort();
@@ -1065,7 +1072,30 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       const totalStrictMinutes = strictWorks.reduce((sum, work) => sum + work.requiredMinutes, 0);
       const activeStrictDays = balancedDaysBase.filter((day) => day.budget > 0
         && balancedItems.some((item) => day.date >= item.release && day.date <= item.deadline)).length;
-      const perDayTarget = Math.max(sessionMin, Math.ceil(totalStrictMinutes / Math.max(1, activeStrictDays) / 5) * 5);
+      const averageStrictMinutes = totalStrictMinutes / Math.max(1, activeStrictDays);
+      const maxAvailableBudget = balancedDaysBase.reduce((max, day) => Math.max(max, day.budget), 0);
+      const capCouldPossiblyFit = (cap: number) => {
+        const totalCapacity = balancedDaysBase.reduce((sum, day) => sum + Math.min(day.budget, cap), 0);
+        if (totalCapacity < totalStrictMinutes) return false;
+        return balancedItems.every((item) => {
+          let capacityUnits = 0;
+          for (const day of balancedDaysBase) {
+            if (day.date < item.release || day.date > item.deadline) continue;
+            const minuteCap = Math.min(day.budget, cap, item.maxMinutesPerDay ?? Number.POSITIVE_INFINITY);
+            const unitCap = Math.floor(minuteCap / Math.max(item.minutesPerUnit, 0.0001));
+            capacityUnits += Math.min(unitCap, item.maxUnitsPerDay ?? Number.POSITIVE_INFINITY);
+          }
+          return capacityUnits >= item.requiredUnits;
+        });
+      };
+      // A raw average can be impossible after unit granularity is applied. For
+      // example, 21 × 40-minute units over six days average 140 minutes, but a
+      // 140-minute cap holds only three units (120 minutes) per day. The old
+      // solver explored that impossible cap until its limit and then fell back
+      // to the latest-deadline solution. Raise the cap only until these cheap
+      // necessary capacity bounds say the balanced solve can physically fit.
+      let perDayTarget = Math.max(sessionMin, Math.ceil(averageStrictMinutes / 5) * 5);
+      while (perDayTarget < maxAvailableBudget && !capCouldPossiblyFit(perDayTarget)) perDayTarget += 5;
       const balancedDays = balancedDaysBase.map((day) => ({ ...day, budget: Math.min(day.budget, perDayTarget) }));
       let balanced = runSolve(balancedItems, balancedDays, false);
       // 大きな分割不可チャンク等で均等上限が狭すぎる場合は、同じ安全期限で

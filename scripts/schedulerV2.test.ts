@@ -676,6 +676,36 @@ console.log('--- 19. 負荷平準化・安全完了日・頻度目標 ---');
   check('strictは期限前の安全予備を残す', resultB.objectiveReport.safetyBufferViolationMinutes === 0, resultB.objectiveReport);
   check('strictは期限保証を維持する', resultB.deadlineReports.find((report) => report.workItemId === `material:${strict.id}`)?.feasible === true, resultB.deadlineReports);
 
+  // ケースB2: 40分単位では平均140分の上限が実質120分になる。
+  // 不可能な均等化上限を探索し続けて期限直前解へ戻らないこと。
+  const chunkyStrict = mat('balanced-strict-chunky', {
+    deadlinePolicy: 'strict', targetDate: '2026-07-17', totalAmount: 21, totalUnits: 21, minutesPerUnit: 40,
+  });
+  const chunkyResult = generatePlanV2(baseState([chunkyStrict], [
+    { start: '09:00', end: '12:00' },
+    { start: '13:30', end: '19:00' },
+    { start: '20:00', end: '23:00' },
+  ], 630, {
+    settings: { ...emptyState().settings, maxDailyMinutes: 630, sessionMinMinutes: 25, sessionMaxMinutes: 90, taskGenerationHorizonDays: 14 },
+  }), context({ generationId: 'balance-strict-chunky', maxSearchNodes: 20_000, maxSearchMilliseconds: 400 }));
+  const chunkyDates = chunkyResult.scheduledTasks
+    .filter((task) => task.materialId === chunkyStrict.id)
+    .map((task) => task.scheduledDate);
+  check('40分単位strictも安全完了日までへ分散する', chunkyDates.length > 0 && chunkyDates.every((date) => date <= '2026-07-15'), chunkyDates);
+  check('40分単位strictが期限前の安全予備を残す', chunkyResult.objectiveReport.safetyBufferViolationMinutes === 0, chunkyResult.objectiveReport);
+  check('40分単位strictの期限保証を維持する', chunkyResult.deadlineReports.find((report) => report.workItemId === `material:${chunkyStrict.id}`)?.feasible === true, chunkyResult.deadlineReports);
+
+  // ケースB3: ローリング日数が目標日より短くても、目標日前に具体予定を打ち切らない。
+  const goalScoped = mat('goal-scoped', {
+    deadlinePolicy: 'normal', targetDate: '2026-07-20', totalAmount: 11, totalUnits: 11, minutesPerUnit: 60,
+  });
+  const goalResult = generatePlanV2(baseState([goalScoped], [{ start: '09:00', end: '10:00' }], 60, {
+    goal: { id: 'goal-horizon', name: '目標', examDate: '2026-07-20', createdAt: fixedNow.toISOString() },
+    settings: { ...emptyState().settings, maxDailyMinutes: 60, sessionMinMinutes: 5, sessionMaxMinutes: 90, taskGenerationHorizonDays: 7 },
+  }), context({ generationId: 'goal-horizon' }));
+  const goalDates = goalResult.scheduledTasks.filter((task) => task.materialId === goalScoped.id).map((task) => task.scheduledDate);
+  check('具体計画の最低日数を超えても目標日までタスク化する', goalDates.includes('2026-07-20'), goalDates);
+
   // ケースC: 週3回は週の前半一日に固めず、選んだ3日程度に分散する。
   const cadence = mat('cadence-3', {
     deadlinePolicy: 'normal', targetDate: '2026-08-09', totalAmount: 12, totalUnits: 12, minutesPerUnit: 10,

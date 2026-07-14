@@ -775,14 +775,13 @@ console.log('--- Memory application: AI import apply-time revalidation ---');
       siblingGroupId: 'sibling-ai-revalidation',
     }],
   };
-  const newAiAnswer: MemoryAnswer = {
+  const newAiExample: MemoryExample = {
     ...common,
-    id: 'answer-ai-new',
+    id: 'example-ai-new',
     senseId: 'sense-ai-revalidation',
-    displayForm: 'allow for A',
-    citationForm: 'allow for A',
-    acceptedVariants: [],
-    orthographicVariants: [],
+    answerId: 'answer-ai-existing',
+    english: 'We must take the cost into account.',
+    japanese: '私たちは費用を考慮に入れなければならない。',
     source: 'ai',
     verificationStatus: 'unverified_ai',
   };
@@ -792,10 +791,10 @@ console.log('--- Memory application: AI import apply-time revalidation ---');
     baseRevision: maximumContentRevision(content),
     exportedAt: now,
   });
-  staleDocument.answers.push(newAiAnswer);
+  staleDocument.examples.push(newAiExample);
   const stalePreview = previewAiImport(staleDocument, content);
-  const newAnswerEntry = stalePreview.entries.find(
-    (entry) => entry.entityType === 'answer' && entry.id === newAiAnswer.id && entry.kind === 'new',
+  const newExampleEntry = stalePreview.entries.find(
+    (entry) => entry.entityType === 'example' && entry.id === newAiExample.id && entry.kind === 'new',
   );
   let staleSaveCalls = 0;
   const changedAfterPreview: MemoryContentBundle = {
@@ -806,48 +805,65 @@ console.log('--- Memory application: AI import apply-time revalidation ---');
     loadContent: async () => changedAfterPreview,
     saveEntities: async () => { staleSaveCalls += 1; },
   } as unknown as MemoryRepository;
-  check('AI差分プレビューに新規Answerが現れる', !!newAnswerEntry, stalePreview);
+  check('AI差分プレビューに新規Exampleが現れる', !!newExampleEntry, stalePreview);
   await rejects(
     '差分確認後にコンテンツが変わった場合は適用を拒否',
     () => applyAiImport({
       repository: staleRepository,
       preview: stalePreview,
-      selectedKeys: new Set(newAnswerEntry ? [newAnswerEntry.key] : []),
+      selectedKeys: new Set(newExampleEntry ? [newExampleEntry.key] : []),
     }),
     /差分確認後に元データが変更|もう一度差分/,
   );
   check('古いプレビュー拒否時は保存しない', staleSaveCalls === 0, staleSaveCalls);
 
-  const dependentDocument = createAiContentExport(content, {
-    exportId: 'export-ai-dependent-selection',
+  const savedEntities: unknown[] = [];
+  const validRepository = {
+    loadContent: async () => content,
+    saveEntities: async (entities: unknown[]) => { savedEntities.push(...entities); },
+  } as unknown as MemoryRepository;
+  const applied = await applyAiImport({
+    repository: validRepository,
+    preview: stalePreview,
+    selectedKeys: new Set(newExampleEntry ? [newExampleEntry.key] : []),
+  });
+  check('新規Exampleだけは適用できる', applied === 1 && savedEntities.length === 1, { applied, savedEntities });
+
+  const forbiddenDocument = createAiContentExport(content, {
+    exportId: 'export-ai-forbidden-answer',
     baseRevision: maximumContentRevision(content),
     exportedAt: now,
   });
-  dependentDocument.answers.push(newAiAnswer);
-  dependentDocument.exercises = dependentDocument.exercises.map((exercise) => ({
-    ...exercise,
-    acceptedAnswerIds: [...exercise.acceptedAnswerIds, newAiAnswer.id],
-  }));
-  const dependentPreview = previewAiImport(dependentDocument, content);
-  const changedExerciseEntry = dependentPreview.entries.find(
-    (entry) => entry.entityType === 'exercise' && entry.id === 'exercise-ai-existing' && entry.kind === 'changed',
-  );
-  let dependentSaveCalls = 0;
-  const dependentRepository = {
+  forbiddenDocument.answers.push({
+    ...common,
+    id: 'answer-ai-new',
+    senseId: 'sense-ai-revalidation',
+    displayForm: 'allow for A',
+    citationForm: 'allow for A',
+    acceptedVariants: [],
+    orthographicVariants: [],
+    source: 'ai',
+    verificationStatus: 'unverified_ai',
+  });
+  const forbiddenPreview = previewAiImport(forbiddenDocument, content);
+  let forbiddenSaveCalls = 0;
+  const forbiddenRepository = {
     loadContent: async () => content,
-    saveEntities: async () => { dependentSaveCalls += 1; },
+    saveEntities: async () => { forbiddenSaveCalls += 1; },
   } as unknown as MemoryRepository;
-  check('新規Answer参照を含むExercise変更が差分に現れる', !!changedExerciseEntry, dependentPreview);
-  await rejects(
-    '未選択の新規Answerを参照するExercise変更は適用を拒否',
-    () => applyAiImport({
-      repository: dependentRepository,
-      preview: dependentPreview,
-      selectedKeys: new Set(changedExerciseEntry ? [changedExerciseEntry.key] : []),
-    }),
-    /問題が参照するAnswerも選択/,
+  check(
+    '例文以外のAI追加はプレビュー時点で無効になる',
+    forbiddenPreview.counts.invalid > 0
+      && forbiddenPreview.entries.length === 0
+      && forbiddenPreview.issues.some((issue) => issue.code === 'example_only_violation'),
+    forbiddenPreview,
   );
-  check('参照不足の拒否時は保存しない', dependentSaveCalls === 0, dependentSaveCalls);
+  await rejects(
+    '例文以外のAI追加は適用できない',
+    () => applyAiImport({ repository: forbiddenRepository, preview: forbiddenPreview, selectedKeys: new Set() }),
+    /不正データ/,
+  );
+  check('例文以外の拒否時は保存しない', forbiddenSaveCalls === 0, forbiddenSaveCalls);
 }
 
 console.log(failures === 0 ? '\n🎉 ALL PASS (memory application)' : `\n💥 ${failures} FAILURES (memory application)`);

@@ -18,6 +18,7 @@ import {
 import type {
   MemoryAnswer,
   MemoryContentBundle,
+  MemoryExample,
   MemoryItem,
   MemorySense,
   MemorySet,
@@ -164,6 +165,13 @@ const exported = createAiContentExport(current, {
   check('AI用出力に成績・履歴・セッション・ユーザー情報なし', !/(memorystat|attempt|session|user_id|email|clientid)/u.test(serialized), serialized);
   check('AI用出力で既存IDを維持', exported.items[0].id === currentItem.id && exported.answers[0].id === currentAnswer.id, exported);
   check('ChatGPT依頼文に保護ルールを含む', /既存idを変更しない/.test(CHATGPT_CONTENT_REQUEST) && /成績、回答履歴、セッション/.test(CHATGPT_CONTENT_REQUEST), CHATGPT_CONTENT_REQUEST);
+  check(
+    'ChatGPTへ求める補完は例文だけ',
+    /追加してよいのはexamples配列の新規要素だけ/.test(CHATGPT_CONTENT_REQUEST)
+      && /items、senses、answers、exercisesを追加・変更・削除しない/.test(CHATGPT_CONTENT_REQUEST)
+      && !/別の意味|別表現|穴埋め問題|指定英作問題|文脈選択問題/.test(CHATGPT_CONTENT_REQUEST),
+    CHATGPT_CONTENT_REQUEST,
+  );
 }
 
 console.log('--- Memory AI import: validation and isolation ---');
@@ -180,9 +188,21 @@ const newAnswer: MemoryAnswer = {
   updatedAt: now,
   revision: 1,
 };
+const newExample: MemoryExample = {
+  id: 'example-ai-new',
+  senseId: currentSense.id,
+  answerId: currentAnswer.id,
+  english: 'We must take the cost into account.',
+  japanese: '私たちは費用を考慮に入れなければならない。',
+  source: 'ai',
+  verificationStatus: 'unverified_ai',
+  createdAt: now,
+  updatedAt: now,
+  revision: 1,
+};
 const validDocument: AiContentDocument = {
   ...clone(exported),
-  answers: [...clone(exported.answers), newAnswer],
+  examples: [...clone(exported.examples), newExample],
 };
 {
   const valid = validateAiContentJson(JSON.stringify(validDocument), {
@@ -190,7 +210,7 @@ const validDocument: AiContentDocument = {
     currentBaseRevision: 3,
   });
   check('正しいAI追加JSONを受理', valid.valid && !!valid.document && valid.issues.length === 0, valid);
-  check('AI追加は未確認メタデータのまま隔離', valid.document?.answers.at(-1)?.source === 'ai' && valid.document.answers.at(-1)?.verificationStatus === 'unverified_ai', valid.document?.answers.at(-1));
+  check('AI追加は未確認メタデータのまま隔離', valid.document?.examples.at(-1)?.source === 'ai' && valid.document.examples.at(-1)?.verificationStatus === 'unverified_ai', valid.document?.examples.at(-1));
 
   const stale = validateAiContentJson(validDocument, { currentContent: current, currentBaseRevision: 4 });
   check(
@@ -200,10 +220,20 @@ const validDocument: AiContentDocument = {
   );
 
   const badMetadata = clone(validDocument);
-  badMetadata.answers.at(-1)!.source = 'user';
-  badMetadata.answers.at(-1)!.verificationStatus = 'verified';
+  badMetadata.examples.at(-1)!.source = 'user';
+  badMetadata.examples.at(-1)!.verificationStatus = 'verified';
   const metadataResult = validateAiContentJson(badMetadata, { currentContent: current });
   check('AI新規データのverified/user偽装を拒否', !metadataResult.valid && metadataResult.issues.some((entry) => entry.code === 'new_ai_metadata'), metadataResult);
+
+  const addedAnswer = clone(exported);
+  addedAnswer.answers.push(newAnswer);
+  const addedAnswerResult = validateAiContentJson(addedAnswer, { currentContent: current });
+  check('AIが例文以外を追加した場合は拒否', !addedAnswerResult.valid && addedAnswerResult.issues.some((entry) => entry.code === 'example_only_violation'), addedAnswerResult);
+
+  const changedExistingExample = clone(validDocument);
+  changedExistingExample.items[0].label = 'changed by AI';
+  const changedExistingResult = validateAiContentJson(changedExistingExample, { currentContent: current });
+  check('AIが既存内容を変更した場合は拒否', !changedExistingResult.valid && changedExistingResult.issues.some((entry) => entry.code === 'example_only_violation'), changedExistingResult);
 
   const protectedChange = clone(validDocument);
   protectedChange.items[0].revision += 1;
@@ -232,7 +262,7 @@ const validDocument: AiContentDocument = {
   check('AIによる統計・userId追加を拒否', !forbiddenResult.valid && forbiddenResult.issues.some((entry) => entry.code === 'forbidden_field'), forbiddenResult);
 
   const missingParent = clone(validDocument);
-  missingParent.answers.at(-1)!.senseId = 'sense-missing';
+  missingParent.examples.at(-1)!.senseId = 'sense-missing';
   const missingParentResult = validateAiContentJson(missingParent, { currentContent: current });
   check('存在しない親IDを拒否', !missingParentResult.valid && missingParentResult.issues.some((entry) => entry.code === 'missing_parent'), missingParentResult);
 
@@ -242,17 +272,17 @@ const validDocument: AiContentDocument = {
   check('重複IDを拒否', !duplicateResult.valid && duplicateResult.issues.some((entry) => entry.code === 'duplicate_id'), duplicateResult);
 
   const dangerous = clone(validDocument);
-  dangerous.answers.at(-1)!.note = '<img src=x onerror=alert(1)>';
+  dangerous.examples.at(-1)!.note = '<img src=x onerror=alert(1)>';
   const dangerousResult = validateAiContentJson(dangerous, { currentContent: current });
   check('script/event handler/iframe/javascript URLを危険文字列として拒否', !dangerousResult.valid && dangerousResult.issues.some((entry) => entry.code === 'dangerous_text'), dangerousResult);
 
   const external = clone(validDocument);
-  external.answers.at(-1)!.note = 'https://attacker.example/collect';
+  external.examples.at(-1)!.note = 'https://attacker.example/collect';
   const externalResult = validateAiContentJson(external, { currentContent: current });
   check('不正な外部URLを拒否', !externalResult.valid && externalResult.issues.some((entry) => entry.code === 'external_url'), externalResult);
 
   const tooLong = clone(validDocument);
-  tooLong.answers.at(-1)!.note = 'x'.repeat(101);
+  tooLong.examples.at(-1)!.note = 'x'.repeat(101);
   const tooLongResult = validateAiContentJson(tooLong, { currentContent: current, maxStringLength: 100 });
   check('極端に長い文字列を拒否', !tooLongResult.valid && tooLongResult.issues.some((entry) => entry.code === 'string_too_long'), tooLongResult);
 
