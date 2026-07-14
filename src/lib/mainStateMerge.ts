@@ -141,7 +141,7 @@ function chooseEntity(input: {
   if (localPresent !== remotePresent) {
     return { source: 'same', conflict: { section, key, reason: 'deleteVsEdit' } };
   }
-  return { source: 'same', conflict: { section, key, reason: 'bothChanged' };
+  return { source: 'same', conflict: { section, key, reason: 'bothChanged' } };
 }
 
 export function mergeMainStates(
