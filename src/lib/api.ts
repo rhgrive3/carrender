@@ -10,8 +10,13 @@ import type {
   AppStateSectionName,
 } from './appStateChunks';
 import { isAppStateShape, migrateState } from './storage';
-import { getCurrentMainSyncMetadata, markMainSyncClean } from './mainSync';
+import {
+  getCurrentMainSyncMetadata,
+  markMainSyncClean,
+  saveMainSyncConflictBackup,
+} from './mainSync';
 import { mergeMainStates } from './mainStateMerge';
+import { ensureMainStateWriterLease } from './mainStateWriterLease';
 
 export const MAIN_STATE_AUTO_MERGED_EVENT = 'studycommander-main-state-auto-merged';
 
@@ -270,6 +275,11 @@ export async function apiPutData(
 ): Promise<{ ok: boolean; updatedAt: string }> {
   const localState = appState as AppState;
   const metadata = getCurrentMainSyncMetadata();
+  if (metadata && !ensureMainStateWriterLease(metadata.owner)) {
+    throw apiError('別の画面がクラウド保存を担当しています。変更は端末に保持され、担当交代後に同期されます', {
+      code: 'SECONDARY_TAB_READ_ONLY',
+    });
+  }
   try {
     const saved = await putDataOnce(localState, expectedUpdatedAt, options);
     if (metadata) markMainSyncClean(metadata.owner, saved.updatedAt, new Date().toISOString(), localState);
@@ -284,6 +294,14 @@ export async function apiPutData(
     const merge = mergeMainStates(metadata.baseEntityHashes, localState, remoteState);
     if (!merge.merged) throw caught;
 
+    saveMainSyncConflictBackup({
+      owner: metadata.owner,
+      createdAt: new Date().toISOString(),
+      localBaseUpdatedAt: metadata.baseUpdatedAt,
+      remoteUpdatedAt: latest.updatedAt,
+      localState,
+      remoteState,
+    });
     const saved = await putDataOnce(merge.merged, latest.updatedAt, options);
     markMainSyncClean(metadata.owner, saved.updatedAt, new Date().toISOString(), merge.merged);
     announceAutoMerge(merge.merged);
