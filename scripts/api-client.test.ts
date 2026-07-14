@@ -26,6 +26,23 @@ function abortablePendingFetch(): typeof fetch {
   })) as typeof fetch;
 }
 
+/** Headers arrive, but reading the JSON body never finishes until aborted. */
+function pendingBodyFetch(): typeof fetch {
+  return (async (_: RequestInfo | URL, init?: RequestInit) => ({
+    ok: true,
+    status: 200,
+    json: () => new Promise<unknown>((_resolve, reject) => {
+      const rejectAbort = () => {
+        const error = new Error('aborted body');
+        error.name = 'AbortError';
+        reject(error);
+      };
+      if (init?.signal?.aborted) rejectAbort();
+      else init?.signal?.addEventListener('abort', rejectAbort, { once: true });
+    }),
+  } as Response)) as typeof fetch;
+}
+
 console.log('--- API client: successful response ---');
 globalThis.fetch = (async () => new Response(JSON.stringify({ appState: null, updatedAt: null }), {
   status: 200,
@@ -50,6 +67,16 @@ check('応答しないfetchを設定時間で中断する', timeoutError?.isTime
 });
 check('タイムアウトをオフライン扱いにしない', timeoutError?.isNetworkError !== true, timeoutError);
 check('端末データを利用できる旨を案内する', timeoutError?.message.includes('端末内のデータ') === true, timeoutError?.message);
+
+console.log('--- API client: stalled response body ---');
+globalThis.fetch = pendingBodyFetch();
+let bodyTimeoutError: ApiError | null = null;
+try {
+  await apiGetData({ timeoutMs: 15 });
+} catch (caught) {
+  bodyTimeoutError = caught as ApiError;
+}
+check('ヘッダー受信後に本文が停止してもタイムアウトする', bodyTimeoutError?.isTimeout === true, bodyTimeoutError);
 
 console.log('--- API client: caller cancellation ---');
 globalThis.fetch = abortablePendingFetch();
