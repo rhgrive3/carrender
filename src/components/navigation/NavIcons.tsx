@@ -1,5 +1,5 @@
 /** 下部ナビ用アイコン(lucide)。currentColorでアクティブ色に追従し、選択中はストロークを太くする */
-import { Home, CalendarDays, BookOpen, History, ChartColumn, ListRestart } from 'lucide-react';
+import { Home, CalendarDays, BookOpen, History, ChartColumn } from 'lucide-react';
 
 const navProps = (active: boolean) =>
   ({
@@ -26,8 +26,4 @@ export function IconTimer({ active }: { active: boolean }) {
 
 export function IconChart({ active }: { active: boolean }) {
   return <ChartColumn {...navProps(active)} />;
-}
-
-export function IconHistory({ active }: { active: boolean }) {
-  return <ListRestart {...navProps(active)} />;
 }
