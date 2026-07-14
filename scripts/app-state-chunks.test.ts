@@ -1,5 +1,6 @@
 /** Regression tests for the main AppState chunk codec. */
 /// <reference types="node" />
+import { isDeepStrictEqual } from 'node:util';
 import type { AppState, StudySession } from '../src/types';
 import { emptyState } from '../src/state/AppContext';
 import {
@@ -61,7 +62,7 @@ small.sessions = [session(1, '復習')];
 const encodedSmall = await encodeAppStateChunks(small, 1024);
 const restoredSmall = await decodeAppStateChunks(encodedSmall.manifest, encodedSmall.chunks);
 check('manifestを厳密検証できる', validateAppStateChunkManifest(encodedSmall.manifest), encodedSmall.manifest);
-check('全sectionを欠落なく往復する', JSON.stringify(restoredSmall) === JSON.stringify(small), restoredSmall);
+check('全sectionを欠落なく往復する', isDeepStrictEqual(restoredSmall, small), restoredSmall);
 check('空sectionは0 chunkとして表現する', encodedSmall.manifest.sections.find((entry) => entry.name === 'tasks')?.chunkCount === 0, encodedSmall.manifest);
 check('全chunkが指定上限以下', encodedSmall.chunks.every((chunk) => chunk.byteLength <= 1024 && utf8Length(chunk.json) === chunk.byteLength), encodedSmall.chunks);
 
