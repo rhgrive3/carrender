@@ -17,6 +17,7 @@ import { TimerOverlay } from './components/timer/TimerOverlay';
 import { PlanHistoryLauncher } from './components/PlanHistoryLauncher';
 import { MainStateMergeBridge } from './components/MainStateMergeBridge';
 import { MainStateWriterLeaseBridge } from './components/MainStateWriterLeaseBridge';
+import { SchemaCompatibilityGate } from './components/SchemaCompatibilityGate';
 
 import { Target } from 'lucide-react';
 import { IconHome, IconPlan, IconBook, IconTimer, IconChart } from './components/navigation/NavIcons';
@@ -206,11 +207,13 @@ export default function App() {
   }
 
   return (
-    <AuthProvider>
-      <InstallBanner />
-      <AuthGate>
-        <AuthenticatedApp />
-      </AuthGate>
-    </AuthProvider>
+    <SchemaCompatibilityGate>
+      <AuthProvider>
+        <InstallBanner />
+        <AuthGate>
+          <AuthenticatedApp />
+        </AuthGate>
+      </AuthProvider>
+    </SchemaCompatibilityGate>
   );
 }
