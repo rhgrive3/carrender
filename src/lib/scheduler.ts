@@ -12,6 +12,8 @@ import { addDays, APP_TIME_ZONE, diffDays, formatMinutes, hmToMinutes, minutesIn
 import { isPlacedPlanTask } from './taskFilters';
 import { dateInTimeZone, mergeMinuteRanges, subtractMinuteRanges } from './schedulerV2';
 import { generatePlanV2 } from './schedulerRecovery';
+import { applyOneYearHistoryRetention } from './historyRetention';
+import { appendPlanRevision, capturePlanRevision } from './planHistory';
 export {
   normalizeUnitRanges,
   remainingUnitRanges,
@@ -162,15 +164,17 @@ function captureMissedPlanHistory(state: AppState, todayDate: ISODate, capturedA
  * ここでは履歴の保持と従来の再計算サマリーだけを組み立てる。
  */
 export function generatePlan(
-  state: AppState,
+  inputState: AppState,
   fromDate: ISODate,
   reason: string,
   options: GeneratePlanOptions = {},
 ): { state: AppState; result: RescheduleResult } {
   const now = options.now ?? new Date();
-  const generationId = options.generationId ?? `plan-${fromDate}`;
+  const generationId = options.generationId ?? `plan-${fromDate}-${now.getTime()}`;
   const timezone = options.timezone ?? APP_TIME_ZONE;
   const todayDate = dateInTimeZone(now, timezone);
+  const state = applyOneYearHistoryRetention(inputState, todayDate);
+  const revisionBase = state;
   const planHistory = captureMissedPlanHistory(state, todayDate, new Date(now).toISOString());
   const protectedTasks = new Map(
     state.tasks
@@ -274,18 +278,24 @@ export function generatePlan(
     && Boolean(task.manualScheduling));
   const merged = [...history, ...schedule.scheduledTasks, ...conflicts, ...unscheduledTasks, ...futureManuals];
   const unique = [...new Map(merged.map((task) => [task.id, task])).values()];
-  return {
-    state: {
-      ...state,
-      tasks: unique,
-      planHistory,
-      lastScheduleResult: schedule,
-      lastPlanReason: reason,
-      lastReschedule: result,
-      lastPlannedDate: todayDate,
-    },
-    result,
+  const nextState: AppState = {
+    ...state,
+    tasks: unique,
+    planHistory,
+    lastScheduleResult: schedule,
+    lastPlanReason: reason,
+    lastReschedule: result,
+    lastPlannedDate: todayDate,
   };
+  const revision = capturePlanRevision({
+    before: revisionBase,
+    after: nextState,
+    generationId,
+    reason,
+    fromDate,
+    createdAt: schedule.generatedAt,
+  });
+  return { state: appendPlanRevision(nextState, revision, now), result };
 }
 
 /** 直近14日間の科目別 予定達成率 */
