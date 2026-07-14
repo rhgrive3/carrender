@@ -12,6 +12,7 @@ import type {
 
 export interface ApiError extends Error {
   status?: number;
+  code?: string;
   isNetworkError?: boolean;
   isTimeout?: boolean;
   isAborted?: boolean;
@@ -97,11 +98,14 @@ async function request<T>(path: string, init: RequestInit = {}, options: ApiRequ
   cleanup();
 
   if (!res.ok) {
-    const message =
-      data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string'
-        ? (data as { error: string }).error
-        : `リクエストに失敗しました (${res.status})`;
-    throw apiError(message, { status: res.status });
+    const record = data && typeof data === 'object' ? data as { error?: unknown; code?: unknown } : null;
+    const message = typeof record?.error === 'string'
+      ? record.error
+      : `リクエストに失敗しました (${res.status})`;
+    throw apiError(message, {
+      status: res.status,
+      ...(typeof record?.code === 'string' ? { code: record.code } : {}),
+    });
   }
 
   return data as T;
@@ -203,7 +207,7 @@ function legacyPutData(
 }
 
 function canFallbackToLegacy(error: ApiError): boolean {
-  return error.status === 404 || error.status === 503;
+  return error.status === 404 || (error.status === 503 && error.code === 'MAIN_STATE_SCHEMA_MISSING');
 }
 
 export async function apiGetData(options: ApiRequestOptions = {}): Promise<GetDataResponse> {
@@ -226,6 +230,7 @@ export async function apiGetData(options: ApiRequestOptions = {}): Promise<GetDa
     throw apiError('クラウド予定データのmanifestが正しくありません');
   }
 
+  const generationId = response.generationId;
   const descriptors = response.manifest.sections.flatMap((section) =>
     Array.from({ length: section.chunkCount }, (_, index) => ({ section: section.name, index })),
   );
@@ -238,7 +243,7 @@ export async function apiGetData(options: ApiRequestOptions = {}): Promise<GetDa
       hash: string;
     }>('/api/data/v2', {
       method: 'POST',
-      body: JSON.stringify({ action: 'getChunk', generationId: response.generationId, section, index }),
+      body: JSON.stringify({ action: 'getChunk', generationId, section, index }),
     }, options);
     return chunk;
   });
