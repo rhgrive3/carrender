@@ -13,6 +13,7 @@ function check(name: string, condition: boolean, detail?: unknown): void {
 
 const originalFetch = globalThis.fetch;
 
+/** A fetch double that only settles when the supplied AbortSignal fires. */
 function abortablePendingFetch(): typeof fetch {
   return ((_: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
     const rejectAbort = () => {
