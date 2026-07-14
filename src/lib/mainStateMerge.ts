@@ -55,18 +55,22 @@ function settingsCore(settings: AppSettings): AppSettings {
   return core as AppSettings;
 }
 
+function keyed<T>(values: T[], key: (value: T) => string): [string, unknown][] {
+  return values.map((value): [string, unknown] => [key(value), value]);
+}
+
 function sectionEntries(state: AppState): Record<MainStateEntitySection, [string, unknown][]> {
   return {
     goal: [['value', state.goal]],
     settings: [['value', settingsCore(state.settings)]],
-    subjects: state.subjects.map((item) => [item.id, item]),
-    materials: state.materials.map((item) => [item.id, item]),
-    tasks: state.tasks.map((item) => [item.id, item]),
-    sessions: state.sessions.map((item) => [item.id, item]),
-    planHistory: (state.planHistory ?? []).map((item) => [item.id, item]),
-    availability: state.availability.map((item) => [String(item.weekday), item]),
-    dayPlans: state.dayPlans.map((item) => [item.date, item]),
-    fixedEvents: state.fixedEvents.map((item) => [item.id, item]),
+    subjects: keyed(state.subjects, (item) => item.id),
+    materials: keyed(state.materials, (item) => item.id),
+    tasks: keyed(state.tasks, (item) => item.id),
+    sessions: keyed(state.sessions, (item) => item.id),
+    planHistory: keyed(state.planHistory ?? [], (item) => item.id),
+    availability: keyed(state.availability, (item) => String(item.weekday)),
+    dayPlans: keyed(state.dayPlans, (item) => item.date),
+    fixedEvents: keyed(state.fixedEvents, (item) => item.id),
   };
 }
 
@@ -83,7 +87,7 @@ function mapOf(entries: [string, unknown][]): Map<string, unknown> {
   return new Map(entries);
 }
 
-function mergeHistoryData(local: AppSettings, remote: AppSettings): AppSettings['historyData'] {
+function mergeHistoryData(local: AppSettings, remote: AppSettings): NonNullable<AppSettings['historyData']> {
   const localData = local.historyData ?? { planRevisions: [], monthlySummaries: [] };
   const remoteData = remote.historyData ?? { planRevisions: [], monthlySummaries: [] };
   const revisions = [...new Map([...localData.planRevisions, ...remoteData.planRevisions].map((item) => [item.id, item])).values()]
@@ -107,10 +111,15 @@ function mergeHistoryData(local: AppSettings, remote: AppSettings): AppSettings[
       completedTaskCount: Math.max(current.completedTaskCount, summary.completedTaskCount),
       plannedMinutes: Math.max(current.plannedMinutes, summary.plannedMinutes),
       missedMinutes: Math.max(current.missedMinutes, summary.missedMinutes),
-      subjectMinutes: [...subjectMinutes.entries()].map(([subjectId, minutes]) => ({ subjectId, minutes })).sort((a, b) => a.subjectId.localeCompare(b.subjectId)),
+      subjectMinutes: [...subjectMinutes.entries()]
+        .map(([subjectId, minutes]) => ({ subjectId, minutes }))
+        .sort((a, b) => a.subjectId.localeCompare(b.subjectId)),
     });
   }
-  return { planRevisions: revisions, monthlySummaries: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)) };
+  return {
+    planRevisions: revisions,
+    monthlySummaries: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)),
+  };
 }
 
 function chooseEntity(input: {
