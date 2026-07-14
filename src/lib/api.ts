@@ -9,6 +9,11 @@ import type {
   AppStateChunkManifest,
   AppStateSectionName,
 } from './appStateChunks';
+import { isAppStateShape, migrateState } from './storage';
+import { getCurrentMainSyncMetadata, markMainSyncClean } from './mainSync';
+import { mergeMainStates } from './mainStateMerge';
+
+export const MAIN_STATE_AUTO_MERGED_EVENT = 'studycommander-main-state-auto-merged';
 
 export interface ApiError extends Error {
   status?: number;
@@ -206,12 +211,23 @@ export async function apiGetData(options: ApiRequestOptions = {}): Promise<GetDa
   return { appState: await decodeAppStateChunks(response.manifest, chunks), updatedAt: response.updatedAt ?? null };
 }
 
-export async function apiPutData(
-  appState: unknown,
-  expectedUpdatedAt?: string | null,
-  options: ApiRequestOptions = {},
+function normalizeMergeState(value: unknown): AppState | null {
+  if (!isAppStateShape(value)) return null;
+  const migration = migrateState(value);
+  return migration.ok ? migration.state : null;
+}
+
+function announceAutoMerge(state: AppState): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(MAIN_STATE_AUTO_MERGED_EVENT, { detail: { state } }));
+}
+
+async function putDataOnce(
+  appState: AppState,
+  expectedUpdatedAt: string | null | undefined,
+  options: ApiRequestOptions,
 ): Promise<{ ok: boolean; updatedAt: string }> {
-  const encoded = await encodeAppStateChunks(appState as AppState);
+  const encoded = await encodeAppStateChunks(appState);
   const mutationId = typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `mutation_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -245,4 +261,32 @@ export async function apiPutData(
     body: JSON.stringify({ action: 'commit', generationId: begin.generationId }),
   }, options);
   return { ok: committed.ok, updatedAt: committed.updatedAt };
+}
+
+export async function apiPutData(
+  appState: unknown,
+  expectedUpdatedAt?: string | null,
+  options: ApiRequestOptions = {},
+): Promise<{ ok: boolean; updatedAt: string }> {
+  const localState = appState as AppState;
+  const metadata = getCurrentMainSyncMetadata();
+  try {
+    const saved = await putDataOnce(localState, expectedUpdatedAt, options);
+    if (metadata) markMainSyncClean(metadata.owner, saved.updatedAt, new Date().toISOString(), localState);
+    return saved;
+  } catch (caught) {
+    const error = caught as ApiError;
+    if (error.status !== 409 || !metadata?.baseEntityHashes || options.signal?.aborted) throw caught;
+
+    const latest = await apiGetData(options);
+    const remoteState = normalizeMergeState(latest.appState);
+    if (!remoteState || !latest.updatedAt) throw caught;
+    const merge = mergeMainStates(metadata.baseEntityHashes, localState, remoteState);
+    if (!merge.merged) throw caught;
+
+    const saved = await putDataOnce(merge.merged, latest.updatedAt, options);
+    markMainSyncClean(metadata.owner, saved.updatedAt, new Date().toISOString(), merge.merged);
+    announceAutoMerge(merge.merged);
+    return saved;
+  }
 }
