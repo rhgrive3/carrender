@@ -52,7 +52,11 @@ export async function checkSchemaCompatibility(
     const body = normalizeResponse(await response.json().catch(() => null));
     if (!body) return { status: 'unavailable', error: `schema check returned ${response.status}` };
     if (response.ok && body.compatible) return { status: 'compatible', response: body };
-    if (body.code === 'D1_SCHEMA_OUTDATED' || !body.compatible) {
+
+    // Startup must only be blocked when the server positively identifies an
+    // outdated schema. Transient D1/query failures use D1_SCHEMA_CHECK_FAILED
+    // and must fall back to the existing offline-capable PWA path.
+    if (body.code === 'D1_SCHEMA_OUTDATED') {
       return { status: 'incompatible', response: body };
     }
     return { status: 'unavailable', error: body.error ?? `schema check returned ${response.status}` };
