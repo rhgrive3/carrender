@@ -1,4 +1,5 @@
 import type { AppState } from '../types';
+import { snapshotMainStateEntityHashes, type MainStateEntityHashSnapshot } from './mainStateMerge';
 
 const META_KEY = 'studycommander_main_sync_meta_v1';
 const CONFLICT_BACKUP_KEY = 'studycommander_main_sync_conflict_backup_v1';
@@ -9,6 +10,8 @@ export interface MainSyncMetadata {
   /** Remote version the current local edits were based on. */
   baseUpdatedAt: string | null;
   localChangedAt: string;
+  /** Hashes of the last clean generation, used as an entity-level merge base. */
+  baseEntityHashes?: MainStateEntityHashSnapshot;
 }
 
 export interface MainSyncConflictBackup {
@@ -51,13 +54,14 @@ export function getMainSyncMetadata(owner: string): MainSyncMetadata | null {
   if (!value || value.owner !== owner || typeof value.dirty !== 'boolean') return null;
   if (value.baseUpdatedAt !== null && typeof value.baseUpdatedAt !== 'string') return null;
   if (typeof value.localChangedAt !== 'string') return null;
+  if (value.baseEntityHashes !== undefined && (!value.baseEntityHashes || typeof value.baseEntityHashes !== 'object')) return null;
   return value as MainSyncMetadata;
 }
 
 /**
  * Marks the local snapshot as unsynced. Once dirty, the original base version
- * is preserved until a successful sync; otherwise later edits could hide a
- * genuine remote conflict.
+ * and entity hashes are preserved until a successful sync; otherwise later
+ * edits or deletions could hide a genuine remote conflict.
  */
 export function markMainSyncDirty(
   owner: string,
@@ -69,6 +73,7 @@ export function markMainSyncDirty(
     owner,
     dirty: true,
     baseUpdatedAt: current?.dirty ? current.baseUpdatedAt : baseUpdatedAt,
+    baseEntityHashes: current?.baseEntityHashes,
     localChangedAt: now,
   };
   writeJSON(META_KEY, next);
@@ -79,11 +84,13 @@ export function markMainSyncClean(
   owner: string,
   remoteUpdatedAt: string | null,
   now = new Date().toISOString(),
+  cleanState?: AppState,
 ): MainSyncMetadata {
   const next: MainSyncMetadata = {
     owner,
     dirty: false,
     baseUpdatedAt: remoteUpdatedAt,
+    baseEntityHashes: cleanState ? snapshotMainStateEntityHashes(cleanState) : getMainSyncMetadata(owner)?.baseEntityHashes,
     localChangedAt: now,
   };
   writeJSON(META_KEY, next);
