@@ -14,6 +14,7 @@ import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsSheet } from './screens/SettingsSheet';
 import { LoginScreen } from './screens/LoginScreen';
 import { TimerOverlay } from './components/timer/TimerOverlay';
+import { PlanHistoryLauncher } from './components/PlanHistoryLauncher';
 
 import { Target } from 'lucide-react';
 import { IconHome, IconPlan, IconBook, IconTimer, IconChart } from './components/navigation/NavIcons';
@@ -141,6 +142,7 @@ function Shell() {
         ))}
       </nav>}
 
+      {!immersive && <PlanHistoryLauncher />}
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TimerOverlay />
     </div>
