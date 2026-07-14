@@ -2,6 +2,7 @@ const LEASE_PREFIX = 'studycommander_main_writer_lease_v1:';
 export const MAIN_STATE_WRITER_LEASE_CHANGED_EVENT = 'studycommander-main-writer-lease-changed';
 export const MAIN_STATE_WRITER_LEASE_MS = 15_000;
 export const MAIN_STATE_WRITER_HEARTBEAT_MS = 5_000;
+const MAIN_STATE_WRITER_CLOCK_SKEW_TOLERANCE_MS = MAIN_STATE_WRITER_HEARTBEAT_MS;
 
 export interface MainStateWriterLease {
   owner: string;
@@ -31,8 +32,12 @@ function storage(): StorageLike | null {
   }
 }
 
+function normalizeOwner(owner: string): string {
+  return owner.normalize('NFKC');
+}
+
 function keyFor(owner: string): string {
-  return `${LEASE_PREFIX}${owner.normalize('NFKC')}`;
+  return `${LEASE_PREFIX}${normalizeOwner(owner)}`;
 }
 
 export function parseMainStateWriterLease(raw: string | null): MainStateWriterLease | null {
@@ -40,13 +45,28 @@ export function parseMainStateWriterLease(raw: string | null): MainStateWriterLe
   try {
     const value = JSON.parse(raw) as Partial<MainStateWriterLease>;
     if (typeof value.owner !== 'string'
+      || !value.owner.trim()
       || typeof value.holderId !== 'string'
+      || !value.holderId.trim()
       || !Number.isFinite(value.acquiredAt)
-      || !Number.isFinite(value.expiresAt)) return null;
+      || !Number.isFinite(value.expiresAt)
+      || (value.acquiredAt ?? 0) < 0
+      || (value.expiresAt ?? 0) <= (value.acquiredAt ?? 0)) return null;
     return value as MainStateWriterLease;
   } catch {
     return null;
   }
+}
+
+function isPlausibleActiveLease(current: MainStateWriterLease, owner: string, now: number): boolean {
+  if (normalizeOwner(current.owner) !== normalizeOwner(owner)) return false;
+  if (current.expiresAt <= now) return false;
+
+  // localStorage survives reloads and system clock changes. A lease written far in the
+  // future must not block all later writers indefinitely after a clock rollback or
+  // corrupted manual value. Valid leases are always renewed to now + LEASE_MS.
+  return current.acquiredAt <= now + MAIN_STATE_WRITER_CLOCK_SKEW_TOLERANCE_MS
+    && current.expiresAt <= now + MAIN_STATE_WRITER_LEASE_MS + MAIN_STATE_WRITER_CLOCK_SKEW_TOLERANCE_MS;
 }
 
 export function mayAcquireMainStateWriterLease(
@@ -56,9 +76,8 @@ export function mayAcquireMainStateWriterLease(
   now: number,
 ): boolean {
   return !current
-    || current.owner !== owner
-    || current.holderId === candidateHolderId
-    || current.expiresAt <= now;
+    || !isPlausibleActiveLease(current, owner, now)
+    || current.holderId === candidateHolderId;
 }
 
 function notify(owner: string, active: boolean): void {
@@ -91,13 +110,16 @@ export function ensureMainStateWriterLease(
   const next: MainStateWriterLease = {
     owner,
     holderId: candidateHolderId,
-    acquiredAt: current?.holderId === candidateHolderId ? current.acquiredAt : now,
+    acquiredAt: current?.holderId === candidateHolderId && isPlausibleActiveLease(current, owner, now)
+      ? current.acquiredAt
+      : now,
     expiresAt: now + MAIN_STATE_WRITER_LEASE_MS,
   };
   try {
     store.setItem(keyFor(owner), JSON.stringify(next));
     const verified = readMainStateWriterLease(owner, store);
-    const active = verified?.holderId === candidateHolderId && (verified?.expiresAt ?? 0) > now;
+    const active = verified?.holderId === candidateHolderId
+      && isPlausibleActiveLease(verified, owner, now);
     if (candidateHolderId === holderId) notify(owner, active);
     return active;
   } catch {
@@ -113,7 +135,9 @@ export function hasMainStateWriterLease(
 ): boolean {
   if (!store) return true;
   const lease = readMainStateWriterLease(owner, store);
-  return lease?.holderId === candidateHolderId && lease.expiresAt > now;
+  return Boolean(lease
+    && lease.holderId === candidateHolderId
+    && isPlausibleActiveLease(lease, owner, now));
 }
 
 export function releaseMainStateWriterLease(
