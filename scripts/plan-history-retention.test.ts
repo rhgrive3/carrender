@@ -67,7 +67,7 @@ function baseState(): AppState {
 
   const current = {
     ...after,
-    planRevisions: [revision],
+    settings: { ...after.settings, historyData: { planRevisions: [revision], monthlySummaries: [] } },
     tasks: [{ ...after.tasks[0], scheduledDate: '2026-07-20', scheduledStart: '15:00', scheduledEnd: '16:00' }],
   };
   const restored = restorePlanRevisionLayout(current, revision.id);
@@ -87,7 +87,11 @@ function baseState(): AppState {
     fromDate: '2026-07-14',
     createdAt: '2026-07-14T12:00:00.000Z',
   });
-  const doneCurrent = { ...after, planRevisions: [revision], tasks: [task('a', '2026-07-20', 'done')] };
+  const doneCurrent = {
+    ...after,
+    settings: { ...after.settings, historyData: { planRevisions: [revision], monthlySummaries: [] } },
+    tasks: [task('a', '2026-07-20', 'done')],
+  };
   const restored = restorePlanRevisionLayout(doneCurrent, revision.id);
   assert.equal(restored.restoredTaskCount, 0, '完了済みタスクは過去配置へ戻さない');
   assert.equal(restored.state.tasks[0].scheduledDate, '2026-07-20');
@@ -114,12 +118,13 @@ function baseState(): AppState {
   assert.deepEqual(retained.sessions.map((session) => session.id), ['recent-session']);
   assert.deepEqual(retained.tasks.map((item) => item.id), ['old-active'], '未完了タスクは1年を超えても保持する');
   assert.equal(retained.planHistory?.length, 0);
-  assert.equal(retained.historySummaries?.[0]?.studyMinutes, 90);
-  assert.equal(retained.historySummaries?.[0]?.completedTaskCount, 1);
-  assert.equal(retained.historySummaries?.[0]?.missedMinutes, 30);
+  const summary = retained.settings.historyData?.monthlySummaries[0];
+  assert.equal(summary?.studyMinutes, 90);
+  assert.equal(summary?.completedTaskCount, 1);
+  assert.equal(summary?.missedMinutes, 30);
 
   const secondPass = applyOneYearHistoryRetention(retained, '2026-07-14');
-  assert.deepEqual(secondPass.historySummaries, retained.historySummaries, '再適用で月次集計を二重加算しない');
+  assert.deepEqual(secondPass.settings.historyData, retained.settings.historyData, '再適用で月次集計を二重加算しない');
 }
 
 console.log('✅ plan history and one-year retention regressions passed');
