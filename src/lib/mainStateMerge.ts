@@ -3,6 +3,7 @@ import type { AppSettings, AppState } from '../types';
 export type MainStateEntitySection =
   | 'goal'
   | 'settings'
+  | 'scheduleState'
   | 'subjects'
   | 'materials'
   | 'tasks'
@@ -56,10 +57,20 @@ function settingsCore(settings: AppSettings): AppSettings {
   return core as AppSettings;
 }
 
+function scheduleState(state: AppState) {
+  return {
+    lastReschedule: state.lastReschedule,
+    lastPlannedDate: state.lastPlannedDate,
+    lastScheduleResult: state.lastScheduleResult,
+    lastPlanReason: state.lastPlanReason,
+  };
+}
+
 function sectionEntries(state: AppState): Record<MainStateEntitySection, [string, unknown][]> {
   return {
     goal: [['value', state.goal]],
     settings: [['value', settingsCore(state.settings)]],
+    scheduleState: [['value', scheduleState(state)]],
     subjects: state.subjects.map((item) => [item.id, item]),
     materials: state.materials.map((item) => [item.id, item]),
     tasks: state.tasks.map((item) => [item.id, item]),
@@ -177,6 +188,7 @@ export function mergeMainStates(
 
   const goal = (output.get('goal')?.get('value') ?? null) as AppState['goal'];
   const settingsCoreValue = output.get('settings')?.get('value') as AppSettings;
+  const mergedScheduleState = output.get('scheduleState')?.get('value') as ReturnType<typeof scheduleState>;
   const values = <T>(section: MainStateEntitySection): T[] => [...(output.get(section)?.values() ?? [])] as T[];
   const monthlySummaries = values<NonNullable<AppSettings['historyData']>['monthlySummaries'][number]>('monthlySummaries')
     .sort((left, right) => left.month.localeCompare(right.month));
@@ -187,9 +199,6 @@ export function mergeMainStates(
       monthlySummaries,
     },
   };
-  const plannedDates = [local.lastPlannedDate, remote.lastPlannedDate]
-    .filter((date): date is string => Boolean(date))
-    .sort();
 
   const merged: AppState = {
     ...remote,
@@ -207,12 +216,7 @@ export function mergeMainStates(
     availability: values<AppState['availability'][number]>('availability').sort((a, b) => a.weekday - b.weekday),
     dayPlans: values<AppState['dayPlans'][number]>('dayPlans').sort((a, b) => a.date.localeCompare(b.date)),
     fixedEvents: values<AppState['fixedEvents'][number]>('fixedEvents'),
-    lastReschedule: local.lastReschedule?.at && remote.lastReschedule?.at
-      ? (local.lastReschedule.at >= remote.lastReschedule.at ? local.lastReschedule : remote.lastReschedule)
-      : local.lastReschedule ?? remote.lastReschedule,
-    lastPlannedDate: plannedDates.length > 0 ? plannedDates[plannedDates.length - 1] : null,
-    lastScheduleResult: local.lastScheduleResult ?? remote.lastScheduleResult,
-    lastPlanReason: '端末版とクラウド版の非競合変更を自動統合',
+    ...mergedScheduleState,
   };
   return { merged, conflicts: [], appliedLocalKeys, appliedRemoteKeys, deletedKeys };
 }
