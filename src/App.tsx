@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './state/AppContext';
 import { AuthProvider, useAuth } from './state/AuthContext';
+import { MainStateBootstrap, MainStatePersistence } from './state/MainStatePersistence';
 import { TimerProvider } from './components/timer/TimerContext';
 import { ToastProvider } from './components/ui/Toast';
 import { TodayScreen } from './screens/TodayScreen';
@@ -171,16 +172,21 @@ function AuthGate({ children }: { children: JSX.Element }) {
  * 新しい owner 名で保存・同期する経路を持たせない。 */
 function AuthenticatedApp() {
   const { user } = useAuth();
-  const owner = user?.memoryOwner ?? user?.id ?? user?.username ?? 'anonymous';
+  const memoryOwner = user?.memoryOwner ?? user?.id ?? user?.username ?? 'anonymous';
+  const mainStateOwner = user?.username ?? 'anonymous';
   return (
-    <MemoryProvider owner={owner}>
-      <AppProvider key={owner}>
-        <TimerProvider>
-          <ToastProvider>
-            <Shell />
-          </ToastProvider>
-        </TimerProvider>
-      </AppProvider>
+    <MemoryProvider owner={memoryOwner}>
+      <MainStateBootstrap owner={mainStateOwner}>
+        <AppProvider key={memoryOwner}>
+          <MainStatePersistence owner={mainStateOwner}>
+            <TimerProvider>
+              <ToastProvider>
+                <Shell />
+              </ToastProvider>
+            </TimerProvider>
+          </MainStatePersistence>
+        </AppProvider>
+      </MainStateBootstrap>
     </MemoryProvider>
   );
 }
