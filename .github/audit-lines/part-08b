@@ -1,0 +1,145 @@
+-  })].flatMap((range) => {
+-    const start = Math.max(1, Math.min(totalAmount, Math.floor(range.start)));
+-    const end = Math.max(1, Math.min(totalAmount, Math.floor(range.end)));
+-    return start <= end ? [{ start, end }] : [];
+-  }).sort((a, b) => a.start - b.start || a.end - b.end);
+-  let rangedAmount = 0;
+-  let current: { start: number; end: number } | null = null;
+-  for (const range of ranges) {
+-    if (!current) current = { ...range };
+-    else if (range.start <= current.end + 1) current.end = Math.max(current.end, range.end);
+-    else {
+-      rangedAmount += current.end - current.start + 1;
+-      current = { ...range };
+-    }
+-  }
+-  if (current) rangedAmount += current.end - current.start + 1;
++  const historical = planHistory.filter((entry) =>
++    entry.materialId === materialId
++    && entry.type === 'new'
++    && entry.scheduledDate <= date
++    && entry.amount > 0);
++  const ranges = mergeUnitRanges([
++    ...baselineRanges,
++    ...relevant.flatMap((task) => {
++      const range = task.materialRange
++        ?? (task.rangeStart !== null && task.rangeEnd !== null ? { start: task.rangeStart, end: task.rangeEnd } : undefined);
++      return range ? [range] : [];
++    }),
++    ...historical.flatMap((entry) => {
++      const range = entry.materialRange
++        ?? (entry.rangeStart !== null && entry.rangeEnd !== null ? { start: entry.rangeStart, end: entry.rangeEnd } : undefined);
++      return range ? [range] : [];
++    }),
++  ], totalAmount);
++  const relevantIds = new Set(relevant.map((task) => task.id));
+   const unRangedAmount = relevant.reduce((sum, task) => {
+     const hasRange = !!task.materialRange || (task.rangeStart !== null && task.rangeEnd !== null);
+     return sum + (hasRange ? 0 : task.amount);
++  }, 0) + historical.reduce((sum, entry) => {
++    const hasRange = !!entry.materialRange || (entry.rangeStart !== null && entry.rangeEnd !== null);
++    // 同じ手動タスクを未来へ再配置した場合、過去の未達成予定と現在予定を
++    // 二重に目標量へ足さない。日付前なら履歴、再配置日以降は現行タスクが代表する。
++    return sum + (hasRange || relevantIds.has(entry.taskId) ? 0 : entry.amount);
+   }, 0);
+-  return Math.min(totalAmount, rangedAmount + unRangedAmount);
++  return Math.min(totalAmount, unitRangeAmount(ranges) + unRangedAmount);
+ }
+diff --git a/src/lib/taskSchedule.ts b/src/lib/taskSchedule.ts
+index c650925..91bf2e1 100644
+--- a/src/lib/taskSchedule.ts
++++ b/src/lib/taskSchedule.ts
+@@ -1,5 +1,5 @@
+ import type { ISODate } from '../types';
+-import { addDays, APP_TIME_ZONE, hmToMinutes, minutesToHM, toISODate } from './date';
++import { addDays, APP_TIME_ZONE, hmToMinutes, minutesInTimeZone, minutesToHM, toISODate } from './date';
+ 
+ const DAY_MINUTES = 24 * 60;
+ const LATEST_END_MINUTE = DAY_MINUTES - 1;
+@@ -18,18 +18,6 @@ interface NormalizeTaskScheduleOptions {
+   defaultNextDayStart?: string;
+ }
+ 
+-function currentMinutesInTimeZone(now: Date, timeZone: string): number {
+-  const parts = new Intl.DateTimeFormat('en-US', {
+-    timeZone,
+-    hour: '2-digit',
+-    minute: '2-digit',
+-    hour12: false,
+-  }).formatToParts(now);
+-  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+-  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+-  return (hour % 24) * 60 + minute;
+-}
+-
+ function roundUpToStep(min: number, step: number): number {
+   return Math.ceil(min / step) * step;
+ }
+@@ -44,7 +32,7 @@ export function normalizeTaskSchedule(
+   const now = options.now ?? new Date();
+   const minStartBufferMin = options.minStartBufferMin ?? 5;
+   const defaultNextDayStart = options.defaultNextDayStart ?? '09:00';
+-  const today = toISODate(now);
++  const today = toISODate(now, timeZone);
+ 
+   let normalizedDate = date < today ? today : date;
+   if (!startTime) {
+@@ -52,7 +40,7 @@ export function normalizeTaskSchedule(
+   }
+ 
+   let startMin = hmToMinutes(startTime);
+-  const minimumStart = roundUpToStep(currentMinutesInTimeZone(now, timeZone) + minStartBufferMin, 5);
++  const minimumStart = roundUpToStep(minutesInTimeZone(now, timeZone) + minStartBufferMin, 5);
+ 
+   if (date < today || (date === today && startMin < minimumStart)) {
+     startMin = Math.max(startMin, minimumStart);
+diff --git a/src/screens/MaterialsScreen.tsx b/src/screens/MaterialsScreen.tsx
+index f45fa00..11e6c46 100644
+--- a/src/screens/MaterialsScreen.tsx
++++ b/src/screens/MaterialsScreen.tsx
+@@ -198,7 +198,7 @@ export function MaterialsScreen({
+ // 教材追加・編集フォーム
+ // ============================================================
+ 
+-export function MaterialFormSheet({ material, onClose }: { material: Material | null; onClose: () => void }) {
++function MaterialFormSheet({ material, onClose }: { material: Material | null; onClose: () => void }) {
+   const { state, execute } = useApp();
+   const toast = useToast();
+   const t = today();
+@@ -238,7 +238,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material |
+       toast('教材名・科目・総量を入力してください');
+       return;
+     }
+-    const dateError = validateMaterialDates(startDate, targetDate, preferredFinishDate);
++    const dateError = validateMaterialDates(startDate, targetDate, preferredFinishDate, state.goal?.examDate);
+     if (dateError) { toast(dateError); return; }
+     const reviewIntervals = reviewIntervalsText
+       .split(',')
+@@ -348,7 +348,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material |
+       </div>
+       <div className="field">
+         <label htmlFor="mf-target">目標完了日</label>
+-        <input id="mf-target" type="date" value={targetDate} min={isEdit ? undefined : t} onChange={(e) => setTargetDate(e.target.value)} />
++        <input id="mf-target" type="date" value={targetDate} min={isEdit ? undefined : t} max={state.goal?.examDate} onChange={(e) => setTargetDate(e.target.value)} />
+         <div className="field-hint">この日までに終わるよう毎日の計画を自動で組みます。あとは保存するだけでOK。</div>
+       </div>
+ 
+diff --git a/src/screens/RecordsScreen.tsx b/src/screens/RecordsScreen.tsx
+index 0bc445b..8559aca 100644
+--- a/src/screens/RecordsScreen.tsx
++++ b/src/screens/RecordsScreen.tsx
+@@ -87,8 +87,11 @@ export function RecordsScreen() {
+       if (!isPlacedPlanTask(task)) continue;
+       map.set(task.scheduledDate, (map.get(task.scheduledDate) ?? 0) + task.estimatedMinutes);
+     }
++    for (const entry of state.planHistory ?? []) {
++      map.set(entry.scheduledDate, (map.get(entry.scheduledDate) ?? 0) + entry.estimatedMinutes);
++    }
+     return map;
+-  }, [state.tasks]);
++  }, [state.planHistory, state.tasks]);
+ 
+   const days = useMemo(() => periodDays(period, offset, t), [period, offset, t]);
+   const prevDays = useMemo(() => periodDays(period, offset - 1, t), [period, offset, t]);
+diff --git a/src/screens/SettingsSheet.tsx b/src/screens/SettingsSheet.tsx
+index 35ca0cf..79c48fa 100644
