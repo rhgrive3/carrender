@@ -16,6 +16,7 @@ import { LoginScreen } from './screens/LoginScreen';
 import { TimerOverlay } from './components/timer/TimerOverlay';
 import { PlanHistoryLauncher } from './components/PlanHistoryLauncher';
 import { MainStateMergeBridge } from './components/MainStateMergeBridge';
+import { MainStateWriterLeaseBridge } from './components/MainStateWriterLeaseBridge';
 
 import { Target } from 'lucide-react';
 import { IconHome, IconPlan, IconBook, IconTimer, IconChart } from './components/navigation/NavIcons';
@@ -185,6 +186,7 @@ function AuthenticatedApp() {
             <TimerProvider>
               <ToastProvider>
                 <MainStateMergeBridge />
+                <MainStateWriterLeaseBridge />
                 <Shell />
               </ToastProvider>
             </TimerProvider>
