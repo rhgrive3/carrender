@@ -49,13 +49,21 @@ function writeJSON(key: string, value: unknown): boolean {
   }
 }
 
-export function getMainSyncMetadata(owner: string): MainSyncMetadata | null {
-  const value = readJSON<Partial<MainSyncMetadata>>(META_KEY);
-  if (!value || value.owner !== owner || typeof value.dirty !== 'boolean') return null;
+function validatedMetadata(value: Partial<MainSyncMetadata> | null): MainSyncMetadata | null {
+  if (!value || typeof value.owner !== 'string' || !value.owner || typeof value.dirty !== 'boolean') return null;
   if (value.baseUpdatedAt !== null && typeof value.baseUpdatedAt !== 'string') return null;
   if (typeof value.localChangedAt !== 'string') return null;
   if (value.baseEntityHashes !== undefined && (!value.baseEntityHashes || typeof value.baseEntityHashes !== 'object')) return null;
   return value as MainSyncMetadata;
+}
+
+export function getCurrentMainSyncMetadata(): MainSyncMetadata | null {
+  return validatedMetadata(readJSON<Partial<MainSyncMetadata>>(META_KEY));
+}
+
+export function getMainSyncMetadata(owner: string): MainSyncMetadata | null {
+  const value = getCurrentMainSyncMetadata();
+  return value?.owner === owner ? value : null;
 }
 
 /**
