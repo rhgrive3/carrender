@@ -154,6 +154,7 @@ function referentialIntegrityConflicts(
   const sessions = [...(output.get('sessions')?.values() ?? [])] as AppState['sessions'];
   const subjectIds = new Set(subjects.map((subject) => subject.id));
   const materialById = new Map(materials.map((material) => [material.id, material]));
+  const taskIds = new Set(tasks.map((task) => task.id));
   const conflicts: MainStateMergeConflict[] = [];
   const seen = new Set<string>();
   const push = (conflict: MainStateMergeConflict) => {
@@ -169,6 +170,12 @@ function referentialIntegrityConflicts(
       if (tasks.some((task) => task.materialId === materialId || manualProgressMaterialId(task) === materialId)
         || sessions.some((session) => session.materialId === materialId)) {
         push({ section: 'materials', key: materialId, reason: 'deleteVsEdit' });
+      }
+    }
+    if (key.startsWith('tasks:')) {
+      const taskId = key.slice('tasks:'.length);
+      if (sessions.some((session) => session.taskId === taskId)) {
+        push({ section: 'tasks', key: taskId, reason: 'deleteVsEdit' });
       }
     }
     if (key.startsWith('subjects:')) {
@@ -201,6 +208,7 @@ function referentialIntegrityConflicts(
   for (const session of sessions) {
     const material = session.materialId ? materialById.get(session.materialId) : undefined;
     if (!subjectIds.has(session.subjectId)
+      || (session.taskId && !taskIds.has(session.taskId))
       || (session.materialId && !material)
       || (material && material.subjectId !== session.subjectId)) {
       push({ section: 'sessions', key: session.id, reason: 'bothChanged' });
