@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - audit/full-review-2026-07-14
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -15,6 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: audit/full-review-2026-07-14
           fetch-depth: 0
       - name: Apply validated audit patch
         shell: bash
@@ -25,9 +29,10 @@ jobs:
           git apply /tmp/full-audit.patch
           rm -rf .github/audit-lines .github/audit-patch
           rm .github/workflows/apply-full-audit-fixes.yml
+          rm -f .audit-apply-trigger
           git add -A
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'fix: resolve full-audit data integrity defects and remove dead code'
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin HEAD:audit/full-review-2026-07-14
