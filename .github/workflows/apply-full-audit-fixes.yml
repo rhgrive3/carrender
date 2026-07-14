@@ -19,21 +19,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: audit/full-review-2026-07-14
-          fetch-depth: 0
+          fetch-depth: 1
+          show-progress: false
+      - name: Assemble audit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/audit-lines/part-* > full-audit.patch
+          sha256sum .github/audit-lines/part-* > audit-patch-checksums.txt
+          wc -c full-audit.patch >> audit-patch-checksums.txt
+          sha256sum full-audit.patch >> audit-patch-checksums.txt
+      - name: Upload assembled patch diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: assembled-full-audit-patch
+          path: |
+            full-audit.patch
+            audit-patch-checksums.txt
+          retention-days: 1
       - name: Verify and apply audit patch
         shell: bash
         run: |
           set -euo pipefail
-          sha256sum .github/audit-lines/part-*
-          cat .github/audit-lines/part-* > /tmp/full-audit.patch
-          wc -c /tmp/full-audit.patch
-          sha256sum /tmp/full-audit.patch
-          test "$(sha256sum /tmp/full-audit.patch | cut -d' ' -f1)" = "4cb14e0071f5f996ca73b301b830ebed7408e2dac989977d58197582a559cc32"
-          git apply --check /tmp/full-audit.patch
-          git apply /tmp/full-audit.patch
+          test "$(sha256sum full-audit.patch | cut -d' ' -f1)" = "4cb14e0071f5f996ca73b301b830ebed7408e2dac989977d58197582a559cc32"
+          git apply --check full-audit.patch
+          git apply full-audit.patch
           rm -rf .github/audit-lines .github/audit-patch
           rm .github/workflows/apply-full-audit-fixes.yml
-          rm -f .audit-apply-trigger
+          rm -f .audit-apply-trigger full-audit.patch audit-patch-checksums.txt
           git add -A
           git diff --cached --check
           git config user.name 'github-actions[bot]'
