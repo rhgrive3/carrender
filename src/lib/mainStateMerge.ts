@@ -138,6 +138,11 @@ function chooseEntity(input: {
   return { source: 'same', conflict: { section, key, reason: 'bothChanged' } };
 }
 
+function manualProgressMaterialId(task: AppState['tasks'][number]): string | null {
+  const policy = task.manualScheduling?.progressPolicy;
+  return policy?.type === 'countTowardMaterial' ? policy.materialId : null;
+}
+
 function referentialIntegrityConflicts(
   output: Map<MainStateEntitySection, Map<string, unknown>>,
   deletedKeys: string[],
@@ -161,7 +166,7 @@ function referentialIntegrityConflicts(
   for (const key of deleted) {
     if (key.startsWith('materials:')) {
       const materialId = key.slice('materials:'.length);
-      if (tasks.some((task) => task.materialId === materialId)
+      if (tasks.some((task) => task.materialId === materialId || manualProgressMaterialId(task) === materialId)
         || sessions.some((session) => session.materialId === materialId)) {
         push({ section: 'materials', key: materialId, reason: 'deleteVsEdit' });
       }
@@ -183,9 +188,13 @@ function referentialIntegrityConflicts(
   }
   for (const task of tasks) {
     const material = task.materialId ? materialById.get(task.materialId) : undefined;
+    const progressMaterialId = manualProgressMaterialId(task);
+    const progressMaterial = progressMaterialId ? materialById.get(progressMaterialId) : undefined;
     if (!subjectIds.has(task.subjectId)
       || (task.materialId && !material)
-      || (material && material.subjectId !== task.subjectId)) {
+      || (material && material.subjectId !== task.subjectId)
+      || (progressMaterialId && !progressMaterial)
+      || (progressMaterial && progressMaterial.subjectId !== task.subjectId)) {
       push({ section: 'tasks', key: task.id, reason: 'bothChanged' });
     }
   }
