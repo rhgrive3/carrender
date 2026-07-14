@@ -1124,6 +1124,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!owner) return;
     let cancelled = false;
+    const controller = new AbortController();
     remoteUpdatedAt.current = undefined;
     remoteKnown.current = false;
     pushChain.current = Promise.resolve();
@@ -1134,7 +1135,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSyncStatus('syncing');
     (async () => {
       try {
-        const response = await apiGetData();
+        const response = await apiGetData({ signal: controller.signal });
         if (cancelled) return;
         remoteUpdatedAt.current = response.updatedAt;
         remoteKnown.current = true;
@@ -1151,7 +1152,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           applyCloudState(normalizeCloudState(response.appState), response.updatedAt!);
         } else if (decision === 'pushLocal') {
           if (localState.onboarded) {
-            const saved = await apiPutData(localState, response.updatedAt);
+            const saved = await apiPutData(localState, response.updatedAt, { signal: controller.signal });
             finishSuccessfulPush(localState, saved.updatedAt);
             skipNextRemotePush.current = stateRef.current === localState;
           } else {
@@ -1173,7 +1174,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const error = caught as ApiError;
         if (error.status === 409) {
           try {
-            const latest = await apiGetData();
+            const latest = await apiGetData({ signal: controller.signal });
             const metadata = getMainSyncMetadata(owner);
             if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
             else {
@@ -1195,9 +1196,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [applyCloudState, establishConflict, finishSuccessfulPush, markLocalClean, owner, syncAttempt]);
-
   useEffect(() => {
     if (!syncReady || !owner || syncConflict.current) return;
     if (skipNextRemotePush.current) {
@@ -1265,11 +1266,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError]);
-  if (owner && !syncReady) {
+  // 端末内データがある場合は即座に操作可能にする。新しい端末でデータが空の時だけ、
+  // オンボーディングを誤表示しないよう初回クラウド取得を待つ。
+  const shouldWaitForInitialCloudState = Boolean(owner && !syncReady && !state.onboarded);
+  if (shouldWaitForInitialCloudState) {
     return <div className="screen"><div className="card">クラウドの最新データを確認中…</div></div>;
   }
   return <AppContext.Provider value={value}>
     {children}
+    {owner && !syncReady && state.onboarded && (
+      <div className="toast undo-notice" role="status">端末内データを表示しています。クラウド同期を確認中…</div>
+    )}
     {localSaveError && <div className="toast undo-notice" role="alert">{localSaveError}</div>}
     {undoEntry && isUndoEntryValid(undoEntry) && (
       <div className="toast undo-toast" role="status">
