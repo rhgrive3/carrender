@@ -8,8 +8,14 @@ export function isShellTab(value: unknown): value is ShellTab {
   return typeof value === 'string' && SHELL_TABS.has(value as ShellTab);
 }
 
-export function readStoredShellTab(storage: Pick<Storage, 'getItem'> | null | undefined): ShellTab {
-  if (!storage) return 'today';
+export function readStoredShellTab(
+  storage: Pick<Storage, 'getItem'> | null | undefined,
+  online = typeof navigator === 'undefined' || navigator.onLine,
+): ShellTab {
+  // When the PWA is relaunched offline, Today is the safest recovery surface:
+  // it exposes resumable study sessions and pending work without requiring the
+  // previously selected feature to finish its network-dependent bootstrap.
+  if (!online || !storage) return 'today';
   try {
     const value = storage.getItem(SHELL_TAB_STORAGE_KEY);
     return isShellTab(value) ? value : 'today';
