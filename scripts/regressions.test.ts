@@ -289,6 +289,24 @@ console.log('--- 初期設定の時間帯 ---');
     initialized.availability,
   );
   check('初期設定の分数は実際の時間帯へクランプ', weekday.minutes <= 359 && weekend.minutes <= 899, initialized.availability);
+  const restoredCustomAvailability = normalizeState({
+    ...state(),
+    availability: [{
+      weekday: 1,
+      // 旧実装が起動のたびに書き戻していた誤った派生値。
+      minutes: 359,
+      windows: [
+        { start: '09:00', end: '12:00' },
+        { start: '11:00', end: '13:00' },
+        { start: '13:30', end: '19:30' },
+        { start: '20:30', end: '22:30' },
+      ],
+    }],
+  });
+  check('起動時は保存済みの複数時間帯から平日最大時間を復元して5時間59分へ戻さない',
+    restoredCustomAvailability.availability[0].minutes === 720,
+    restoredCustomAvailability.availability[0],
+  );
   check('分丸めで00:60を生成しない', minutesToHM(59.8) === '01:00', minutesToHM(59.8));
   const instant = new Date('2026-07-14T00:30:00.000Z');
   check('日付変換は指定タイムゾーンを正しく反映', toISODate(instant, 'Asia/Tokyo') === '2026-07-14' && toISODate(instant, 'America/Los_Angeles') === '2026-07-13');
