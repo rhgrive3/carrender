@@ -70,6 +70,19 @@ function fakeEnv(input: { row?: { version: number } | null; error?: Error }): En
 }
 
 {
+  const fetcher = async () => new Response(JSON.stringify({
+    compatible: false,
+    requiredVersion: null,
+    currentVersion: null,
+    missingMigrations: [],
+    error: 'D1 schema versionを確認できません: transient database error',
+    code: 'D1_SCHEMA_CHECK_FAILED',
+  }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+  const result = await checkSchemaCompatibility(fetcher as typeof fetch);
+  assert.equal(result.status, 'unavailable', '一時的なD1確認失敗ではPWA起動を停止しない');
+}
+
+{
   const fetcher = async () => { throw new TypeError('offline'); };
   const result = await checkSchemaCompatibility(fetcher as typeof fetch);
   assert.equal(result.status, 'unavailable', 'ネットワーク不通はPWAのオフライン起動を妨げない');
