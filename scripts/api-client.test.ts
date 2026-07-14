@@ -1,5 +1,6 @@
 /** Regression tests for the browser API client timeout, cancellation, and chunk protocol contract. */
 /// <reference types="node" />
+import { isDeepStrictEqual } from 'node:util';
 import { apiGetData, apiPutData, type ApiError } from '../src/lib/api';
 import { encodeAppStateChunks } from '../src/lib/appStateChunks';
 import { emptyState } from '../src/state/AppContext';
@@ -78,7 +79,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   return chunk ? jsonResponse(chunk) : jsonResponse({ error: 'missing' }, 404);
 }) as typeof fetch;
 const downloaded = await apiGetData({ timeoutMs: 500 });
-check('manifestから全chunkを取得してAppStateを復元', JSON.stringify(downloaded.appState) === JSON.stringify(chunkedState), downloaded);
+check('manifestから全chunkを取得してAppStateを復元', isDeepStrictEqual(downloaded.appState, chunkedState), downloaded);
 check('manifest記載chunk数だけ取得', getCalls.filter((call) => (call.body as { action?: string } | undefined)?.action === 'getChunk').length === encoded.manifest.totalChunks, getCalls);
 
 console.log('--- API client: chunked upload ---');
