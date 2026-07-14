@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]' && github.ref_name == 'agent/mandatory-entity-merge-20260714'
+    if: github.actor != 'github-actions[bot]' && (github.head_ref == 'agent/mandatory-entity-merge-20260714' || github.ref_name == 'agent/mandatory-entity-merge-20260714')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,7 +104,7 @@ jobs:
   }, [dispatch, owner]);
 """
           text = replace_once(text, old_conflict, new_conflict, 'conflict handler')
-          text = replace_once(text, '    markLocalClean(updatedAt);\n    setSyncStatus(\'synced\');', '    markLocalClean(updatedAt, remoteState);\n    setSyncStatus(\'synced\');', 'cloud clean snapshot')
+          text = replace_once(text, "    markLocalClean(updatedAt);\n    setSyncStatus('synced');", "    markLocalClean(updatedAt, remoteState);\n    setSyncStatus('synced');", 'cloud clean snapshot')
           path.write_text(text)
 
           Path('.github/workflows/ci.yml').write_text("""name: CI
