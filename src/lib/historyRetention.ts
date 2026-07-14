@@ -1,6 +1,16 @@
-import type { AppState, HistoricalMonthSummary, ISODate } from '../types';
+import type { AppState, ISODate } from '../types';
 import { addDays } from './date';
 import { compactPlanRevisions } from './planHistory';
+
+export interface HistoricalMonthSummary {
+  month: string;
+  studyMinutes: number;
+  sessionCount: number;
+  completedTaskCount: number;
+  plannedMinutes: number;
+  missedMinutes: number;
+  subjectMinutes: { subjectId: string; minutes: number }[];
+}
 
 export const DETAIL_HISTORY_RETENTION_DAYS = 365;
 
@@ -38,7 +48,8 @@ function addSubjectMinutes(summary: HistoricalMonthSummary, subjectId: string, m
  */
 export function applyOneYearHistoryRetention(state: AppState, refDate: ISODate): AppState {
   const cutoff = addDays(refDate, -DETAIL_HISTORY_RETENTION_DAYS);
-  const summaries = new Map((state.historySummaries ?? []).map((summary) => [summary.month, { ...summary, subjectMinutes: [...summary.subjectMinutes] }]));
+  const historyData = state.settings.historyData ?? { planRevisions: [], monthlySummaries: [] };
+  const summaries = new Map(historyData.monthlySummaries.map((summary) => [summary.month, { ...summary, subjectMinutes: [...summary.subjectMinutes] }]));
 
   const sessions = [] as AppState['sessions'];
   for (const session of state.sessions) {
@@ -75,7 +86,7 @@ export function applyOneYearHistoryRetention(state: AppState, refDate: ISODate):
     summary.missedMinutes += entry.estimatedMinutes;
   }
 
-  const historySummaries = [...summaries.values()]
+  const monthlySummaries = [...summaries.values()]
     .map((summary) => ({
       ...summary,
       studyMinutes: Math.max(0, Math.round(summary.studyMinutes)),
@@ -87,19 +98,21 @@ export function applyOneYearHistoryRetention(state: AppState, refDate: ISODate):
     }))
     .sort((left, right) => left.month.localeCompare(right.month));
 
-  const planRevisions = compactPlanRevisions(state.planRevisions ?? [], new Date(`${refDate}T12:00:00+09:00`));
+  const planRevisions = compactPlanRevisions(historyData.planRevisions, new Date(`${refDate}T12:00:00+09:00`));
   if (sessions.length === state.sessions.length
     && tasks.length === state.tasks.length
     && planHistory.length === (state.planHistory ?? []).length
-    && planRevisions.length === (state.planRevisions ?? []).length
-    && historySummaries.length === (state.historySummaries ?? []).length) return state;
+    && planRevisions.length === historyData.planRevisions.length
+    && monthlySummaries.length === historyData.monthlySummaries.length) return state;
 
   return {
     ...state,
     sessions,
     tasks,
     planHistory,
-    planRevisions,
-    historySummaries,
+    settings: {
+      ...state.settings,
+      historyData: { planRevisions, monthlySummaries },
+    },
   };
 }
