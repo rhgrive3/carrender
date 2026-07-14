@@ -74,6 +74,20 @@ for (const policy of ['strict', 'normal'] as const) {
   assert.ok(result.scheduledTasks.every((task) => task.dueDate === '2026-07-10'), `${policy}の元期限を表示用データへ保持する`);
 }
 
+const oversizedStrict = material('overdue-strict-oversized', 'strict');
+oversizedStrict.totalAmount = 200;
+oversizedStrict.totalUnits = 200;
+const oversizedResult = generatePlanV2(stateWith(oversizedStrict), {
+  now: NOW,
+  timezone: 'Asia/Tokyo',
+  generationId: 'overdue-strict-oversized',
+  maxSearchMilliseconds: 60_000,
+});
+assert.ok(oversizedResult.scheduledTasks.length > 0, '回復期間に全量が収まらない厳守教材も容量分の予定を出す');
+assert.ok(oversizedResult.unscheduledWork.length > 0, '回復期間に収まらない残量は未配置として明示する');
+assert.equal(oversizedResult.deadlineReports[0]?.policy, 'strict', '期限レポートでは元の厳守方針を保持する');
+assert.equal(oversizedResult.deadlineReports[0]?.feasible, false, '元の厳守期限を超えた事実を保持する');
+
 const originalTask: StudyTask = {
   id: 'completed-task',
   subjectId: subject.id,
@@ -132,5 +146,8 @@ chartMaterial.targetDate = '2026-12-31';
 const dates = buildProgressChartDates([chartMaterial], '2026-07-14', [], ['2026-07-13']);
 assert.equal(dates.length, 365, '1年以内の達成率推移は日単位で描画する');
 assert.ok(dates.includes('2026-07-13'), '実績日は必ず描画点へ含める');
+
+const recoveryDates = buildProgressChartDates([material('past-target', 'normal')], TODAY, ['2026-07-20'], []);
+assert.ok(recoveryDates.includes('2026-07-19'), '期限超過後の回復予定までも日単位で補間する');
 
 console.log('✅ user-request regressions passed');
