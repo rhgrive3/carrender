@@ -63,15 +63,12 @@ jobs:
           if marker not in text: raise SystemExit('test marker not found')
           test.write_text(text.replace(marker, regression + marker, 1))
           Path('.github/workflows/apply-full-audit-fix.yml').unlink(missing_ok=True)
-          Path('.github/workflows/ci.yml').write_text(Path('/tmp/original-ci').read_text())
           PY
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/lib/schedulerV2.ts scripts/schedulerV2.test.ts .github/workflows
+          git add src/lib/schedulerV2.ts scripts/schedulerV2.test.ts .github/workflows/apply-full-audit-fix.yml
           git commit -m "Fix load metrics across empty schedule days"
           git push
-        env:
-          ORIGINAL_CI: unused
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
