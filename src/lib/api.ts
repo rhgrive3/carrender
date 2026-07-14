@@ -38,6 +38,24 @@ async function request<T>(path: string, init: RequestInit = {}, options: ApiRequ
       }, timeoutMs)
     : null;
 
+  const cleanup = () => {
+    if (timeout !== null) clearTimeout(timeout);
+    callerSignal?.removeEventListener('abort', abortFromCaller);
+  };
+  const transportError = (caught: unknown): ApiError => {
+    if (timeoutTriggered) {
+      return apiError('サーバーの応答がタイムアウトしました。端末内のデータはそのまま利用できます', {
+        isTimeout: true,
+      });
+    }
+    if (callerSignal?.aborted || (caught instanceof Error && caught.name === 'AbortError')) {
+      return apiError('リクエストが中断されました', { isAborted: true });
+    }
+    return apiError('サーバーに接続できません。通信環境を確認してください', {
+      isNetworkError: true,
+    });
+  };
+
   let res: Response;
   try {
     res = await fetch(path, {
@@ -50,28 +68,21 @@ async function request<T>(path: string, init: RequestInit = {}, options: ApiRequ
       },
     });
   } catch (caught) {
-    if (timeoutTriggered) {
-      throw apiError('サーバーの応答がタイムアウトしました。端末内のデータはそのまま利用できます', {
-        isTimeout: true,
-      });
-    }
-    if (callerSignal?.aborted || (caught instanceof Error && caught.name === 'AbortError')) {
-      throw apiError('リクエストが中断されました', { isAborted: true });
-    }
-    throw apiError('サーバーに接続できません。通信環境を確認してください', {
-      isNetworkError: true,
-    });
-  } finally {
-    if (timeout !== null) clearTimeout(timeout);
-    callerSignal?.removeEventListener('abort', abortFromCaller);
+    cleanup();
+    throw transportError(caught);
   }
 
   let data: unknown = null;
   try {
     data = await res.json();
-  } catch {
-    // レスポンスボディがない場合は無視
+  } catch (caught) {
+    if (timeoutTriggered || callerSignal?.aborted || (caught instanceof Error && caught.name === 'AbortError')) {
+      cleanup();
+      throw transportError(caught);
+    }
+    // レスポンスボディがない、またはJSONでない場合はHTTP状態だけを使う。
   }
+  cleanup();
 
   if (!res.ok) {
     const message =
