@@ -8,6 +8,7 @@ export type MainStateEntitySection =
   | 'tasks'
   | 'sessions'
   | 'planHistory'
+  | 'monthlySummaries'
   | 'availability'
   | 'dayPlans'
   | 'fixedEvents';
@@ -64,6 +65,7 @@ function sectionEntries(state: AppState): Record<MainStateEntitySection, [string
     tasks: state.tasks.map((item) => [item.id, item]),
     sessions: state.sessions.map((item) => [item.id, item]),
     planHistory: (state.planHistory ?? []).map((item) => [item.id, item]),
+    monthlySummaries: (state.settings.historyData?.monthlySummaries ?? []).map((item) => [item.month, item]),
     availability: state.availability.map((item) => [String(item.weekday), item]),
     dayPlans: state.dayPlans.map((item) => [item.date, item]),
     fixedEvents: state.fixedEvents.map((item) => [item.id, item]),
@@ -83,34 +85,12 @@ function mapOf(entries: [string, unknown][]): Map<string, unknown> {
   return new Map(entries);
 }
 
-function mergeHistoryData(local: AppSettings, remote: AppSettings): AppSettings['historyData'] {
-  const localData = local.historyData ?? { planRevisions: [], monthlySummaries: [] };
-  const remoteData = remote.historyData ?? { planRevisions: [], monthlySummaries: [] };
-  const revisions = [...new Map([...localData.planRevisions, ...remoteData.planRevisions].map((item) => [item.id, item])).values()]
+function mergePlanRevisions(local: AppSettings, remote: AppSettings): NonNullable<AppSettings['historyData']>['planRevisions'] {
+  const localRevisions = local.historyData?.planRevisions ?? [];
+  const remoteRevisions = remote.historyData?.planRevisions ?? [];
+  return [...new Map([...localRevisions, ...remoteRevisions].map((item) => [item.id, item])).values()]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     .slice(-32);
-  const months = new Map<string, (typeof localData.monthlySummaries)[number]>();
-  for (const summary of [...localData.monthlySummaries, ...remoteData.monthlySummaries]) {
-    const current = months.get(summary.month);
-    if (!current) {
-      months.set(summary.month, summary);
-      continue;
-    }
-    const subjectMinutes = new Map(current.subjectMinutes.map((item) => [item.subjectId, item.minutes]));
-    for (const item of summary.subjectMinutes) {
-      subjectMinutes.set(item.subjectId, Math.max(subjectMinutes.get(item.subjectId) ?? 0, item.minutes));
-    }
-    months.set(summary.month, {
-      month: summary.month,
-      studyMinutes: Math.max(current.studyMinutes, summary.studyMinutes),
-      sessionCount: Math.max(current.sessionCount, summary.sessionCount),
-      completedTaskCount: Math.max(current.completedTaskCount, summary.completedTaskCount),
-      plannedMinutes: Math.max(current.plannedMinutes, summary.plannedMinutes),
-      missedMinutes: Math.max(current.missedMinutes, summary.missedMinutes),
-      subjectMinutes: [...subjectMinutes.entries()].map(([subjectId, minutes]) => ({ subjectId, minutes })).sort((a, b) => a.subjectId.localeCompare(b.subjectId)),
-    });
-  }
-  return { planRevisions: revisions, monthlySummaries: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)) };
 }
 
 function chooseEntity(input: {
@@ -197,8 +177,16 @@ export function mergeMainStates(
 
   const goal = (output.get('goal')?.get('value') ?? null) as AppState['goal'];
   const settingsCoreValue = output.get('settings')?.get('value') as AppSettings;
-  const settings: AppSettings = { ...settingsCoreValue, historyData: mergeHistoryData(local.settings, remote.settings) };
   const values = <T>(section: MainStateEntitySection): T[] => [...(output.get(section)?.values() ?? [])] as T[];
+  const monthlySummaries = values<NonNullable<AppSettings['historyData']>['monthlySummaries'][number]>('monthlySummaries')
+    .sort((left, right) => left.month.localeCompare(right.month));
+  const settings: AppSettings = {
+    ...settingsCoreValue,
+    historyData: {
+      planRevisions: mergePlanRevisions(local.settings, remote.settings),
+      monthlySummaries,
+    },
+  };
   const plannedDates = [local.lastPlannedDate, remote.lastPlannedDate]
     .filter((date): date is string => Boolean(date))
     .sort();

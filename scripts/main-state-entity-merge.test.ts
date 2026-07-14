@@ -31,6 +31,27 @@ function state(): AppState {
   };
 }
 
+function withMonthlySummary(input: AppState, studyMinutes: number, sessionCount: number): AppState {
+  return {
+    ...input,
+    settings: {
+      ...input.settings,
+      historyData: {
+        planRevisions: input.settings.historyData?.planRevisions ?? [],
+        monthlySummaries: [{
+          month: '2025-01',
+          studyMinutes,
+          sessionCount,
+          completedTaskCount: 0,
+          plannedMinutes: 0,
+          missedMinutes: 0,
+          subjectMinutes: [{ subjectId: 'subject', minutes: studyMinutes }],
+        }],
+      },
+    },
+  };
+}
+
 {
   const base = state();
   const local = { ...base, materials: base.materials.map((item) => item.id === 'material-a' ? { ...item, name: '端末で変更' } : item) };
@@ -77,6 +98,23 @@ function state(): AppState {
   const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
   assert.ok(result.merged?.sessions.some((item) => item.id === 'local-new'));
   assert.ok(result.merged?.sessions.some((item) => item.id === 'remote-new'));
+}
+
+{
+  const base = withMonthlySummary(state(), 90, 1);
+  const local = withMonthlySummary(base, 120, 2);
+  const remote = { ...base, sessions: [...base.sessions, session('remote-new', 'remote')] };
+  const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
+  assert.equal(result.merged?.settings.historyData?.monthlySummaries[0]?.studyMinutes, 120, '片側だけの月次集計更新は保持する');
+}
+
+{
+  const base = withMonthlySummary(state(), 90, 1);
+  const local = withMonthlySummary(base, 120, 2);
+  const remote = withMonthlySummary(base, 150, 3);
+  const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
+  assert.equal(result.merged, null, '同じ月の両側更新をmaxで潰さず明示競合に残す');
+  assert.deepEqual(result.conflicts[0], { section: 'monthlySummaries', key: '2025-01', reason: 'bothChanged' });
 }
 
 console.log('✅ main state entity merge regressions passed');
