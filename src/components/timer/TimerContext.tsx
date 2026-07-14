@@ -214,7 +214,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       workCompletedSec: 0,
       owner: user?.username ?? '',
     });
-  }, []);
+  }, [user?.username]);
 
   /** モード切替。それまでの実勉強時間は引き継ぐ */
   const setMode = useCallback((mode: TimerMode) => {

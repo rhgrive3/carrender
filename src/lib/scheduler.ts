@@ -3,152 +3,27 @@ import type {
   CapacityWarning,
   FixedEvent,
   ISODate,
-  Material,
-  RescheduleChange,
+  PlanHistoryEntry,
   RescheduleResult,
   StudyTask,
-  Subject,
   TimeRange,
 } from '../types';
-import { addDays, APP_TIME_ZONE, diffDays, genId, hmToMinutes, minutesToHM, toISODate, today, weekdayOf, formatMinutes } from './date';
+import { addDays, APP_TIME_ZONE, diffDays, formatMinutes, hmToMinutes, minutesInTimeZone, minutesToHM, weekdayOf } from './date';
 import { isPlacedPlanTask } from './taskFilters';
 import { dateInTimeZone, generatePlanV2, mergeMinuteRanges, subtractMinuteRanges } from './schedulerV2';
 export {
-  compareObjectives,
-  dateInTimeZone,
-  deterministicTaskId,
-  generatePlanV2,
-  mergeMinuteRanges,
-  mergeTimeRanges,
   normalizeUnitRanges,
-  preferredFinishDateFor,
   remainingUnitRanges,
-  subtractMinuteRanges,
   sumRangeLengths,
   updateMinutesPerUnitEstimate,
-  validateGeneratedScheduleV2,
-  validateStateV2,
 } from './schedulerV2';
-
-// ============================================================
-// 優先度スコア
-// ============================================================
-
-export interface ScoreContext {
-  state: AppState;
-  date: ISODate;
-  /** 科目ごとの直近の予定達成率 0-1 (低いほどブースト) */
-  subjectAchievement: Map<string, number>;
-}
-
-const WEIGHTS = {
-  examUrgency: 22,
-  targetUrgency: 30,
-  importance: 8,
-  weakness: 7,
-  materialPriority: 8,
-  behind: 26,
-  reviewUrgency: 40,
-  lowAchievement: 10,
-} as const;
-
-/** 教材の新規学習チャンクの優先度スコア */
-export function scoreMaterialChunk(
-  material: Material,
-  remainingAmount: number,
-  ctx: ScoreContext,
-): number {
-  const { state, date } = ctx;
-  const subject = state.subjects.find((s) => s.id === material.subjectId);
-  if (!subject) return 0;
-
-  const daysToExam = state.goal ? Math.max(1, diffDays(date, state.goal.examDate)) : 90;
-  const daysToTarget = Math.max(1, diffDays(date, material.targetDate));
-  const overdueDays = Math.max(0, diffDays(material.targetDate, date));
-  const deadlineMultiplier =
-    material.deadlinePolicy === 'strict' ? 1.25 : material.deadlinePolicy === 'flexible' ? 0.75 : 1;
-
-  // 試験が近いほど全体的に切迫
-  const examUrgency = Math.min(1, 30 / daysToExam);
-
-  // 目標完了日への切迫度: 必要ペースが教材本来のペースをどれだけ上回るか。
-  // 残量同士の比で計算すると、計画に入れて残量が減ってもスコアが下がらず、
-  // 先に選ばれた教材がそのまま選ばれ続けるため、基準ペースと比較する。
-  const requiredPerDay = remainingAmount / daysToTarget;
-  const baselinePace = baselineMaterialPacePerDay(material);
-  const targetPressure = requiredPerDay / Math.max(baselinePace, 0.01);
-  const targetUrgency = Math.min(1.35, targetPressure / 3 + overdueDays / 14);
-
-  // 遅れ具合: 経過時間に対して進捗が足りない度合い
-  const totalSpan = Math.max(1, diffDays(toCreatedDate(material), material.targetDate));
-  const elapsed = Math.max(0, diffDays(toCreatedDate(material), date));
-  const expectedProgress = Math.min(1, elapsed / totalSpan);
-  const actualProgress = material.totalAmount > 0 ? material.doneAmount / material.totalAmount : 1;
-  const behind = Math.max(0, expectedProgress - actualProgress); // 0-1
-
-  const achievement = ctx.subjectAchievement.get(material.subjectId) ?? 1;
-  const lowAchievementBoost = Math.max(0, 0.8 - achievement);
-  const customPaceBoost =
-    material.dailyTarget && material.dailyTarget > requiredPerDay
-      ? Math.min(0.35, (material.dailyTarget - requiredPerDay) / Math.max(material.dailyTarget, 1))
-      : material.weeklyTarget && material.weeklyTarget / 7 > requiredPerDay
-        ? Math.min(0.25, (material.weeklyTarget / 7 - requiredPerDay) / Math.max(material.weeklyTarget / 7, 1))
-        : 0;
-
-  return deadlineMultiplier * (
-    WEIGHTS.examUrgency * examUrgency +
-    WEIGHTS.targetUrgency * targetUrgency +
-    WEIGHTS.importance * (subject.importance / 5) +
-    WEIGHTS.weakness * (subject.weakness / 5) +
-    WEIGHTS.materialPriority * (material.priority / 5) +
-    WEIGHTS.materialPriority * (material.examRelevance / 5) +
-    WEIGHTS.behind * behind +
-    WEIGHTS.lowAchievement * lowAchievementBoost +
-    WEIGHTS.targetUrgency * customPaceBoost
-  );
-}
-
-/** 既存タスク(復習・手動)の優先度スコア */
-export function scoreExistingTask(task: StudyTask, ctx: ScoreContext): number {
-  const { state, date } = ctx;
-  const subject = state.subjects.find((s) => s.id === task.subjectId);
-  const material = state.materials.find((m) => m.id === task.materialId);
-
-  let score = 0;
-  if (subject) {
-    score += WEIGHTS.importance * (subject.importance / 5) + WEIGHTS.weakness * (subject.weakness / 5);
-  }
-  if (material) {
-    score += WEIGHTS.materialPriority * (material.priority / 5);
-  }
-  if (task.dueDate) {
-    const overdue = diffDays(task.dueDate, date); // 正=期限超過
-    // 期限当日で最大、超過でさらに増加
-    const urgency = overdue >= 0 ? 1 + Math.min(1, overdue / 7) : Math.max(0, 1 + overdue / 5);
-    score += WEIGHTS.reviewUrgency * urgency;
-  }
-  return score;
-}
-
-function toCreatedDate(material: Material): ISODate {
-  return material.startDate ?? material.createdAt.slice(0, 10);
-}
-
-function baselineMaterialPacePerDay(material: Material): number {
-  if (material.dailyTarget && material.dailyTarget > 0) return material.dailyTarget;
-  if (material.weeklyTarget && material.weeklyTarget > 0) return material.weeklyTarget / 7;
-  const totalSpan = Math.max(1, diffDays(toCreatedDate(material), material.targetDate));
-  return material.totalAmount / totalSpan;
-}
 
 // ============================================================
 // 利用可能時間・固定予定
 // ============================================================
 
-const DAY_START = '07:00';
-
 interface FreeSlot {
-  start: number; // 分
+  start: number;
   end: number;
 }
 
@@ -156,18 +31,6 @@ interface GeneratePlanOptions {
   now?: Date;
   timezone?: string;
   generationId?: string;
-}
-
-function currentMinutesInTimeZone(now: Date, timeZone = APP_TIME_ZONE): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(now);
-  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
-  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
-  return (hour % 24) * 60 + minute;
 }
 
 function roundUpToStep(min: number, step: number): number {
@@ -197,7 +60,7 @@ export function dayPlanOn(state: AppState, date: ISODate) {
   return state.dayPlans.find((p) => p.date === date) ?? null;
 }
 
-export function availabilityWindowsOn(state: AppState, date: ISODate): TimeRange[] {
+function availabilityWindowsOn(state: AppState, date: ISODate): TimeRange[] {
   const override = dayPlanOn(state, date);
   if (override?.load === 'rest') return [];
   if (override?.availabilityWindows) return override.availabilityWindows;
@@ -229,10 +92,10 @@ export function freeSlotsOn(state: AppState, date: ISODate): FreeSlot[] {
   return subtractBusySlots(baseWindows, events).filter((s) => s.end > s.start);
 }
 
-export function futureFreeSlotsOn(state: AppState, date: ISODate, now: Date, timezone = state.settings.timezone ?? APP_TIME_ZONE): FreeSlot[] {
+export function futureFreeSlotsOn(state: AppState, date: ISODate, now: Date, timezone = APP_TIME_ZONE): FreeSlot[] {
   const slots = freeSlotsOn(state, date);
   if (date !== dateInTimeZone(now, timezone)) return slots;
-  const minimumStart = roundUpToStep(currentMinutesInTimeZone(now, timezone), 5);
+  const minimumStart = roundUpToStep(minutesInTimeZone(now, timezone), 5);
   return slots.map((slot) => ({ ...slot, start: Math.max(slot.start, minimumStart) })).filter((slot) => slot.start < slot.end);
 }
 
@@ -262,11 +125,36 @@ export function availableMinutesOn(state: AppState, date: ISODate): number {
 }
 
 // ============================================================
-// プラン生成 (核となるアルゴリズム)
+// プラン生成
 // ============================================================
 
-const HORIZON_DAYS = 120;
-const MAX_SAME_SUBJECT_STREAK = 2; // 同一科目の連続ブロック数上限
+function captureMissedPlanHistory(state: AppState, todayDate: ISODate, capturedAt: string): PlanHistoryEntry[] {
+  const existing = state.planHistory ?? [];
+  const byId = new Map(existing.map((entry) => [entry.id, entry]));
+  for (const task of state.tasks) {
+    if (task.scheduledDate >= todayDate || task.status === 'done' || task.status === 'skipped') continue;
+    if (!isPlacedPlanTask(task)) continue;
+    const id = `missed:${task.id}:${task.scheduledDate}`;
+    if (byId.has(id)) continue;
+    byId.set(id, {
+      id,
+      taskId: task.id,
+      subjectId: task.subjectId,
+      materialId: task.materialId,
+      title: task.title,
+      scheduledDate: task.scheduledDate,
+      estimatedMinutes: task.estimatedMinutes,
+      amount: task.amount,
+      type: task.type,
+      outcome: 'missed',
+      rangeStart: task.rangeStart,
+      rangeEnd: task.rangeEnd,
+      materialRange: task.materialRange,
+      capturedAt,
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate) || a.id.localeCompare(b.id));
+}
 
 /**
  * 既存Reducer向けアダプター。計画生成そのものはgeneratePlanV2純粋関数が担い、
@@ -280,8 +168,9 @@ export function generatePlan(
 ): { state: AppState; result: RescheduleResult } {
   const now = options.now ?? new Date();
   const generationId = options.generationId ?? `plan-${fromDate}`;
-  const timezone = options.timezone ?? state.settings.timezone ?? APP_TIME_ZONE;
+  const timezone = options.timezone ?? APP_TIME_ZONE;
   const todayDate = dateInTimeZone(now, timezone);
+  const planHistory = captureMissedPlanHistory(state, todayDate, new Date(now).toISOString());
   const protectedTasks = new Map(
     state.tasks
       .filter((task) => task.status === 'planned' && task.scheduledDate >= todayDate && task.scheduledDate < fromDate)
@@ -388,6 +277,7 @@ export function generatePlan(
     state: {
       ...state,
       tasks: unique,
+      planHistory,
       lastScheduleResult: schedule,
       lastPlanReason: reason,
       lastReschedule: result,
@@ -397,451 +287,23 @@ export function generatePlan(
   };
 }
 
-function materialDailyMinuteCap(
-  material: Material,
-  remainingAmount: number,
-  state: AppState,
-  date: ISODate,
-  dayCapacity: number,
-): number {
-  const daysLeft = Math.max(1, diffDays(date, material.targetDate) + 1);
-  const requiredDailyMinutes = (remainingAmount * material.minutesPerUnit) / daysLeft;
-  const baselineDailyMinutes = baselineMaterialPacePerDay(material) * material.minutesPerUnit;
-  const paceCap = roundUpToStep(Math.max(requiredDailyMinutes, baselineDailyMinutes) * 1.5, 5);
-  const balanceCap = Math.round(dayCapacity * 0.35);
-  return Math.min(
-    dayCapacity,
-    Math.max(state.settings.sessionMaxMinutes, state.settings.sessionMinMinutes, paceCap, balanceCap),
-  );
-}
-
-/**
- * fromDate以降の自動生成タスクを全消しして全体を再計算する。
- * 未達成(期限切れplanned/postponed)タスクも翌日に積むのではなく、
- * スコア順で全体に再配置する。
- */
-export function generatePlanLegacy(
-  state: AppState,
-  fromDate: ISODate,
-  reason: string,
-  options: GeneratePlanOptions = {},
-): { state: AppState; result: RescheduleResult } {
-  const now = options.now ?? new Date();
-  const todayDate = toISODate(now);
-  const goal = state.goal;
-  const horizonEnd = goal
-    ? addDays(fromDate, Math.min(HORIZON_DAYS - 1, Math.max(0, diffDays(fromDate, goal.examDate))))
-    : addDays(fromDate, HORIZON_DAYS - 1);
-
-  // --- 変更前のスナップショット(差分表示用) ---
-  const beforeMinutes = plannedMinutesBySubject(state.tasks, fromDate, horizonEnd);
-  const beforeTaskDates = new Map(state.tasks.map((t) => [t.id, t.scheduledDate]));
-
-  // --- 1. 保持するタスクと再配置対象を分ける ---
-  // fromDateが明日以降の場合、今日〜fromDate前日の未着手タスクは
-  // 「進行中の当日計画」としてそのまま維持する(記録するたびに今日が崩れないように)
-  const keepStart = todayDate < fromDate ? todayDate : fromDate;
-  const kept: StudyTask[] = [];
-  const toPlace: StudyTask[] = []; // 復習・手動・未達成 → 再配置
-  for (const t of state.tasks) {
-    if (t.status === 'done' || t.status === 'skipped' || t.status === 'doing') {
-      kept.push(t);
-      continue;
-    }
-    if (t.scheduledDate >= keepStart && t.scheduledDate < fromDate) {
-      kept.push(t);
-      continue;
-    }
-    if (t.generatedBy === 'manual' && t.status === 'planned' && t.scheduledDate >= fromDate) {
-      // ユーザーが手で置いた予定は日付を尊重して動かさない
-      // (固定予定との時刻衝突だけは日ごとの処理で解消する)
-      kept.push(t);
-      continue;
-    }
-    if (t.generatedBy === 'auto' && t.type === 'new') {
-      // 自動生成の新規学習タスクは作り直す(教材残量から再生成)
-      continue;
-    }
-    if (t.generatedBy === 'auto' && t.type === 'review') {
-      // 復習(全体または教材)をオフにしたら、生成済みの未着手復習タスクも計画から外す
-      const m = state.materials.find((x) => x.id === t.materialId);
-      if (!state.settings.reviewRule.enabled || !m?.reviewEnabled) continue;
-    }
-    toPlace.push({ ...t, status: 'planned' });
-  }
-
-  // --- 2. スコア文脈を構築 ---
-  const ctx: ScoreContext = {
-    state,
-    date: fromDate,
-    subjectAchievement: subjectAchievementMap(state, fromDate),
-  };
-
-  // --- 3. 教材ごとの残量シミュレーション ---
-  const remaining = new Map<string, number>();
-  for (const m of state.materials) {
-    if (m.archived || m.paused) continue;
-    remaining.set(m.id, Math.max(0, m.totalAmount - m.doneAmount));
-  }
-  // 維持・再配置される既存の「新規」タスクが担当する量は差し引く(同じ範囲の二重配置を防ぐ)
-  for (const t of [...kept, ...toPlace]) {
-    if (t.type === 'new' && t.materialId && (t.status === 'planned' || t.status === 'doing')) {
-      remaining.set(t.materialId, Math.max(0, (remaining.get(t.materialId) ?? 0) - t.amount));
-    }
-  }
-
-  const newTasks: StudyTask[] = [];
-  const postponedChanges: RescheduleChange[] = [];
-
-  // --- 4. 日ごとに埋める ---
-  let day = fromDate;
-  while (day <= horizonEnd) {
-    const capacity = availableMinutesOn(state, day);
-    const minimumStart = day === todayDate ? roundUpToStep(currentMinutesInTimeZone(now), 5) : null;
-    const trimmedFree = freeSlotsOn(state, day)
-      .map((slot) => (minimumStart === null ? slot : { ...slot, start: Math.max(slot.start, minimumStart) }))
-      .filter((slot) => slot.end > slot.start);
-
-    // --- 4a. 手動固定タスクの時刻衝突を解消(日付は守り、時刻だけ空きへ) ---
-    const busy: FreeSlot[] = [
-      ...fixedEventsOn(state, day).map((e) => ({ start: hmToMinutes(e.start), end: hmToMinutes(e.end) })),
-      ...taskBusySlots(kept.filter((t) => t.scheduledDate === day && (t.status === 'done' || t.status === 'doing'))),
-    ];
-    const overlapsBusy = (r: FreeSlot) => busy.some((b) => r.start < b.end && r.end > b.start);
-    const plannedKeptIdx = kept
-      .map((t, i) => [t, i] as const)
-      .filter(([t]) => t.scheduledDate === day && t.status === 'planned')
-      .sort((a, b) => (a[0].scheduledStart ?? '99:99').localeCompare(b[0].scheduledStart ?? '99:99'));
-    for (const [t, idx] of plannedKeptIdx) {
-      if (!t.scheduledStart || !t.scheduledEnd) continue;
-      const range = { start: hmToMinutes(t.scheduledStart), end: hmToMinutes(t.scheduledEnd) };
-      if (!overlapsBusy(range)) {
-        busy.push(range);
-        continue;
-      }
-      const fit = subtractBusySlots(trimmedFree, busy).find((s) => s.end - s.start >= t.estimatedMinutes);
-      if (fit) {
-        const moved = { ...t, scheduledStart: minutesToHM(fit.start), scheduledEnd: minutesToHM(fit.start + t.estimatedMinutes) };
-        kept[idx] = moved;
-        busy.push({ start: fit.start, end: fit.start + t.estimatedMinutes });
-        postponedChanges.push({
-          kind: 'moved',
-          taskTitle: t.title,
-          subjectId: t.subjectId,
-          detail: `固定予定と重なるため${moved.scheduledStart}〜に時刻を調整`,
-        });
-      } else {
-        kept[idx] = { ...t, scheduledStart: null, scheduledEnd: null };
-      }
-    }
-
-    // その日にすでに確定している分(完了/実行中/手動固定)を差し引く
-    const dayKept = kept.filter((t) => t.scheduledDate === day && t.status !== 'skipped');
-    const usedByKept = dayKept.reduce((s, t) => s + t.estimatedMinutes, 0);
-    // タスク外の学習実績(フリータイマー・作り直し前のタスクの消化分など)もその日の使用時間として数える
-    const keptIds = new Set(dayKept.map((t) => t.id));
-    const extraStudied = state.sessions
-      .filter((s) => s.date === day && (!s.taskId || !keptIds.has(s.taskId)))
-      .reduce((sum, s) => sum + s.minutes, 0);
-    let budget = Math.max(0, capacity - usedByKept - extraStudied);
-
-    // 固定予定に加えて、確定済みタスクが占有する時間帯にも新規タスクを重ねない
-    const slots = subtractBusySlots(trimmedFree, taskBusySlots(dayKept))
-      .filter((slot) => slot.end - slot.start >= state.settings.sessionMinMinutes);
-    let slotIdx = 0;
-    let slotCursor = slots.length > 0 ? slots[0].start : hmToMinutes(DAY_START);
-    // 直前の科目・教材の文脈は、その日すでに確定しているタスク(完了済み含む)から引き継ぐ
-    let lastSubject: string | null = null;
-    let lastMaterialId: string | null = null;
-    let sameSubjectStreak = 0;
-    for (const t of [...dayKept].sort((a, b) => (a.scheduledStart ?? '99:99').localeCompare(b.scheduledStart ?? '99:99'))) {
-      if (t.subjectId === lastSubject) sameSubjectStreak += 1;
-      else {
-        lastSubject = t.subjectId;
-        sameSubjectStreak = 1;
-      }
-      lastMaterialId = t.materialId;
-    }
-    // 1科目/1教材が1日を占有しないための上限。
-    // ただし、候補が他にない場合は後続のフォールバックで超過を許す。
-    const subjectDayCap = Math.max(state.settings.sessionMaxMinutes, Math.round(capacity * 0.5));
-    const minutesBySubject = new Map<string, number>();
-    const minutesByMaterial = new Map<string, number>();
-    for (const t of dayKept) {
-      minutesBySubject.set(t.subjectId, (minutesBySubject.get(t.subjectId) ?? 0) + t.estimatedMinutes);
-      if (t.materialId) minutesByMaterial.set(t.materialId, (minutesByMaterial.get(t.materialId) ?? 0) + t.estimatedMinutes);
-    }
-
-    const advanceSlot = (need: number): { start: number; end: number } | null => {
-      while (slotIdx < slots.length) {
-        const slot = slots[slotIdx];
-        const start = Math.max(slotCursor, slot.start);
-        if (slot.end - start >= need) {
-          slotCursor = start + need;
-          return { start, end: start + need };
-        }
-        slotIdx += 1;
-        if (slotIdx < slots.length) slotCursor = slots[slotIdx].start;
-      }
-      return null;
-    };
-
-    // 空き枠の大きさ(現在のスロット残り)を見て、軽い/重いタスクを選ぶ
-    const currentSlotRemaining = (): number => {
-      if (slotIdx >= slots.length) return 0;
-      return slots[slotIdx].end - Math.max(slotCursor, slots[slotIdx].start);
-    };
-
-    while (budget >= state.settings.sessionMinMinutes) {
-      const gap = Math.min(currentSlotRemaining(), budget);
-      if (gap < state.settings.sessionMinMinutes) {
-        slotIdx += 1;
-        if (slotIdx >= slots.length) break;
-        slotCursor = slots[slotIdx].start;
-        continue;
-      }
-
-      // 候補を集める: (a) 再配置待ちタスク (b) 教材チャンク
-      type Candidate =
-        | { kind: 'existing'; task: StudyTask; score: number; minutes: number }
-        | { kind: 'chunk'; material: Material; score: number; minutes: number; amount: number };
-
-      const candidates: Candidate[] = [];
-
-      for (const t of toPlace) {
-        const material = t.materialId ? state.materials.find((m) => m.id === t.materialId) : null;
-        if (material?.paused || material?.archived) continue;
-        const due = t.dueDate ?? day;
-        // 期限がまだ先の復習は期限日以降に配置
-        if (due > day && t.type !== 'new') continue;
-        if (t.estimatedMinutes > gap) continue;
-        const score = scoreExistingTask(t, { ...ctx, date: day });
-        candidates.push({ kind: 'existing', task: t, score, minutes: t.estimatedMinutes });
-      }
-
-      for (const m of state.materials) {
-        if (m.archived || m.paused) continue;
-        const rem = remaining.get(m.id) ?? 0;
-        if (rem <= 0) continue;
-        const score = scoreMaterialChunk(m, rem, { ...ctx, date: day });
-        // チャンクサイズ: 空き枠と90分上限に収まる単位数を計算
-        const maxChunk = Math.min(gap, state.settings.sessionMaxMinutes);
-        let amount = Math.floor(maxChunk / m.minutesPerUnit);
-        if (amount < 1) {
-          // 1単位が90分を超える重い教材は、空き枠に収まる場合のみ1単位置く
-          if (m.minutesPerUnit <= gap) amount = 1;
-          else continue;
-        }
-        amount = Math.min(amount, rem);
-        const minutes = Math.max(state.settings.sessionMinMinutes, Math.round(amount * m.minutesPerUnit));
-        if (minutes > gap) continue;
-        candidates.push({ kind: 'chunk', material: m, score, minutes, amount });
-      }
-
-      if (candidates.length === 0) break;
-
-      // インターリービング: 優先度が高くても同じ教材を連続させず、同一科目は
-      // 最大MAX_SAME_SUBJECT_STREAKブロックまで。代替候補がない場合のみ段階的に緩める。
-      // (交互練習+分散は長期記憶に有利: Taylor & Rohrer 2010 等)
-      const subjectOf = (c: (typeof candidates)[number]) => (c.kind === 'existing' ? c.task.subjectId : c.material.subjectId);
-      const materialIdOf = (c: (typeof candidates)[number]) => (c.kind === 'existing' ? c.task.materialId : c.material.id);
-      const keyOf = (c: (typeof candidates)[number]) => (c.kind === 'existing' ? `t:${c.task.id}` : `m:${c.material.id}`);
-      const fitsDailyBalance = (c: (typeof candidates)[number]) => {
-        const subj = subjectOf(c);
-        if ((minutesBySubject.get(subj) ?? 0) + c.minutes > subjectDayCap) return false;
-        if (c.kind === 'chunk') {
-          const rem = remaining.get(c.material.id) ?? 0;
-          const cap = materialDailyMinuteCap(c.material, rem, state, day, capacity);
-          if ((minutesByMaterial.get(c.material.id) ?? 0) + c.minutes > cap) return false;
-        }
-        return true;
-      };
-      const differentMaterial = (c: (typeof candidates)[number]) => {
-        const mid = materialIdOf(c);
-        return !mid || mid !== lastMaterialId;
-      };
-      const withinSubjectStreak = (c: (typeof candidates)[number]) =>
-        subjectOf(c) !== lastSubject || sameSubjectStreak < MAX_SAME_SUBJECT_STREAK;
-      const tiers = [
-        candidates.filter((c) => fitsDailyBalance(c) && withinSubjectStreak(c) && differentMaterial(c)),
-        candidates.filter((c) => fitsDailyBalance(c) && withinSubjectStreak(c)),
-        candidates.filter(fitsDailyBalance),
-        candidates,
-      ];
-      const pool = tiers.find((tier) => tier.length > 0) ?? candidates;
-      // スコア降順。同点はその日の配分が少ない科目を優先し、最後はIDで決定的に。
-      pool.sort(
-        (a, b) =>
-          b.score - a.score ||
-          (minutesBySubject.get(subjectOf(a)) ?? 0) - (minutesBySubject.get(subjectOf(b)) ?? 0) ||
-          keyOf(a).localeCompare(keyOf(b)),
-      );
-
-      const best = pool[0];
-      const bestSubject = best.kind === 'existing' ? best.task.subjectId : best.material.subjectId;
-      const bestMaterialId = best.kind === 'existing' ? best.task.materialId : best.material.id;
-      const window = advanceSlot(best.minutes);
-      if (!window) break;
-
-      if (best.kind === 'existing') {
-        const t = best.task;
-        toPlace.splice(toPlace.indexOf(t), 1);
-        const movedFrom = beforeTaskDates.get(t.id);
-        newTasks.push({
-          ...t,
-          scheduledDate: day,
-          scheduledStart: minutesToHM(window.start),
-          scheduledEnd: minutesToHM(window.end),
-          priority: best.score,
-          status: 'planned',
-        });
-        if (movedFrom && movedFrom !== day && movedFrom < fromDate) {
-          postponedChanges.push({
-            kind: 'moved',
-            taskTitle: t.title,
-            subjectId: t.subjectId,
-            detail: `未達成分を${day.slice(5).replace('-', '/')}に再配置`,
-          });
-        }
-      } else {
-        const m = best.material;
-        const rem = remaining.get(m.id) ?? 0;
-        const startUnit = m.totalAmount - rem + 1;
-        const endUnit = Math.min(m.totalAmount, startUnit + best.amount - 1);
-        remaining.set(m.id, Math.max(0, rem - best.amount));
-        newTasks.push(makeChunkTask(m, day, window, startUnit, endUnit, best.score));
-      }
-
-      budget -= best.minutes;
-      minutesBySubject.set(bestSubject, (minutesBySubject.get(bestSubject) ?? 0) + best.minutes);
-      if (bestMaterialId) minutesByMaterial.set(bestMaterialId, (minutesByMaterial.get(bestMaterialId) ?? 0) + best.minutes);
-      if (bestSubject === lastSubject) sameSubjectStreak += 1;
-      else {
-        lastSubject = bestSubject;
-        sameSubjectStreak = 1;
-      }
-      lastMaterialId = bestMaterialId;
-    }
-
-    day = addDays(day, 1);
-  }
-
-  // 配置しきれなかった再配置待ちタスクは期限順で先送り(期間外)
-  for (const t of toPlace) {
-    const target = t.dueDate && t.dueDate > horizonEnd ? t.dueDate : addDays(horizonEnd, 1);
-    newTasks.push({ ...t, scheduledDate: target, scheduledStart: null, scheduledEnd: null, status: 'planned' });
-    postponedChanges.push({
-      kind: 'postponed',
-      taskTitle: t.title,
-      subjectId: t.subjectId,
-      detail: `空き時間が足りず${target.slice(5).replace('-', '/')}以降に延期`,
-    });
-  }
-
-  for (const m of state.materials) {
-    if (m.archived || m.paused) continue;
-    const rem = remaining.get(m.id) ?? 0;
-    if (rem > 0 && m.targetDate <= horizonEnd) {
-      const days = Math.max(1, diffDays(fromDate, m.targetDate));
-      postponedChanges.push({
-        kind: 'grown',
-        taskTitle: m.name,
-        subjectId: m.subjectId,
-        detail: `期限に間に合わせるには1日あたり約${Math.ceil(rem / days)}${m.unit}の追加が必要`,
-      });
-    }
-  }
-
-  const allTasks = [...kept, ...newTasks];
-  const capacity = computeCapacity({ ...state, tasks: allTasks }, fromDate);
-
-  // --- 5. 差分サマリー ---
-  const afterMinutes = plannedMinutesBySubject(allTasks, fromDate, horizonEnd);
-  const subjectMinuteDelta: RescheduleResult['subjectMinuteDelta'] = [];
-  const subjectIds = new Set([...beforeMinutes.keys(), ...afterMinutes.keys()]);
-  for (const sid of subjectIds) {
-    const delta = (afterMinutes.get(sid) ?? 0) - (beforeMinutes.get(sid) ?? 0);
-    if (Math.abs(delta) >= 15) subjectMinuteDelta.push({ subjectId: sid, deltaMinutes: delta });
-  }
-  subjectMinuteDelta.sort((a, b) => Math.abs(b.deltaMinutes) - Math.abs(a.deltaMinutes));
-
-  const result: RescheduleResult = {
-    at: new Date().toISOString(),
-    reason,
-    changes: postponedChanges.slice(0, 8),
-    subjectMinuteDelta,
-    capacity,
-    summaryText: buildSummaryText(state.subjects, subjectMinuteDelta, postponedChanges, capacity, reason),
-  };
-
-  return {
-    state: { ...state, tasks: allTasks, lastReschedule: result, lastPlannedDate: horizonEnd },
-    result,
-  };
-}
-
-function makeChunkTask(
-  m: Material,
-  day: ISODate,
-  window: { start: number; end: number },
-  startUnit: number,
-  endUnit: number,
-  score: number,
-): StudyTask {
-  const rangeLabel = startUnit === endUnit ? `${startUnit}${m.unit}` : `${startUnit}〜${endUnit}${m.unit}`;
-  return {
-    id: genId('task'),
-    subjectId: m.subjectId,
-    materialId: m.id,
-    title: `${m.name}`,
-    rangeLabel: `${m.round > 1 ? `${m.round}周目 ` : ''}${rangeLabel}`,
-    rangeStart: startUnit,
-    rangeEnd: endUnit,
-    amount: endUnit - startUnit + 1,
-    estimatedMinutes: window.end - window.start,
-    priority: score,
-    dueDate: m.targetDate,
-    memo: '',
-    type: 'new',
-    status: 'planned',
-    scheduledDate: day,
-    scheduledStart: minutesToHM(window.start),
-    scheduledEnd: minutesToHM(window.end),
-    generatedBy: 'auto',
-    reviewStage: null,
-    createdAt: new Date().toISOString(),
-    completedAt: null,
-  };
-}
-
-// ============================================================
-// 集計ヘルパー
-// ============================================================
-
-function plannedMinutesBySubject(tasks: StudyTask[], from: ISODate, to: ISODate): Map<string, number> {
-  const map = new Map<string, number>();
-  for (const t of tasks) {
-    if (t.scheduledDate < from || t.scheduledDate > to) continue;
-    if (t.status === 'skipped') continue;
-    map.set(t.subjectId, (map.get(t.subjectId) ?? 0) + t.estimatedMinutes);
-  }
-  return map;
-}
-
 /** 直近14日間の科目別 予定達成率 */
 export function subjectAchievementMap(state: AppState, ref: ISODate): Map<string, number> {
   const from = addDays(ref, -14);
   const planned = new Map<string, number>();
   const done = new Map<string, number>();
-  for (const t of state.tasks) {
-    if (t.scheduledDate < from || t.scheduledDate >= ref) continue;
-    if (!isPlacedPlanTask(t)) continue;
-    planned.set(t.subjectId, (planned.get(t.subjectId) ?? 0) + 1);
-    if (t.status === 'done') done.set(t.subjectId, (done.get(t.subjectId) ?? 0) + 1);
+  for (const task of state.tasks) {
+    if (task.scheduledDate < from || task.scheduledDate >= ref || !isPlacedPlanTask(task)) continue;
+    planned.set(task.subjectId, (planned.get(task.subjectId) ?? 0) + task.estimatedMinutes);
+    if (task.status === 'done') done.set(task.subjectId, (done.get(task.subjectId) ?? 0) + task.estimatedMinutes);
+  }
+  for (const entry of state.planHistory ?? []) {
+    if (entry.scheduledDate < from || entry.scheduledDate >= ref) continue;
+    planned.set(entry.subjectId, (planned.get(entry.subjectId) ?? 0) + entry.estimatedMinutes);
   }
   const map = new Map<string, number>();
-  for (const [sid, p] of planned) {
-    map.set(sid, p > 0 ? (done.get(sid) ?? 0) / p : 1);
+  for (const [subjectId, minutes] of planned) {
+    map.set(subjectId, minutes > 0 ? (done.get(subjectId) ?? 0) / minutes : 1);
   }
   return map;
 }
@@ -868,7 +330,7 @@ export function computeCapacity(state: AppState, ref: ISODate, now = new Date())
   // 試験日までの利用可能分数
   let available = 0;
   let d = ref;
-  const currentDate = dateInTimeZone(now, state.settings.timezone ?? APP_TIME_ZONE);
+  const currentDate = dateInTimeZone(now, APP_TIME_ZONE);
   while (d <= examDate) {
     const dayCapacity = availableMinutesOn(state, d);
     if (d === currentDate) {
@@ -888,46 +350,6 @@ export function computeCapacity(state: AppState, ref: ISODate, now = new Date())
     deficitMinutes: Math.round(deficit),
     ok: deficit <= 0,
   };
-}
-
-// ============================================================
-// サマリーテキスト生成
-// ============================================================
-
-function buildSummaryText(
-  subjects: Subject[],
-  deltas: { subjectId: string; deltaMinutes: number }[],
-  changes: RescheduleChange[],
-  capacity: CapacityWarning,
-  reason: string,
-): string {
-  const name = (id: string) => subjects.find((s) => s.id === id)?.name ?? '不明';
-  const parts: string[] = [];
-
-  const increased = deltas.filter((d) => d.deltaMinutes > 0).slice(0, 2);
-  const decreased = deltas.filter((d) => d.deltaMinutes < 0).slice(0, 2);
-  if (increased.length > 0 && decreased.length > 0) {
-    parts.push(
-      `${decreased.map((d) => `${name(d.subjectId)}を${formatMinutes(-d.deltaMinutes)}減らし`).join('、')}、${increased
-        .map((d) => `${name(d.subjectId)}を${formatMinutes(d.deltaMinutes)}増やしました`)
-        .join('、')}。`,
-    );
-  } else if (increased.length > 0) {
-    parts.push(`${increased.map((d) => `${name(d.subjectId)}を${formatMinutes(d.deltaMinutes)}増やしました`).join('、')}。`);
-  } else if (decreased.length > 0) {
-    parts.push(`${decreased.map((d) => `${name(d.subjectId)}を${formatMinutes(-d.deltaMinutes)}減らしました`).join('、')}。`);
-  }
-
-  const postponed = changes.filter((c) => c.kind === 'postponed');
-  if (postponed.length > 0) parts.push(`${postponed.length}件のタスクを延期しました。`);
-
-  if (!capacity.ok) {
-    parts.push(`現在の計画では試験日までに約${formatMinutes(capacity.deficitMinutes)}不足しています。`);
-  } else if (parts.length === 0) {
-    parts.push('計画を最新の実績に合わせて最適化しました。');
-  }
-
-  return `${reason}のため計画を再設計しました。` + parts.join(' ');
 }
 
 // ============================================================
@@ -958,5 +380,3 @@ export function computeDayStatus(state: AppState, date: ISODate, capacity?: Capa
   if (avg >= 0.9 && cap.deficitMinutes < -600) return 'ahead';
   return 'onTrack';
 }
-
-export { today };

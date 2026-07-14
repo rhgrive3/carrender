@@ -4,7 +4,8 @@
  */
 /// <reference types="node" />
 import { buildDemoState } from '../src/data/demo';
-import { generatePlan, generatePlanV2, computeCapacity, computeDayStatus, availableMinutesOn, freeSlotsOn, futureFreeSlotsOn, fixedEventsOn, mergeMinuteRanges, normalizeUnitRanges, remainingUnitRanges, updateMinutesPerUnitEstimate } from '../src/lib/scheduler';
+import { generatePlan, computeCapacity, computeDayStatus, availableMinutesOn, freeSlotsOn, futureFreeSlotsOn, fixedEventsOn, normalizeUnitRanges, remainingUnitRanges, updateMinutesPerUnitEstimate } from '../src/lib/scheduler';
+import { generatePlanV2, mergeMinuteRanges } from '../src/lib/schedulerV2';
 import { generateReviewTasks } from '../src/lib/review';
 import { computeAnalytics, todayQuotaFor } from '../src/lib/analytics';
 import { computeAchievements, unlockedCount } from '../src/lib/achievements';
@@ -76,9 +77,9 @@ const outOfRange = state.tasks.filter(
 );
 check('全自動タスクが25〜90分の範囲(最終残量を除く)', outOfRange.length === 0, outOfRange.map((x) => `${x.title} ${x.estimatedMinutes}分`));
 
-// 未達成タスクがデモに含まれる
+// 未達成タスクは現在の計画から分離した履歴として保持する
 const overdueDemo = state.tasks.filter((x) => x.status === 'planned' && x.scheduledDate < t);
-check('デモに未達成タスクがある', overdueDemo.length >= 2, overdueDemo.length);
+check('デモに未達成履歴がある', (state.planHistory ?? []).length >= 2, state.planHistory?.length ?? 0);
 
 console.log('--- 週間タスク分布 ---');
 for (let i = 0; i < 7; i++) {

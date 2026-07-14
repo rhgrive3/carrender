@@ -198,7 +198,7 @@ export function MaterialsScreen({
 // 教材追加・編集フォーム
 // ============================================================
 
-export function MaterialFormSheet({ material, onClose }: { material: Material | null; onClose: () => void }) {
+function MaterialFormSheet({ material, onClose }: { material: Material | null; onClose: () => void }) {
   const { state, execute } = useApp();
   const toast = useToast();
   const t = today();
@@ -238,7 +238,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       toast('教材名・科目・総量を入力してください');
       return;
     }
-    const dateError = validateMaterialDates(startDate, targetDate, preferredFinishDate);
+    const dateError = validateMaterialDates(startDate, targetDate, preferredFinishDate, state.goal?.examDate);
     if (dateError) { toast(dateError); return; }
     const reviewIntervals = reviewIntervalsText
       .split(',')
@@ -348,7 +348,7 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       </div>
       <div className="field">
         <label htmlFor="mf-target">目標完了日</label>
-        <input id="mf-target" type="date" value={targetDate} min={isEdit ? undefined : t} onChange={(e) => setTargetDate(e.target.value)} />
+        <input id="mf-target" type="date" value={targetDate} min={isEdit ? undefined : t} max={state.goal?.examDate} onChange={(e) => setTargetDate(e.target.value)} />
         <div className="field-hint">この日までに終わるよう毎日の計画を自動で組みます。あとは保存するだけでOK。</div>
       </div>
 

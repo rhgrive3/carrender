@@ -8,7 +8,7 @@ export function notificationSupported(): boolean {
   return typeof window !== 'undefined' && 'Notification' in window;
 }
 
-export function notificationGranted(): boolean {
+function notificationGranted(): boolean {
   return notificationSupported() && Notification.permission === 'granted';
 }
 

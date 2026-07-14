@@ -13,10 +13,10 @@ import type {
   Subject,
   UserGoal,
 } from '../types';
-import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, isAppStateShape, migrateState, STATE_VERSION } from '../lib/storage';
+import { loadState, saveState, saveStateNow, getStateOwner, setStateOwner, isAppStateShape, migrateState, STATE_VERSION, subscribeStateSaveFailure } from '../lib/storage';
 import { generatePlan, normalizeUnitRanges, remainingUnitRanges, sumRangeLengths, updateMinutesPerUnitEstimate } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
-import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
+import { addDays, genId, hmToMinutes, localDateTimeToISOString, minutesToHM, today } from '../lib/date';
 import { buildDemoState } from '../data/demo';
 import { defaultSettings, defaultAvailability } from '../data/defaults';
 import { useAuth } from './AuthContext';
@@ -195,7 +195,7 @@ export function resolveSessionProgress(state: AppState, input: SessionInput) {
 }
 
 /** タイマー開始後の再計算でIDが変わっても、同一の教材範囲・作業系列へ記録する。 */
-export function findCurrentTask(state: AppState, input: Pick<SessionInput, 'taskId' | 'taskLocator' | 'materialId'>): StudyTask | undefined {
+function findCurrentTask(state: AppState, input: Pick<SessionInput, 'taskId' | 'taskLocator' | 'materialId'>): StudyTask | undefined {
   const exact = input.taskId ? state.tasks.find((item) => item.id === input.taskId) : undefined;
   if (exact) return exact;
   const locator = input.taskLocator;
@@ -319,7 +319,6 @@ function settingsAffectPlan(previous: AppSettings, next: AppSettings): boolean {
   return previous.maxDailyMinutes !== next.maxDailyMinutes
     || previous.sessionMinMinutes !== next.sessionMinMinutes
     || previous.sessionMaxMinutes !== next.sessionMaxMinutes
-    || previous.timezone !== next.timezone
     || previous.taskGenerationHorizonDays !== next.taskGenerationHorizonDays
     || JSON.stringify(previous.reviewRule) !== JSON.stringify(next.reviewRule);
 }
@@ -342,7 +341,7 @@ function subtractRanges(ranges: { start: number; end: number }[], removals: { st
  * 旧記録には由来範囲がないため、現在進捗から新形式記録の寄与だけを除いた値を
  * 互換基準として扱う。これにより旧進捗を推測で消さず、新記録は何度でも再構築できる。
  */
-export function rebuildMaterialProgress(material: Material, beforeSessions: StudySession[], nextSessions: StudySession[]): Material {
+function rebuildMaterialProgress(material: Material, beforeSessions: StudySession[], nextSessions: StudySession[]): Material {
   const current = material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
   const beforeContributions = beforeSessions
     .filter((session) => session.materialId === material.id)
@@ -408,7 +407,7 @@ function recordSession(state: AppState, inp: SessionInput, sessionId = genId('se
     subjectId: inp.subjectId,
     materialId: inp.materialId,
     date: inp.date ?? t,
-    startedAt: inp.date && inp.startTime ? new Date(`${inp.date}T${inp.startTime}:00`).toISOString() : now,
+    startedAt: inp.date && inp.startTime ? localDateTimeToISOString(inp.date, inp.startTime) : now,
     minutes: inp.minutes,
     amountDone: progress.amountDone,
     rangeLabel: inp.rangeLabel,
@@ -513,6 +512,7 @@ export function appReducer(state: AppState, action: Action): AppState {
     }
 
     case 'ADD_MATERIAL': {
+      if (state.goal && action.material.targetDate > state.goal.examDate) return state;
       const completedRanges = action.material.completedRanges
         ?? (action.material.doneAmount > 0 ? [{ start: 1, end: action.material.doneAmount }] : []);
       const material = { ...action.material, totalUnits: action.material.totalUnits ?? action.material.totalAmount, completedRanges };
@@ -521,6 +521,7 @@ export function appReducer(state: AppState, action: Action): AppState {
     }
 
     case 'UPDATE_MATERIAL': {
+      if (state.goal && action.material.targetDate > state.goal.examDate) return state;
       const previous = state.materials.find((m) => m.id === action.material.id);
       const previousRanges = previous?.completedRanges
         ?? (previous && previous.doneAmount > 0 ? [{ start: 1, end: previous.doneAmount }] : []);
@@ -541,6 +542,9 @@ export function appReducer(state: AppState, action: Action): AppState {
         ...state,
         materials: state.materials.filter((m) => m.id !== action.materialId),
         tasks: state.tasks.filter((task) => action.deleteSessions ? task.materialId !== action.materialId : task.materialId !== action.materialId || task.status === 'done'),
+        planHistory: action.deleteSessions
+          ? (state.planHistory ?? []).filter((entry) => entry.materialId !== action.materialId)
+          : state.planHistory,
         sessions: action.deleteSessions ? state.sessions.filter((session) => session.materialId !== action.materialId) : state.sessions,
       };
       return generatePlan(next, t, `教材「${name}」の削除`).state;
@@ -561,6 +565,7 @@ export function appReducer(state: AppState, action: Action): AppState {
       if (state.subjects.length <= 1) return state;
       const referenced = state.materials.some((item) => item.subjectId === action.subjectId)
         || state.tasks.some((item) => item.subjectId === action.subjectId)
+        || (state.planHistory ?? []).some((item) => item.subjectId === action.subjectId)
         || state.sessions.some((item) => item.subjectId === action.subjectId);
       return referenced ? state : { ...state, subjects: state.subjects.filter((subject) => subject.id !== action.subjectId) };
     }
@@ -572,6 +577,7 @@ export function appReducer(state: AppState, action: Action): AppState {
         subjects: state.subjects.filter((subject) => subject.id !== action.sourceId),
         materials: state.materials.map((item) => item.subjectId === action.sourceId ? { ...item, subjectId: action.targetId } : item),
         tasks: state.tasks.map((item) => item.subjectId === action.sourceId ? { ...item, subjectId: action.targetId } : item),
+        planHistory: (state.planHistory ?? []).map((item) => item.subjectId === action.sourceId ? { ...item, subjectId: action.targetId } : item),
         sessions: state.sessions.map((item) => {
           const subjectId = item.subjectId === action.sourceId ? action.targetId : item.subjectId;
           const taskSnapshotBefore = item.taskSnapshotBefore?.subjectId === action.sourceId
@@ -712,6 +718,7 @@ export function appReducer(state: AppState, action: Action): AppState {
     }
 
     case 'UPDATE_GOAL':
+      if (state.materials.some((material) => !material.archived && material.targetDate > action.goal.examDate)) return state;
       return generatePlan({ ...state, goal: action.goal }, t, '試験日・目標の変更').state;
 
     case 'UPDATE_AVAILABILITY':
@@ -772,6 +779,7 @@ export function emptyState(): AppState {
     subjects: [],
     materials: [],
     tasks: [],
+    planHistory: [],
     sessions: [],
     availability: defaultAvailability(),
     dayPlans: [],
@@ -833,13 +841,14 @@ interface AppContextValue {
   hasUnsyncedChanges: boolean;
   resolveSyncConflict: (choice: 'local' | 'cloud') => Promise<void>;
   retrySync: () => void;
+  localSaveError: string | null;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 const DATA_PUSH_DEBOUNCE_MS = 900;
 
-export function normalizeCloudState(value: unknown): AppState {
+function normalizeCloudState(value: unknown): AppState {
   if (!isAppStateShape(value)) throw new Error('クラウドの学習データ形式が正しくありません');
   const migration = migrateState(value);
   if (!migration.ok) {
@@ -924,6 +933,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const lastLocallyTrackedState = useRef(state);
   const [syncReady, setSyncReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
+  const [localSaveError, setLocalSaveError] = useState<string | null>(null);
   const [syncConflictInfo, setSyncConflictInfo] = useState<MainSyncConflict | null>(null);
   const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -935,6 +945,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const skipNextRemotePush = useRef(false);
   const skipNextLocalDirty = useRef(false);
   const [syncAttempt, setSyncAttempt] = useState(0);
+
+  useEffect(() => subscribeStateSaveFailure((failure) => setLocalSaveError(failure?.message ?? null)), []);
 
   const markLocalClean = useCallback((updatedAt: string | null) => {
     if (owner) markMainSyncClean(owner, updatedAt);
@@ -1227,12 +1239,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const retrySync = useCallback(() => setSyncAttempt((attempt) => attempt + 1), []);
 
-  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync]);
+  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, localSaveError }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, localSaveError]);
   if (owner && !syncReady) {
     return <div className="screen"><div className="card">クラウドの最新データを確認中…</div></div>;
   }
   return <AppContext.Provider value={value}>
     {children}
+    {localSaveError && <div className="toast undo-notice" role="alert">{localSaveError}</div>}
     {undoEntry && isUndoEntryValid(undoEntry) && (
       <div className="toast undo-toast" role="status">
         <span>{undoEntry.label}</span>
@@ -1255,8 +1268,4 @@ export function useApp(): AppContextValue {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error('useApp must be used within AppProvider');
   return ctx;
-}
-
-export function resetStorage(): void {
-  clearState();
 }

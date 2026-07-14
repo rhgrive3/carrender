@@ -1,4 +1,4 @@
-export const MEMORY_DB_VERSION = 2;
+const MEMORY_DB_VERSION = 2;
 
 export const MEMORY_STORES = {
   items: 'memoryItems',

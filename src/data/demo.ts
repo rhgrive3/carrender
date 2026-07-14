@@ -1,5 +1,5 @@
 import type { AppState, Material, StudySession, StudyTask, Subject } from '../types';
-import { addDays, genId, today } from '../lib/date';
+import { addDays, genId, localDateTimeToISOString, today } from '../lib/date';
 import { generatePlan } from '../lib/scheduler';
 import { defaultSettings, defaultAvailability } from './defaults';
 
@@ -98,7 +98,7 @@ export function buildDemoState(): AppState {
     for (const [materialId, minutes, amount, focus] of dayPat.entries) {
       const m = materials.find((x) => x.id === materialId);
       if (!m) continue;
-      const startedAt = new Date(`${date}T${String(hour).padStart(2, '0')}:00:00`).toISOString();
+      const startedAt = localDateTimeToISOString(date, `${String(hour).padStart(2, '0')}:00`);
       hour += 1;
       const taskId = genId('task');
       sessions.push({
@@ -212,8 +212,8 @@ export function buildDemoState(): AppState {
   });
 
   const base: AppState = {
-    version: 3,
-    schemaVersion: 3,
+    version: 5,
+    schemaVersion: 5,
     isDemo: true,
     onboarded: true,
     goal: {
@@ -225,6 +225,7 @@ export function buildDemoState(): AppState {
     subjects,
     materials,
     tasks: [...doneTasks, ...reviewTasks],
+    planHistory: [],
     sessions,
     availability: defaultAvailability(),
     dayPlans: [],
@@ -243,5 +244,24 @@ export function buildDemoState(): AppState {
 
   // 今日以降の計画を自動生成して完成状態にする
   const { state } = generatePlan(base, t, '初期プラン作成');
-  return { ...state, tasks: [...state.tasks, ...missedTasks], lastReschedule: null };
+  return {
+    ...state,
+    planHistory: missedTasks.map((task) => ({
+      id: `missed:${task.id}:${task.scheduledDate}`,
+      taskId: task.id,
+      subjectId: task.subjectId,
+      materialId: task.materialId,
+      title: task.title,
+      scheduledDate: task.scheduledDate,
+      estimatedMinutes: task.estimatedMinutes,
+      amount: task.amount,
+      type: task.type,
+      outcome: 'missed' as const,
+      rangeStart: task.rangeStart,
+      rangeEnd: task.rangeEnd,
+      materialRange: task.materialRange,
+      capturedAt: new Date().toISOString(),
+    })),
+    lastReschedule: null,
+  };
 }

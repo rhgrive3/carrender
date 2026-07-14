@@ -400,8 +400,3 @@ export function isValidSessionQueueSnapshot(value: unknown): value is SessionQue
         && ['active', 'graduated', 'needs_review'].includes(progress.status);
     });
 }
-
-export function restoreSessionQueue(value: unknown): SessionQueueState {
-  if (!isValidSessionQueueSnapshot(value)) throw new Error('Invalid memory session queue snapshot');
-  return snapshotSessionQueue(value);
-}

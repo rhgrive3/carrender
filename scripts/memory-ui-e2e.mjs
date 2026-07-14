@@ -122,9 +122,28 @@ try {
   if (registered.status() !== 201) throw new Error(`registration failed: ${registered.status()} ${await registered.text()}`);
   await page.waitForFunction((owner) => localStorage.getItem('studycommander_auth_hint') === owner, username);
   await page.getByText('目標を教えてください', { exact: true }).waitFor();
-  await page.getByRole('button', { name: /まずはデモデータで試す/ }).click();
+
+  console.log('--- Memory UI: complete real onboarding and persist it ---');
+  await page.locator('#ob-goal').fill('共通テスト本番');
+  await page.getByRole('button', { name: '次へ', exact: true }).click();
+  await page.getByRole('button', { name: '数学', exact: true }).click();
+  await page.getByRole('button', { name: '英語', exact: true }).click();
+  await page.getByRole('button', { name: '次へ(2科目)', exact: true }).click();
+  await page.getByRole('button', { name: '次へ', exact: true }).click();
+  await page.getByRole('button', { name: '教材を追加', exact: true }).click();
+  await page.locator('#ob-mname-0').fill('数学基礎問題集');
+  await page.locator('#ob-mtotal-0').fill('30');
+  await page.getByRole('button', { name: '計画を自動生成する', exact: true }).click();
   await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem('studycommander_state_v1');
+    return !!raw && JSON.parse(raw).onboarded === true;
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
+  check('実オンボーディング完了状態が再読み込み後も保持される', await page.getByText('目標を教えてください', { exact: true }).count() === 0);
   await page.getByRole('button', { name: '教材', exact: true }).click();
+  await page.getByText('数学基礎問題集', { exact: true }).waitFor();
   await page.getByRole('radio', { name: '暗記カード' }).click();
   await page.getByRole('heading', { name: '暗記カード' }).waitFor();
   check('既存下部ナビを増やさず教材から暗記へ入る', await page.locator('.bottom-nav button').count() === 5);

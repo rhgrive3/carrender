@@ -1,13 +1,12 @@
 import type { AppSettings, TimerSettings } from '../types';
 
-export type StudySettingsDraft = Pick<AppSettings, 'maxDailyMinutes' | 'sessionMinMinutes' | 'sessionMaxMinutes' | 'timezone' | 'taskGenerationHorizonDays'>;
+export type StudySettingsDraft = Pick<AppSettings, 'maxDailyMinutes' | 'sessionMinMinutes' | 'sessionMaxMinutes' | 'taskGenerationHorizonDays'>;
 
 export function studySettingsDraft(settings: AppSettings): StudySettingsDraft {
   return {
     maxDailyMinutes: settings.maxDailyMinutes,
     sessionMinMinutes: settings.sessionMinMinutes,
     sessionMaxMinutes: settings.sessionMaxMinutes,
-    timezone: settings.timezone,
     taskGenerationHorizonDays: settings.taskGenerationHorizonDays,
   };
 }

@@ -127,6 +127,24 @@ export interface StudyTask {
   manualOrder?: number;
 }
 
+/** 再計算で未来へ移された後も、当時の未達成予定を分析へ残す不変スナップショット。 */
+export interface PlanHistoryEntry {
+  id: string;
+  taskId: string;
+  subjectId: string;
+  materialId: string | null;
+  title: string;
+  scheduledDate: ISODate;
+  estimatedMinutes: number;
+  amount: number;
+  type: TaskType;
+  outcome: 'missed';
+  rangeStart: number | null;
+  rangeEnd: number | null;
+  materialRange?: UnitRange;
+  capturedAt: string;
+}
+
 export interface ManualTaskScheduling {
   placementPolicy: 'fixedTime' | 'fixedDateFlexibleTime' | 'flexibleBeforeDeadline';
   fixedDate?: LocalDate;
@@ -295,7 +313,6 @@ export interface AppSettings {
   /** 週間目標学習時間(分)。0なら未設定 */
   weeklyTargetMinutes: number;
   timer: TimerSettings;
-  timezone?: TimeZoneId;
   taskGenerationHorizonDays?: number;
   estimateAlpha?: number;
 }
@@ -469,6 +486,8 @@ export interface AppState {
   subjects: Subject[];
   materials: Material[];
   tasks: StudyTask[];
+  /** v4以前の保存データでは未定義。normalizeStateで空配列へ補完する。 */
+  planHistory?: PlanHistoryEntry[];
   sessions: StudySession[];
   availability: AvailabilitySlot[];
   dayPlans: DayPlanOverride[];

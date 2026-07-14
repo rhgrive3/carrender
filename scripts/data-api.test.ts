@@ -1,6 +1,7 @@
 /** D1全体保存の楽観的ロック・応答安全性・構造検証の回帰テスト。 */
 /// <reference types="node" />
 /// <reference types="@cloudflare/workers-types" />
+import { validateAppStatePayload } from '../functions/_shared/appState';
 import { nextDataVersion, onRequestGet, onRequestPut, utf8ByteLength } from '../functions/api/data';
 
 let failures = 0;
@@ -120,6 +121,66 @@ const malformedResponse = await putBody(JSON.stringify({
   sessions: [],
 }), version);
 check('構造が壊れたAppStateを保存しない', malformedResponse.status === 400, malformedResponse.status);
+
+console.log('--- AppState構造・参照整合性 ---');
+const structured = {
+  ...validState('structured'),
+  goal: { id: 'goal', name: '試験', examDate: '2026-08-31', createdAt: '2026-07-14T00:00:00.000Z' },
+  subjects: [{ id: 'subject', name: '数学', color: '#4f7cff', importance: 3, weakness: 3 }],
+  materials: [{
+    id: 'material', subjectId: 'subject', name: '問題集', totalAmount: 10, doneAmount: 2, minutesPerUnit: 10,
+    startDate: '2026-07-14', targetDate: '2026-08-20', completedRanges: [{ start: 1, end: 2 }], archived: false,
+  }],
+  tasks: [{
+    id: 'task', subjectId: 'subject', materialId: 'material', title: '問題集', scheduledDate: '2026-07-14',
+    estimatedMinutes: 20, amount: 2, status: 'planned', scheduledStart: '18:00', scheduledEnd: '18:20',
+  }],
+  sessions: [{
+    id: 'session', subjectId: 'subject', materialId: 'material', date: '2026-07-14', minutes: 20, amountDone: 2,
+  }],
+  availability: [{ weekday: 1, minutes: 120, windows: [{ start: '18:00', end: '20:00' }] }],
+  dayPlans: [{ date: '2026-07-15', availabilityWindows: null }],
+  fixedEvents: [{ id: 'event', title: '学校', weekday: 1, date: null, start: '08:00', end: '16:00' }],
+  planHistory: [],
+};
+check('内部整合したAppStateを受理', validateAppStatePayload(structured).ok, validateAppStatePayload(structured));
+check('教材総量超過の完了量を拒否', !validateAppStatePayload({ ...structured, materials: [{ ...structured.materials[0], doneAmount: 11 }] }).ok);
+check('重複IDを拒否', !validateAppStatePayload({ ...structured, subjects: [...structured.subjects, { ...structured.subjects[0] }] }).ok);
+check('存在しない科目参照を拒否', !validateAppStatePayload({ ...structured, materials: [{ ...structured.materials[0], subjectId: 'missing' }] }).ok);
+check('未完了タスクの存在しない教材参照を拒否', !validateAppStatePayload({ ...structured, tasks: [{ ...structured.tasks[0], materialId: 'missing' }] }).ok);
+check('教材期限が試験日より後なら拒否', !validateAppStatePayload({ ...structured, materials: [{ ...structured.materials[0], targetDate: '2026-09-01' }] }).ok);
+check('不正な時刻と日付を拒否', !validateAppStatePayload({ ...structured, tasks: [{ ...structured.tasks[0], scheduledDate: '2026-02-30', scheduledStart: '25:00', scheduledEnd: '26:00' }] }).ok);
+check('固定予定の片側だけの有効期間を拒否', !validateAppStatePayload({
+  ...structured,
+  fixedEvents: [{ ...structured.fixedEvents[0], startDate: '2026-07-01', endDate: null }],
+}).ok);
+check('対象日を持たない固定予定を拒否', !validateAppStatePayload({
+  ...structured,
+  fixedEvents: [{ ...structured.fixedEvents[0], weekday: null, date: null }],
+}).ok);
+check('同じ日の日別例外を重複登録できない', !validateAppStatePayload({
+  ...structured,
+  dayPlans: [...structured.dayPlans, { ...structured.dayPlans[0] }],
+}).ok);
+check('不正な未達成履歴を拒否', !validateAppStatePayload({
+  ...structured,
+  planHistory: [{
+    id: 'missed:bad', taskId: 'old', subjectId: 'subject', materialId: 'material', title: '',
+    scheduledDate: '2026-07-13', estimatedMinutes: 20, amount: -1, type: 'new', outcome: 'missed',
+    rangeStart: 2, rangeEnd: 1, capturedAt: 'not-a-date',
+  }],
+}).ok);
+const historicalReferences = {
+  ...structured,
+  tasks: [{ ...structured.tasks[0], id: 'done-old', materialId: 'deleted-material', status: 'done' }],
+  sessions: [{ ...structured.sessions[0], id: 'session-old', materialId: 'deleted-material' }],
+  planHistory: [{
+    id: 'missed:old', taskId: 'old', subjectId: 'subject', materialId: 'deleted-material', title: '削除済み教材',
+    scheduledDate: '2026-07-13', estimatedMinutes: 20, amount: 2, type: 'new', outcome: 'missed',
+    rangeStart: 1, rangeEnd: 2, capturedAt: '2026-07-14T00:00:00.000Z',
+  }],
+};
+check('削除済み教材を指す完了履歴・実績は保持可能', validateAppStatePayload(historicalReferences).ok, validateAppStatePayload(historicalReferences));
 
 const validSnapshot = appState;
 appState = JSON.stringify({ onboarded: true, settings: {}, subjects: [], materials: 'broken', tasks: [], sessions: [] });

@@ -1,5 +1,5 @@
 import type { ISODate } from '../types';
-import { addDays, APP_TIME_ZONE, hmToMinutes, minutesToHM, toISODate } from './date';
+import { addDays, APP_TIME_ZONE, hmToMinutes, minutesInTimeZone, minutesToHM, toISODate } from './date';
 
 const DAY_MINUTES = 24 * 60;
 const LATEST_END_MINUTE = DAY_MINUTES - 1;
@@ -18,18 +18,6 @@ interface NormalizeTaskScheduleOptions {
   defaultNextDayStart?: string;
 }
 
-function currentMinutesInTimeZone(now: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(now);
-  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
-  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
-  return (hour % 24) * 60 + minute;
-}
-
 function roundUpToStep(min: number, step: number): number {
   return Math.ceil(min / step) * step;
 }
@@ -44,7 +32,7 @@ export function normalizeTaskSchedule(
   const now = options.now ?? new Date();
   const minStartBufferMin = options.minStartBufferMin ?? 5;
   const defaultNextDayStart = options.defaultNextDayStart ?? '09:00';
-  const today = toISODate(now);
+  const today = toISODate(now, timeZone);
 
   let normalizedDate = date < today ? today : date;
   if (!startTime) {
@@ -52,7 +40,7 @@ export function normalizeTaskSchedule(
   }
 
   let startMin = hmToMinutes(startTime);
-  const minimumStart = roundUpToStep(currentMinutesInTimeZone(now, timeZone) + minStartBufferMin, 5);
+  const minimumStart = roundUpToStep(minutesInTimeZone(now, timeZone) + minStartBufferMin, 5);
 
   if (date < today || (date === today && startMin < minimumStart)) {
     startMin = Math.max(startMin, minimumStart);

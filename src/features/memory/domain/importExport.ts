@@ -1282,7 +1282,3 @@ export function createFullMemoryBackup(input: {
     settings: { ...(input.settings ?? {}) },
   };
 }
-
-export function stringifyMemoryExport(value: AiContentDocument | SelectedSetExport | FullMemoryBackup): string {
-  return JSON.stringify(value, null, 2);
-}

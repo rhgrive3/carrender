@@ -252,7 +252,3 @@ export async function undoMemoryAnswer(
   await repository.undoAttempt(persisted.undo.attemptId, persisted.undo.previousStats, restored);
   return { session: restored, queue: undone.state };
 }
-
-export function currentSessionTarget(session: MemorySession): LearningTarget | undefined {
-  return currentLearningTarget(queueFromSession(session));
-}

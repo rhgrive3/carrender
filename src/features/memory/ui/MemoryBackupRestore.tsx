@@ -5,6 +5,7 @@ import {
   type FullMemoryBackupParseResult,
 } from '../domain/importExport';
 import { useToast } from '../../../components/ui/Toast';
+import { APP_TIME_ZONE } from '../../../lib/date';
 import { useMemory } from './MemoryContext';
 
 const MAX_BACKUP_BYTES = 25_000_000;
@@ -109,7 +110,7 @@ export function MemoryBackupRestore() {
         )}
         {result?.valid && result.backup && result.counts && (
           <div className="memory-backup-preview">
-            <b>検証済み：{new Date(result.backup.exportedAt).toLocaleString('ja-JP')}</b>
+            <b>検証済み：{new Date(result.backup.exportedAt).toLocaleString('ja-JP', { timeZone: APP_TIME_ZONE })}</b>
             <div className="memory-backup-counts">
               <span>セット <b>{result.counts.sets}</b></span>
               <span>項目 <b>{result.counts.items}</b></span>

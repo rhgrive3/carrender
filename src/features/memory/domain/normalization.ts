@@ -43,7 +43,7 @@ function escapeRegExp(value: string): string {
  * Placeholders must contain at least one non-space character, so a missing object
  * never becomes a match. Literal parts still receive normal answer normalization.
  */
-export function compileAnswerPattern(pattern: string): RegExp | null {
+function compileAnswerPattern(pattern: string): RegExp | null {
   const normalized = normalizeAnswerText(pattern);
   if (normalized === '') return null;
 

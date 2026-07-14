@@ -18,6 +18,7 @@ import {
   type SelectedSetImportPreview,
 } from '../application/selectedSetImport';
 import { useToast } from '../../../components/ui/Toast';
+import { today } from '../../../lib/date';
 import { MemoryBackupRestore } from './MemoryBackupRestore';
 import { useMemory } from './MemoryContext';
 
@@ -227,7 +228,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
       baseRevision: maximumContentRevision(content),
       exportedAt: new Date().toISOString(),
     });
-    downloadJson(`carrender-ai-content-${new Date().toISOString().slice(0, 10)}.json`, document);
+    downloadJson(`carrender-ai-content-${today()}.json`, document);
   };
 
   const copyChatGptRequest = async () => {
@@ -259,7 +260,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
       includeStats: includeSelectedExportStats,
       stats: snapshot.stats,
     });
-    downloadJson(`carrender-memory-sets-${new Date().toISOString().slice(0, 10)}.json`, document);
+    downloadJson(`carrender-memory-sets-${today()}.json`, document);
   };
 
   const exportBackup = async () => {
@@ -275,7 +276,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
       exportedAt: new Date().toISOString(),
       settings: {},
     });
-    downloadJson(`carrender-memory-backup-${new Date().toISOString().slice(0, 10)}.json`, document);
+    downloadJson(`carrender-memory-backup-${today()}.json`, document);
   };
 
   const inspectAi = async () => {

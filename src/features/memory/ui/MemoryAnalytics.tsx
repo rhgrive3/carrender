@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { APP_TIME_ZONE } from '../../../lib/date';
 import { ArrowLeft } from 'lucide-react';
 import type { ErrorType, MemoryAttempt, MemorySession, MemorySetBundle, MemoryStat } from '../domain/types';
 import { generateLearningTargets, summarizeLearningTargetStats } from '../domain/selectors';
@@ -105,7 +106,7 @@ export function MemoryAnalytics({ setIds }: { setIds: string[] }) {
             incorrect: rows.filter((attempt) => attempt.assessment === 'incorrect').length,
             skipped: rows.filter((attempt) => attempt.assessment === 'skipped').length,
           };
-          return <div key={session.id}><span><b>{new Date(session.createdAt).toLocaleDateString('ja-JP')}</b><small>{bundle.sets.filter((set) => session.selectedSetIds.includes(set.id)).map((set) => set.name).join('・')}</small></span><span>回答 {session.answerCount}</span><span>正解 {assessmentCounts.correct}・部分 {assessmentCounts.partial}・不正解 {assessmentCounts.incorrect}・スキップ {assessmentCounts.skipped}</span><span>要確認 {session.needsReviewTargetIds.length}</span><span>平均 {rows.length ? (rows.reduce((sum, attempt) => sum + attempt.responseMs, 0) / rows.length / 1000).toFixed(1) : '—'}秒</span></div>;
+          return <div key={session.id}><span><b>{new Date(session.createdAt).toLocaleDateString('ja-JP', { timeZone: APP_TIME_ZONE })}</b><small>{bundle.sets.filter((set) => session.selectedSetIds.includes(set.id)).map((set) => set.name).join('・')}</small></span><span>回答 {session.answerCount}</span><span>正解 {assessmentCounts.correct}・部分 {assessmentCounts.partial}・不正解 {assessmentCounts.incorrect}・スキップ {assessmentCounts.skipped}</span><span>要確認 {session.needsReviewTargetIds.length}</span><span>平均 {rows.length ? (rows.reduce((sum, attempt) => sum + attempt.responseMs, 0) / rows.length / 1000).toFixed(1) : '—'}秒</span></div>;
         })}
       </article>
     </section>

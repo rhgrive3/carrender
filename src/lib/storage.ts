@@ -1,4 +1,4 @@
-import type { AppState, ValidationIssue } from '../types';
+import type { AppState, TimeRange, ValidationIssue } from '../types';
 import { defaultAvailability, defaultSettings, defaultTimerSettings } from '../data/defaults';
 import { toISODate } from './date';
 import { clearMainSyncMetadata } from './mainSync';
@@ -9,10 +9,10 @@ const BACKUP_KEY = 'studycommander_state_migration_backup';
 const TIMER_KEY = 'studycommander_timer_v1';
 const UPDATED_KEY = 'studycommander_state_updated_at_v1';
 /**
- * v4: 新規StudySessionだけに進捗・タスク由来情報を追加する。旧セッションは
- * 現在の教材進捗を互換基準として保持し、推測による二重加減算をしない。
+ * v5: v4の記録再構築情報に加え、再計算前の未達成予定をplanHistoryへ保持する。
+ * 旧セッションは現在進捗を互換基準として残し、推測で二重加減算しない。
  */
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 
 
 export function isAppStateShape(value: unknown): value is AppState {
@@ -22,6 +22,7 @@ export function isAppStateShape(value: unknown): value is AppState {
     && Array.isArray(candidate.subjects)
     && Array.isArray(candidate.materials)
     && Array.isArray(candidate.tasks)
+    && (candidate.planHistory === undefined || Array.isArray(candidate.planHistory))
     && Array.isArray(candidate.sessions)
     && (candidate.availability === undefined || Array.isArray(candidate.availability))
     && (candidate.dayPlans === undefined || Array.isArray(candidate.dayPlans))
@@ -76,14 +77,42 @@ export function loadState(): AppState | null {
   }
 }
 
-/** local cache が実際に最後に確定保存された時刻。クラウド起動同期の世代比較に使う。 */
-export function getLocalStateUpdatedAt(): string | null {
-  try { return localStorage.getItem(UPDATED_KEY); } catch { return null; }
+
+export interface StateSaveFailure {
+  message: string;
+  at: string;
+}
+
+type StateSaveFailureListener = (failure: StateSaveFailure | null) => void;
+const stateSaveFailureListeners = new Set<StateSaveFailureListener>();
+let currentStateSaveFailure: StateSaveFailure | null = null;
+
+export function subscribeStateSaveFailure(listener: StateSaveFailureListener): () => void {
+  stateSaveFailureListeners.add(listener);
+  listener(currentStateSaveFailure);
+  return () => stateSaveFailureListeners.delete(listener);
+}
+
+function publishStateSaveFailure(failure: StateSaveFailure | null): void {
+  currentStateSaveFailure = failure;
+  for (const listener of stateSaveFailureListeners) listener(failure);
 }
 
 function saveSerialized(state: AppState): void {
   localStorage.setItem(KEY, JSON.stringify(state));
   localStorage.setItem(UPDATED_KEY, new Date().toISOString());
+  publishStateSaveFailure(null);
+}
+
+function reportStateSaveFailure(error: unknown): void {
+  console.error('保存に失敗しました', error);
+  const quota = error instanceof DOMException && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+  publishStateSaveFailure({
+    message: quota
+      ? '端末保存容量を超えました。ページを閉じる前にJSONを書き出してください'
+      : '端末への保存に失敗しました。ページを閉じる前に同期またはJSON書き出しを確認してください',
+    at: new Date().toISOString(),
+  });
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -95,7 +124,7 @@ export function saveState(state: AppState): void {
     try {
       saveSerialized(state);
     } catch (e) {
-      console.error('保存に失敗しました', e);
+      reportStateSaveFailure(e);
     }
   }, 250);
 }
@@ -106,26 +135,23 @@ export function saveStateNow(state: AppState): void {
   try {
     saveSerialized(state);
   } catch (e) {
-    console.error('保存に失敗しました', e);
+    reportStateSaveFailure(e);
   }
-}
-
-export function clearState(): void {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = null;
-  localStorage.removeItem(KEY);
-  localStorage.removeItem(UPDATED_KEY);
 }
 
 /** ログアウト時: 端末に残る学習データキャッシュと持ち主情報を消す(共用端末での漏えい防止) */
 export function clearOwnedState(): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = null;
-  localStorage.removeItem(KEY);
-  localStorage.removeItem(UPDATED_KEY);
-  localStorage.removeItem(OWNER_KEY);
-  localStorage.removeItem(TIMER_KEY);
-  localStorage.removeItem(BACKUP_KEY);
+  try {
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(UPDATED_KEY);
+    localStorage.removeItem(OWNER_KEY);
+    localStorage.removeItem(TIMER_KEY);
+    localStorage.removeItem(BACKUP_KEY);
+  } catch {
+    // Storage APIが拒否されても、認証側のログアウト処理は継続させる。
+  }
   clearMainSyncMetadata();
 }
 
@@ -198,9 +224,11 @@ export function migrateState(input: AppState): MigrationResult {
 
 export function normalizeState(input: AppState): AppState {
   const timerDefaults = defaultTimerSettings();
+  const rawSettings = (input.settings ?? {}) as AppState['settings'] & { timezone?: unknown };
+  const { timezone: _legacyTimezone, ...inputSettings } = rawSettings;
   const settings = {
     ...defaultSettings(),
-    ...(input.settings ?? {}),
+    ...inputSettings,
     // v2以前の保存データにはtimer/weeklyTargetMinutesがないため深いレベルで補完する
     weeklyTargetMinutes: Math.max(0, input.settings?.weeklyTargetMinutes ?? 0),
     reviewRule: {
@@ -222,15 +250,16 @@ export function normalizeState(input: AppState): AppState {
     : availabilityDefaults
   ).map((slot) => {
     const fallback = availabilityDefaults.find((x) => x.weekday === slot.weekday) ?? availabilityDefaults[0];
-    const minutes = Number.isFinite(slot.minutes) ? Math.max(0, slot.minutes) : fallback.minutes;
+    const maxMinutes = maximumGeneratedMinutes(slot.weekday);
+    const minutes = Number.isFinite(slot.minutes)
+      ? Math.max(0, Math.min(maxMinutes, Math.floor(slot.minutes)))
+      : fallback.minutes;
+    const windows = sanitizeTimeRanges(slot.windows, windowsFromMinutes(slot.weekday, minutes));
     return {
       ...fallback,
       ...slot,
-      minutes,
-      windows:
-        Array.isArray(slot.windows)
-          ? slot.windows
-          : windowsFromMinutes(slot.weekday, minutes),
+      minutes: Math.min(minutes, windows.reduce((sum, window) => sum + timeRangeMinutes(window), 0)),
+      windows,
     };
   });
   const rawSubjects = Array.isArray(input.subjects) ? input.subjects : [];
@@ -251,26 +280,8 @@ export function normalizeState(input: AppState): AppState {
     settings,
     subjects,
     availability,
-    dayPlans: Array.isArray(input.dayPlans)
-      ? input.dayPlans.map((p) => ({
-          date: p.date,
-          load: p.load ?? 'normal',
-          memo: p.memo ?? '',
-          availabilityWindows:
-            p.availabilityWindows === null
-              ? null
-              : Array.isArray(p.availabilityWindows)
-                ? p.availabilityWindows
-                : null,
-        }))
-      : [],
-    fixedEvents: Array.isArray(input.fixedEvents)
-      ? input.fixedEvents.map((e) => ({
-          ...e,
-          startDate: e.startDate ?? null,
-          endDate: e.endDate ?? null,
-        }))
-      : [],
+    dayPlans: normalizeDayPlans(input.dayPlans),
+    fixedEvents: normalizeFixedEvents(input.fixedEvents),
     materials: (input.materials ?? []).map((m) => ({
       ...m,
       subjectId: normalizeSubjectId(m.subjectId),
@@ -330,6 +341,7 @@ export function normalizeState(input: AppState): AppState {
         updatedAt: t.updatedAt ?? t.createdAt,
       };
     }),
+    planHistory: normalizePlanHistory(input.planHistory, normalizeSubjectId),
     sessions: (input.sessions ?? []).map((session) => ({
       ...session,
       subjectId: normalizeSubjectId(session.subjectId),
@@ -340,6 +352,104 @@ export function normalizeState(input: AppState): AppState {
     lastScheduleResult: input.lastScheduleResult ?? null,
     lastPlanReason: input.lastPlanReason ?? null,
   };
+}
+
+function normalizeDayPlans(value: AppState['dayPlans'] | undefined): AppState['dayPlans'] {
+  if (!Array.isArray(value)) return [];
+  const byDate = new Map<string, AppState['dayPlans'][number]>();
+  for (const plan of value) {
+    if (!plan || !validISODate(plan.date)) continue;
+    byDate.set(plan.date, {
+      date: plan.date,
+      load: plan.load ?? 'normal',
+      memo: typeof plan.memo === 'string' ? plan.memo : '',
+      availabilityWindows:
+        plan.availabilityWindows === null
+          ? null
+          : Array.isArray(plan.availabilityWindows)
+            ? sanitizeTimeRanges(plan.availabilityWindows, [])
+            : null,
+    });
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function normalizeFixedEvents(value: AppState['fixedEvents'] | undefined): AppState['fixedEvents'] {
+  if (!Array.isArray(value)) return [];
+  const byId = new Map<string, AppState['fixedEvents'][number]>();
+  for (const event of value) {
+    if (!event
+      || typeof event.id !== 'string'
+      || event.id.trim().length === 0
+      || typeof event.title !== 'string'
+      || event.title.trim().length === 0
+      || !validTimeRange(event.start, event.end)) continue;
+    const date = event.date === null || event.date === undefined ? null : event.date;
+    const weekday = event.weekday === null || event.weekday === undefined ? null : event.weekday;
+    const startDate = event.startDate === null || event.startDate === undefined ? null : event.startDate;
+    const endDate = event.endDate === null || event.endDate === undefined ? null : event.endDate;
+    const hasDate = date !== null;
+    const hasWeekday = weekday !== null;
+    const hasStartDate = startDate !== null;
+    const hasEndDate = endDate !== null;
+    if (hasDate && !validISODate(date)) continue;
+    if (hasWeekday && (!Number.isInteger(weekday) || weekday < 0 || weekday > 6)) continue;
+    if (hasStartDate !== hasEndDate
+      || (hasStartDate && (!validISODate(startDate) || !validISODate(endDate) || startDate > endDate))) continue;
+    if (!hasDate && !hasWeekday && !hasStartDate) continue;
+    byId.set(event.id, {
+      ...event,
+      title: event.title.trim(),
+      date,
+      weekday,
+      startDate,
+      endDate,
+    });
+  }
+  return [...byId.values()];
+}
+
+function normalizePlanHistory(
+  value: AppState['planHistory'] | undefined,
+  normalizeSubjectId: (subjectId: string) => string,
+): NonNullable<AppState['planHistory']> {
+  if (!Array.isArray(value)) return [];
+  const byId = new Map<string, NonNullable<AppState['planHistory']>[number]>();
+  for (const entry of value) {
+    if (!entry
+      || typeof entry.id !== 'string'
+      || entry.id.trim().length === 0
+      || typeof entry.taskId !== 'string'
+      || entry.taskId.trim().length === 0
+      || typeof entry.subjectId !== 'string'
+      || typeof entry.title !== 'string'
+      || entry.title.trim().length === 0
+      || !validISODate(entry.scheduledDate)
+      || !Number.isFinite(entry.estimatedMinutes)
+      || entry.estimatedMinutes <= 0
+      || !Number.isFinite(entry.amount)
+      || entry.amount < 0
+      || !Number.isFinite(Date.parse(entry.capturedAt))
+      || entry.outcome !== 'missed') continue;
+    const hasRangeStart = entry.rangeStart !== null && entry.rangeStart !== undefined;
+    const hasRangeEnd = entry.rangeEnd !== null && entry.rangeEnd !== undefined;
+    if (hasRangeStart !== hasRangeEnd
+      || (hasRangeStart && (!Number.isFinite(entry.rangeStart)
+        || !Number.isFinite(entry.rangeEnd)
+        || entry.rangeStart! < 1
+        || entry.rangeEnd! < entry.rangeStart!))) continue;
+    if (entry.materialRange
+      && (!Number.isInteger(entry.materialRange.start)
+        || !Number.isInteger(entry.materialRange.end)
+        || entry.materialRange.start < 1
+        || entry.materialRange.end < entry.materialRange.start)) continue;
+    byId.set(entry.id, {
+      ...entry,
+      title: entry.title.trim(),
+      subjectId: normalizeSubjectId(entry.subjectId),
+    });
+  }
+  return [...byId.values()];
 }
 
 function normalizeCompletedRanges(ranges: { start: number; end: number }[]) {
@@ -359,21 +469,62 @@ function rangeLength(ranges: { start: number; end: number }[]) {
   return ranges.reduce((sum, range) => sum + Math.max(0, range.end - range.start + 1), 0);
 }
 
-function windowsFromMinutes(weekday: number, minutes: number) {
+function validISODate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function validTime(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(value)) return false;
+  return true;
+}
+
+function validTimeRange(start: unknown, end: unknown): start is string {
+  return validTime(start) && validTime(end) && start < end;
+}
+
+function timeRangeMinutes(range: TimeRange): number {
+  const [startHour, startMinute] = range.start.split(':').map(Number);
+  const [endHour, endMinute] = range.end.split(':').map(Number);
+  return endHour * 60 + endMinute - (startHour * 60 + startMinute);
+}
+
+function sanitizeTimeRanges(value: unknown, fallback: TimeRange[]): TimeRange[] {
+  if (!Array.isArray(value)) return fallback;
+  const ranges = value
+    .filter((entry): entry is TimeRange => !!entry && typeof entry === 'object'
+      && validTimeRange((entry as TimeRange).start, (entry as TimeRange).end))
+    .map((entry) => ({ start: entry.start, end: entry.end }))
+    .sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+  return ranges.length > 0 || value.length === 0 ? ranges : fallback;
+}
+
+function maximumGeneratedMinutes(weekday: number): number {
+  return weekday === 0 || weekday === 6
+    ? (12 * 60 - 9 * 60) + (24 * 60 - 1 - 14 * 60)
+    : 24 * 60 - 1 - 18 * 60;
+}
+
+function windowsFromMinutes(weekday: number, rawMinutes: number): TimeRange[] {
+  let minutes = Math.max(0, Math.min(maximumGeneratedMinutes(weekday), Math.floor(rawMinutes)));
   if (minutes <= 0) return [];
-  const start = weekday === 0 || weekday === 6 ? 9 * 60 : 18 * 60;
-  const first = Math.min(minutes, weekday === 0 || weekday === 6 ? 180 : minutes);
-  const windows = [{ start: toHM(start), end: toHM(start + first) }];
-  const rest = minutes - first;
-  if (rest > 0) {
-    const secondStart = weekday === 0 || weekday === 6 ? 14 * 60 : start + first;
-    windows.push({ start: toHM(secondStart), end: toHM(secondStart + rest) });
+  if (weekday !== 0 && weekday !== 6) {
+    return [{ start: '18:00', end: toHM(18 * 60 + minutes) }];
   }
+  const windows: TimeRange[] = [];
+  const morning = Math.min(minutes, 180);
+  if (morning > 0) windows.push({ start: '09:00', end: toHM(9 * 60 + morning) });
+  minutes -= morning;
+  const afternoon = Math.min(minutes, 24 * 60 - 1 - 14 * 60);
+  if (afternoon > 0) windows.push({ start: '14:00', end: toHM(14 * 60 + afternoon) });
   return windows;
 }
 
 function toHM(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
+  const bounded = Math.max(0, Math.min(24 * 60 - 1, Math.floor(minutes)));
+  const h = Math.floor(bounded / 60);
+  const m = bounded % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
