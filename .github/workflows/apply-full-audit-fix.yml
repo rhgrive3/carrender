@@ -1,0 +1,88 @@
+name: Apply full audit fix
+
+on:
+  push:
+    branches:
+      - agent/full-code-audit-load-metrics-20260714
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-code-audit-load-metrics-20260714
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply scheduler metric fix and regression test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          scheduler = Path('src/lib/schedulerV2.ts')
+          text = scheduler.read_text()
+          text = text.replace(
+              'function computeLoadBalanceMetrics(\n',
+              'export function computeLoadBalanceMetrics(\n',
+              1,
+          )
+          old = "  const dates = [...new Set(planned.map((task) => task.scheduledDate))].sort();"
+          new = """  const scheduledDates = [...new Set(planned.map((task) => task.scheduledDate))].sort();
+          const dates: ISODate[] = [];
+          if (scheduledDates.length > 0) {
+            for (let date = scheduledDates[0]; date <= scheduledDates[scheduledDates.length - 1]; date = addDays(date, 1)) {
+              dates.push(date);
+            }
+          }"""
+          if old not in text:
+              raise SystemExit('scheduler target not found')
+          text = text.replace(old, new, 1)
+          scheduler.write_text(text)
+
+          test = Path('scripts/schedulerV2.test.ts')
+          text = test.read_text()
+          text = text.replace(
+              "import { generatePlanV2, validateGeneratedScheduleV2 } from '../src/lib/schedulerV2';",
+              "import { computeLoadBalanceMetrics, generatePlanV2, validateGeneratedScheduleV2 } from '../src/lib/schedulerV2';",
+              1,
+          )
+          marker = "console.log(failures === 0 ? '\\n🎉 ALL PASS (schedulerV2 spec)' : `\\n💥 ${failures} FAILURES`);"
+          regression = """
+          // ============================================================
+          console.log('--- 日別負荷評価は空白日を含む ---');
+          {
+            const state = baseState([], [{ start: '09:00', end: '15:00' }], 360);
+            const metrics = computeLoadBalanceMetrics(state, [
+              manualTask('load-d1', { scheduledDate: D1, estimatedMinutes: 300 }),
+              manualTask('load-d3', { scheduledDate: D3, estimatedMinutes: 300 }),
+            ]);
+            check('予定のない中間日を0分として分散へ含める', metrics.dailyLoadVariance > 0, metrics);
+            check('予定のない中間日との隣接差を評価する', metrics.adjacentDayDifference === 600, metrics);
+          }
+
+          """
+          if marker not in text:
+              raise SystemExit('test marker not found')
+          text = text.replace(marker, regression + marker, 1)
+          test.write_text(text)
+          PY
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:scheduler
+      - run: npm test
+      - run: npm run build
+      - name: Commit generated fix
+        run: |
+          rm .github/workflows/apply-full-audit-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/lib/schedulerV2.ts scripts/schedulerV2.test.ts .github/workflows/apply-full-audit-fix.yml
+          git commit -m "Fix load metrics across empty schedule days"
+          git push
