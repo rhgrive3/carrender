@@ -1,0 +1,200 @@
+diff --git a/.github/workflows/full-audit-export.yml b/.github/workflows/full-audit-export.yml
+deleted file mode 100644
+index 3d73265..0000000
+--- a/.github/workflows/full-audit-export.yml
++++ /dev/null
+@@ -1,69 +0,0 @@
+-name: Full audit export
+-
+-on:
+-  pull_request:
+-    branches: [main]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  audit:
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 30
+-    steps:
+-      - uses: actions/checkout@v4
+-        with:
+-          fetch-depth: 0
+-
+-      - uses: actions/setup-node@v4
+-        with:
+-          node-version: 22
+-          cache: npm
+-
+-      - name: Install dependencies
+-        run: npm ci
+-
+-      - name: Core verification
+-        run: |
+-          npm run lint
+-          npm run typecheck
+-          npm test
+-          npm run build
+-
+-      - name: Generate audit reports
+-        shell: bash
+-        run: |
+-          set +e
+-          mkdir -p audit-reports
+-          find . -type f \
+-            -not -path './.git/*' \
+-            -not -path './node_modules/*' \
+-            -not -path './dist/*' \
+-            | sort > audit-reports/files.txt
+-          find src functions scripts schema -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.mjs' -o -name '*.sql' \) -print0 \
+-            | xargs -0 wc -l | sort -n > audit-reports/line-counts.txt
+-          npx --yes knip@5.65.0 --reporter json > audit-reports/knip.json 2> audit-reports/knip.stderr.txt
+-          echo $? > audit-reports/knip.exit.txt
+-          npx --yes madge@8.0.0 --circular --extensions ts,tsx src functions > audit-reports/cycles.txt 2> audit-reports/cycles.stderr.txt
+-          echo $? > audit-reports/cycles.exit.txt
+-          npm audit --omit=dev --json > audit-reports/npm-audit-production.json
+-          echo $? > audit-reports/npm-audit-production.exit.txt
+-          npm audit --json > audit-reports/npm-audit-all.json
+-          echo $? > audit-reports/npm-audit-all.exit.txt
+-          grep -RInE 'TODO|FIXME|HACK|XXX|console\.(log|warn|error)|@ts-ignore|@ts-expect-error|eslint-disable|any\b|as unknown as' src functions scripts \
+-            > audit-reports/suspicious-patterns.txt || true
+-          git ls-files > audit-reports/tracked-files.txt
+-          git status --short > audit-reports/git-status.txt
+-
+-      - name: Upload complete source and reports
+-        uses: actions/upload-artifact@v4
+-        with:
+-          name: carrender-full-audit-source
+-          path: |
+-            .
+-            !node_modules/**
+-            !dist/**
+-            !.git/**
+-          include-hidden-files: true
+-          retention-days: 1
+diff --git a/README.md b/README.md
+index 9759537..95a81ab 100644
+--- a/README.md
++++ b/README.md
+@@ -40,11 +40,12 @@
+ - **CSVエクスポート**: 学習ログをExcelで開けるCSVで書き出し(設定 → データ管理)
+ 
+ ### 自動スケジューリング
+-- 教材の残り量から学習タスク(25〜90分のコマ)を自動生成
+-- 優先度スコア = 試験切迫度 + 目標完了日切迫度 + 科目重要度 + 苦手度 + 教材優先度 + 遅れ具合 + タスク期限 + 過去の達成率(`src/lib/scheduler.ts`)
+-- 固定予定(学校・塾など)を避けて配置、1日の上限・同一科目の連続・1科目の占有率を制御
+-- 未達成タスクは「翌日に積む」のではなく**全体を再計算**して吸収
+-- 残り学習量が確保可能時間を超えるとキャパシティ警告
++- 教材の残り範囲・所要時間・開始日・期限から学習タスクを生成
++- 厳守教材と固定タスクは制約ソルバー(`src/lib/strictSolver.ts`)で期限・時刻・分割条件を保証し、通常教材は`src/lib/schedulerV2.ts`で安全完了日、頻度、日別/週別目標、負荷平準化を評価して配置
++- 固定予定(学校・塾など)、曜日別の勉強可能時間、日別例外、1日の上限、セッション長を考慮
++- 未達成タスクは「翌日に積む」のではなく**残り計画全体を再計算**し、過去の未達成予定は`planHistory`へ退避して分析の分母から消さない
++- 設定した具体計画日数はローリングの最低期間として扱い、目標日が先なら目標日まで具体タスクを生成
++- 残り学習量が確保可能時間を超える場合や固定条件が衝突する場合は、未配置量・期限不足・競合を明示
+ - 高影響操作は直後のToastから15秒以内に1操作だけ元へ戻せます
+ 
+ ### データの再編集
+@@ -66,6 +67,7 @@
+ - パスワードはサーバー側で **salt + PBKDF2(SHA-256, 10万回)ハッシュ化**して保存し、平文は保持しません
+ - ログイン状態は `HttpOnly; Secure; SameSite=Lax; Path=/` のセッションCookie(有効期限30日)で管理し、トークンやパスワードをlocalStorageに保存することはありません
+ - メイン学習データ(AppState)は端末へ先に保存し、最後に確認したD1世代を指定した条件付きPUTで同期します
++- 日付境界と「今日」の判定は端末設定に依存させず、個人利用環境の固定タイムゾーン **Asia/Tokyo** で統一しています
+ - 未同期状態と基準クラウド世代は端末へ永続化されるため、オフライン編集後にアプリを閉じても次回起動時にクラウド版で自動上書きしません
+ - 端末版とクラウド版の両方が更新されている場合は、両版をJSONへ書き出したうえで「端末版を残す」「クラウド版を残す」を選択できます
+ - ログイン前に端末内に既存データがある場合は、初回ログイン時にD1へ移行されます
+@@ -153,25 +155,30 @@ npm run pages:dev   # ビルド後、wrangler pages dev で /api を含めてロ
+ - 競合時は自動上書きせず、端末版・クラウド版の両方をJSONへ退避して残す版を選択します
+ - 設定(⚙️)から **JSONエクスポート/インポート**(バックアップ用)と**初期化**が可能
+ - 初回オンボーディングでは「自分のデータを作る」か「デモデータで試す」を選択可能(デモは設定画面に明示されます)
+-- AppState schema v4では新規学習記録に再構築用の由来情報を追加します。旧記録は推測で進捗を加減算せず、現在の教材進捗を保持したまま読み込みます
++- AppState schema v5では、新規学習記録の再構築用由来情報に加え、再計算前の未達成予定を`planHistory`へ保存します。旧記録は推測で進捗を加減算せず、現在の教材進捗を保持したまま読み込みます
++- メインのAppStateは現在、端末では1つのlocalStorage JSON、クラウドでは1つのD1 JSON blobとして保存します。API上限は5MiBで、長期利用時の容量・全体再直列化コストは既知の設計上限です。暗記データは別系統のIndexedDB/D1差分同期です
+ 
+ ## 技術構成
+ 
+ ```
+ src/
+-├── types/        全データ型 (AppState, Material, StudyTask, StudySession, ...)
++├── types/        全データ型 (AppState, Material, StudyTask, StudySession, PlanHistoryEntry, ...)
+ ├── lib/
+-│   ├── scheduler.ts   優先度スコア・自動配置・再スケジューリング・キャパシティ計算
+-│   ├── review.ts      忘却曲線ベースの復習タスク生成
+-│   ├── analytics.ts   進捗予測・科目統計・自動コメント生成
+-│   ├── storage.ts     localStorage永続化(オフラインキャッシュ) + エクスポート/インポート
+-│   ├── mainSync.ts    未同期状態・クラウド世代・競合バックアップ管理
+-│   ├── api.ts         /api/* へのfetchクライアント
+-│   └── date.ts        日付ユーティリティ
+-├── state/        AppContext (学習データ、D1同期) / AuthContext (ログイン状態)
+-├── data/         デモデータ・デフォルト設定
+-├── screens/      ログイン・今日・計画・教材・記録・分析・オンボーディング・設定
+-└── components/   タイマー・記録フォーム・カード・UI部品・ナビ
++│   ├── scheduler.ts       画面/状態層向けアダプター、空き時間、未達成履歴、キャパシティ計算
++│   ├── schedulerV2.ts     現行の計画生成・平準化・期限評価
++│   ├── strictSolver.ts    厳守教材/固定条件の制約探索
++│   ├── review.ts          忘却曲線ベースの復習タスク生成
++│   ├── analytics.ts       進捗予測・科目統計・自動コメント生成
++│   ├── storage.ts         AppStateのlocalStorage永続化、移行、入出力
++│   ├── mainSync.ts        未同期状態・クラウド世代・競合バックアップ管理
++│   ├── taskFilters.ts     計画/実績範囲の和集合と共通集計
++│   ├── api.ts             /api/* へのfetchクライアント
++│   └── date.ts            Asia/Tokyo基準の日付ユーティリティ
++├── features/memory/       暗記ドメイン、IndexedDB repository、同期、UI
++├── state/                 AppContext (学習データ、D1同期) / AuthContext (ログイン状態)
++├── data/                  デモデータ・デフォルト設定
++├── screens/               ログイン・今日・計画・教材・記録・分析・オンボーディング・設定
++└── components/            タイマー・記録フォーム・カード・チャート・UI部品・ナビ
+ 
+ functions/
+ ├── api/auth/     register / login / logout / me (Cloudflare Pages Functions)
+@@ -186,5 +193,5 @@ wrangler.toml      Cloudflare Pages / D1 バインディング設定
+ 
+ - React 18 + TypeScript(strict) + Vite
+ - Cloudflare Pages Functions + D1(サーバーレスAPI、Web Crypto APIによるPBKDF2ハッシュ)
+-- チャートは自作SVG(外部チャートライブラリなし)
++- チャートはRechartsと一部の軽量な自前描画で実装
+ - vite-plugin-pwa(Workbox)によるオフラインキャッシュ
+diff --git a/functions/_shared/appState.ts b/functions/_shared/appState.ts
+index 92ea7d1..db29004 100644
+--- a/functions/_shared/appState.ts
++++ b/functions/_shared/appState.ts
+@@ -6,37 +6,33 @@ function finiteNumber(value: unknown): value is number {
+   return typeof value === 'number' && Number.isFinite(value);
+ }
+ 
+-function validSubject(value: unknown): boolean {
+-  return isRecord(value)
+-    && typeof value.id === 'string'
+-    && typeof value.name === 'string';
++function nonEmptyString(value: unknown): value is string {
++  return typeof value === 'string' && value.trim().length > 0;
+ }
+ 
+-function validMaterial(value: unknown): boolean {
+-  return isRecord(value)
+-    && typeof value.id === 'string'
+-    && typeof value.subjectId === 'string'
+-    && typeof value.name === 'string'
+-    && finiteNumber(value.totalAmount)
+-    && finiteNumber(value.doneAmount);
++function validISODate(value: unknown): value is string {
++  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
++  const [year, month, day] = value.split('-').map(Number);
++  const date = new Date(Date.UTC(year, month - 1, day));
++  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+ }
+ 
+-function validTask(value: unknown): boolean {
+-  return isRecord(value)
+-    && typeof value.id === 'string'
+-    && typeof value.subjectId === 'string'
+-    && typeof value.title === 'string'
+-    && typeof value.scheduledDate === 'string'
+-    && finiteNumber(value.estimatedMinutes);
++function validTime(value: unknown): value is string {
++  return typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(value);
+ }
+ 
+-function validSession(value: unknown): boolean {
+-  return isRecord(value)
+-    && typeof value.id =
