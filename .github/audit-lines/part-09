@@ -1,0 +1,245 @@
+--- a/src/screens/SettingsSheet.tsx
++++ b/src/screens/SettingsSheet.tsx
+@@ -119,6 +119,12 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
+       toast('試験日は今日以降を指定してください');
+       return;
+     }
++    const outsideGoal = state.materials.filter((material) => !material.archived && material.targetDate > examDate);
++    if (outsideGoal.length > 0) {
++      const first = outsideGoal[0];
++      toast(`「${first.name}」など${outsideGoal.length}件の目標完了日が試験日より後です。先に教材期限を修正してください`);
++      return;
++    }
+     const result = execute({ type: 'UPDATE_GOAL', goal: { ...state.goal, name: goalName.trim(), examDate } });
+     toast(result.message ?? '目標を更新しました');
+     if (result.changed) { setGoalDirty(false); setOtherExternalUpdate(false); }
+@@ -523,17 +529,6 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
+         />
+       </div>
+       <div className="field-row">
+-        <div className="field">
+-          <label htmlFor="st-timezone">タイムゾーン</label>
+-          <select id="st-timezone" value={studyDraft.timezone ?? 'Asia/Tokyo'} onChange={(e) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, timezone: e.target.value })); }}>
+-            <option value="Asia/Tokyo">Asia/Tokyo</option>
+-            <option value="Asia/Seoul">Asia/Seoul</option>
+-            <option value="Asia/Singapore">Asia/Singapore</option>
+-            <option value="Europe/London">Europe/London</option>
+-            <option value="America/New_York">America/New_York</option>
+-            <option value="America/Los_Angeles">America/Los_Angeles</option>
+-          </select>
+-        </div>
+         <div className="field">
+           <label htmlFor="st-horizon">具体計画の最低日数</label>
+           <NumericInput id="st-horizon" value={studyDraft.taskGenerationHorizonDays ?? 42} min={7} max={90} onChange={(v) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, taskGenerationHorizonDays: Math.max(7, Math.min(90, v)) })); }} />
+diff --git a/src/state/AppContext.tsx b/src/state/AppContext.tsx
+index a76890e..09f1139 100644
+--- a/src/state/AppContext.tsx
++++ b/src/state/AppContext.tsx
+@@ -13,10 +13,10 @@ import type {
+   Subject,
+   UserGoal,
+ } from '../types';
+-import { loadState, saveState, saveStateNow, clearState, getStateOwner, setStateOwner, isAppStateShape, migrateState, STATE_VERSION } from '../lib/storage';
++import { loadState, saveState, saveStateNow, getStateOwner, setStateOwner, isAppStateShape, migrateState, STATE_VERSION, subscribeStateSaveFailure } from '../lib/storage';
+ import { generatePlan, normalizeUnitRanges, remainingUnitRanges, sumRangeLengths, updateMinutesPerUnitEstimate } from '../lib/scheduler';
+ import { generateReviewTasks } from '../lib/review';
+-import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
++import { addDays, genId, hmToMinutes, localDateTimeToISOString, minutesToHM, today } from '../lib/date';
+ import { buildDemoState } from '../data/demo';
+ import { defaultSettings, defaultAvailability } from '../data/defaults';
+ import { useAuth } from './AuthContext';
+@@ -195,7 +195,7 @@ export function resolveSessionProgress(state: AppState, input: SessionInput) {
+ }
+ 
+ /** タイマー開始後の再計算でIDが変わっても、同一の教材範囲・作業系列へ記録する。 */
+-export function findCurrentTask(state: AppState, input: Pick<SessionInput, 'taskId' | 'taskLocator' | 'materialId'>): StudyTask | undefined {
++function findCurrentTask(state: AppState, input: Pick<SessionInput, 'taskId' | 'taskLocator' | 'materialId'>): StudyTask | undefined {
+   const exact = input.taskId ? state.tasks.find((item) => item.id === input.taskId) : undefined;
+   if (exact) return exact;
+   const locator = input.taskLocator;
+@@ -319,7 +319,6 @@ function settingsAffectPlan(previous: AppSettings, next: AppSettings): boolean {
+   return previous.maxDailyMinutes !== next.maxDailyMinutes
+     || previous.sessionMinMinutes !== next.sessionMinMinutes
+     || previous.sessionMaxMinutes !== next.sessionMaxMinutes
+-    || previous.timezone !== next.timezone
+     || previous.taskGenerationHorizonDays !== next.taskGenerationHorizonDays
+     || JSON.stringify(previous.reviewRule) !== JSON.stringify(next.reviewRule);
+ }
+@@ -342,7 +341,7 @@ function subtractRanges(ranges: { start: number; end: number }[], removals: { st
+  * 旧記録には由来範囲がないため、現在進捗から新形式記録の寄与だけを除いた値を
+  * 互換基準として扱う。これにより旧進捗を推測で消さず、新記録は何度でも再構築できる。
+  */
+-export function rebuildMaterialProgress(material: Material, beforeSessions: StudySession[], nextSessions: StudySession[]): Material {
++function rebuildMaterialProgress(material: Material, beforeSessions: StudySession[], nextSessions: StudySession[]): Material {
+   const current = material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
+   const beforeContributions = beforeSessions
+     .filter((session) => session.materialId === material.id)
+@@ -408,7 +407,7 @@ function recordSession(state: AppState, inp: SessionInput, sessionId = genId('se
+     subjectId: inp.subjectId,
+     materialId: inp.materialId,
+     date: inp.date ?? t,
+-    startedAt: inp.date && inp.startTime ? new Date(`${inp.date}T${inp.startTime}:00`).toISOString() : now,
++    startedAt: inp.date && inp.startTime ? localDateTimeToISOString(inp.date, inp.startTime) : now,
+     minutes: inp.minutes,
+     amountDone: progress.amountDone,
+     rangeLabel: inp.rangeLabel,
+@@ -513,6 +512,7 @@ export function appReducer(state: AppState, action: Action): AppState {
+     }
+ 
+     case 'ADD_MATERIAL': {
++      if (state.goal && action.material.targetDate > state.goal.examDate) return state;
+       const completedRanges = action.material.completedRanges
+         ?? (action.material.doneAmount > 0 ? [{ start: 1, end: action.material.doneAmount }] : []);
+       const material = { ...action.material, totalUnits: action.material.totalUnits ?? action.material.totalAmount, completedRanges };
+@@ -521,6 +521,7 @@ export function appReducer(state: AppState, action: Action): AppState {
+     }
+ 
+     case 'UPDATE_MATERIAL': {
++      if (state.goal && action.material.targetDate > state.goal.examDate) return state;
+       const previous = state.materials.find((m) => m.id === action.material.id);
+       const previousRanges = previous?.completedRanges
+         ?? (previous && previous.doneAmount > 0 ? [{ start: 1, end: previous.doneAmount }] : []);
+@@ -541,6 +542,9 @@ export function appReducer(state: AppState, action: Action): AppState {
+         ...state,
+         materials: state.materials.filter((m) => m.id !== action.materialId),
+         tasks: state.tasks.filter((task) => action.deleteSessions ? task.materialId !== action.materialId : task.materialId !== action.materialId || task.status === 'done'),
++        planHistory: action.deleteSessions
++          ? (state.planHistory ?? []).filter((entry) => entry.materialId !== action.materialId)
++          : state.planHistory,
+         sessions: action.deleteSessions ? state.sessions.filter((session) => session.materialId !== action.materialId) : state.sessions,
+       };
+       return generatePlan(next, t, `教材「${name}」の削除`).state;
+@@ -561,6 +565,7 @@ export function appReducer(state: AppState, action: Action): AppState {
+       if (state.subjects.length <= 1) return state;
+       const referenced = state.materials.some((item) => item.subjectId === action.subjectId)
+         || state.tasks.some((item) => item.subjectId === action.subjectId)
++        || (state.planHistory ?? []).some((item) => item.subjectId === action.subjectId)
+         || state.sessions.some((item) => item.subjectId === action.subjectId);
+       return referenced ? state : { ...state, subjects: state.subjects.filter((subject) => subject.id !== action.subjectId) };
+     }
+@@ -572,6 +577,7 @@ export function appReducer(state: AppState, action: Action): AppState {
+         subjects: state.subjects.filter((subject) => subject.id !== action.sourceId),
+         materials: state.materials.map((item) => item.subjectId === action.sourceId ? { ...item, subjectId: action.targetId } : item),
+         tasks: state.tasks.map((item) => item.subjectId === action.sourceId ? { ...item, subjectId: action.targetId } : item),
++        planHistory: (state.planHistory ?? []).map((item) => item.subjectId === action.sourceId ? { ...item, subjectId: action.targetId } : item),
+         sessions: state.sessions.map((item) => {
+           const subjectId = item.subjectId === action.sourceId ? action.targetId : item.subjectId;
+           const taskSnapshotBefore = item.taskSnapshotBefore?.subjectId === action.sourceId
+@@ -712,6 +718,7 @@ export function appReducer(state: AppState, action: Action): AppState {
+     }
+ 
+     case 'UPDATE_GOAL':
++      if (state.materials.some((material) => !material.archived && material.targetDate > action.goal.examDate)) return state;
+       return generatePlan({ ...state, goal: action.goal }, t, '試験日・目標の変更').state;
+ 
+     case 'UPDATE_AVAILABILITY':
+@@ -772,6 +779,7 @@ export function emptyState(): AppState {
+     subjects: [],
+     materials: [],
+     tasks: [],
++    planHistory: [],
+     sessions: [],
+     availability: defaultAvailability(),
+     dayPlans: [],
+@@ -833,13 +841,14 @@ interface AppContextValue {
+   hasUnsyncedChanges: boolean;
+   resolveSyncConflict: (choice: 'local' | 'cloud') => Promise<void>;
+   retrySync: () => void;
++  localSaveError: string | null;
+ }
+ 
+ const AppContext = createContext<AppContextValue | null>(null);
+ 
+ const DATA_PUSH_DEBOUNCE_MS = 900;
+ 
+-export function normalizeCloudState(value: unknown): AppState {
++function normalizeCloudState(value: unknown): AppState {
+   if (!isAppStateShape(value)) throw new Error('クラウドの学習データ形式が正しくありません');
+   const migration = migrateState(value);
+   if (!migration.ok) {
+@@ -924,6 +933,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
+   const lastLocallyTrackedState = useRef(state);
+   const [syncReady, setSyncReady] = useState(false);
+   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
++  const [localSaveError, setLocalSaveError] = useState<string | null>(null);
+   const [syncConflictInfo, setSyncConflictInfo] = useState<MainSyncConflict | null>(null);
+   const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false);
+   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+@@ -936,6 +946,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
+   const skipNextLocalDirty = useRef(false);
+   const [syncAttempt, setSyncAttempt] = useState(0);
+ 
++  useEffect(() => subscribeStateSaveFailure((failure) => setLocalSaveError(failure?.message ?? null)), []);
++
+   const markLocalClean = useCallback((updatedAt: string | null) => {
+     if (owner) markMainSyncClean(owner, updatedAt);
+     setHasUnsyncedChanges(false);
+@@ -1227,12 +1239,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
+ 
+   const retrySync = useCallback(() => setSyncAttempt((attempt) => attempt + 1), []);
+ 
+-  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync]);
++  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, localSaveError }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, localSaveError]);
+   if (owner && !syncReady) {
+     return <div className="screen"><div className="card">クラウドの最新データを確認中…</div></div>;
+   }
+   return <AppContext.Provider value={value}>
+     {children}
++    {localSaveError && <div className="toast undo-notice" role="alert">{localSaveError}</div>}
+     {undoEntry && isUndoEntryValid(undoEntry) && (
+       <div className="toast undo-toast" role="status">
+         <span>{undoEntry.label}</span>
+@@ -1256,7 +1269,3 @@ export function useApp(): AppContextValue {
+   if (!ctx) throw new Error('useApp must be used within AppProvider');
+   return ctx;
+ }
+-
+-export function resetStorage(): void {
+-  clearState();
+-}
+diff --git a/src/types/index.ts b/src/types/index.ts
+index e680f23..82449e5 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -127,6 +127,24 @@ export interface StudyTask {
+   manualOrder?: number;
+ }
+ 
++/** 再計算で未来へ移された後も、当時の未達成予定を分析へ残す不変スナップショット。 */
++export interface PlanHistoryEntry {
++  id: string;
++  taskId: string;
++  subjectId: string;
++  materialId: string | null;
++  title: string;
++  scheduledDate: ISODate;
++  estimatedMinutes: number;
++  amount: number;
++  type: TaskType;
++  outcome: 'missed';
++  rangeStart: number | null;
++  rangeEnd: number | null;
++  materialRange?: UnitRange;
++  capturedAt: string;
++}
++
+ export interface ManualTaskScheduling {
+   placementPolicy: 'fixedTime' | 'fixedDateFlexibleTime' | 'flexibleBeforeDeadline';
+   fixedDate?: LocalDate;
+@@ -295,7 +313,6 @@ export interface AppSettings {
+   /** 週間目標学習時間(分)。0なら未設定 */
+   weeklyTargetMinutes: number;
+   timer: TimerSettings;
+-  timezone?: TimeZoneId;
+   taskGenerationHorizonDays?: number;
+   estimateAlpha?: number;
+ }
+@@ -469,6 +486,8 @@ export interface AppState {
+   subjects: Subject[];
+   materials: Material[];
+   tasks: StudyTask[];
++  /** v4以前の保存データでは未定義。normalizeStateで空配列へ補完する。 */
++  planHistory?: PlanHistoryEntry[];
+   sessions: StudySession[];
+   availability: AvailabilitySlot[];
+   dayPlans: DayPlanOverride[];
