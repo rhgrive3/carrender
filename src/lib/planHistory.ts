@@ -1,16 +1,51 @@
-import type {
-  AppState,
-  ISODate,
-  PlanRevision,
-  PlanRevisionChange,
-  PlanRevisionMaterialChange,
-  PlanRevisionTaskPlacement,
-  StudyTask,
-} from '../types';
+import type { AppState, ISODate, StudyTask } from '../types';
+
+export interface PlanRevisionTaskPlacement {
+  key: string;
+  taskId: string;
+  title: string;
+  materialId: string | null;
+  estimatedMinutes: number;
+  scheduledDate: ISODate;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  placementStatus?: StudyTask['placementStatus'];
+  placementLock?: StudyTask['placementLock'];
+  manualOrder?: number;
+}
+
+export interface PlanRevisionChange {
+  key: string;
+  taskId: string;
+  title: string;
+  materialId: string | null;
+  kind: 'added' | 'removed' | 'moved' | 'updated';
+  before?: PlanRevisionTaskPlacement;
+  after?: PlanRevisionTaskPlacement;
+}
+
+export interface PlanRevisionMaterialChange {
+  materialId: string;
+  changedTasks: number;
+  movedTasks: number;
+  beforeMinutes: number;
+  afterMinutes: number;
+}
+
+export interface PlanRevision {
+  id: string;
+  generationId: string;
+  createdAt: string;
+  reason: string;
+  fromDate: ISODate;
+  placements: PlanRevisionTaskPlacement[];
+  changes: PlanRevisionChange[];
+  materialChanges: PlanRevisionMaterialChange[];
+}
 
 const PLAN_REVISION_RETENTION_DAYS = 365;
-const PLAN_REVISION_DENSE_DAYS = 30;
-const PLAN_REVISION_MAX_COUNT = 400;
+const PLAN_REVISION_DENSE_DAYS = 14;
+const PLAN_REVISION_MAX_COUNT = 32;
 
 function taskStableKey(task: Pick<StudyTask, 'id' | 'sourceType' | 'sourceId' | 'materialId' | 'type' | 'materialRange' | 'rangeStart' | 'rangeEnd'>): string {
   const range = task.materialRange
@@ -70,16 +105,16 @@ function parseDate(value: string): number {
 export function compactPlanRevisions(revisions: PlanRevision[], now: Date): PlanRevision[] {
   const cutoff = now.getTime() - PLAN_REVISION_RETENTION_DAYS * 86_400_000;
   const denseCutoff = now.getTime() - PLAN_REVISION_DENSE_DAYS * 86_400_000;
-  const sorted = [...revisions]
+  const sorted = [...new Map(revisions.map((revision) => [revision.id, revision])).values()]
     .filter((revision) => parseDate(revision.createdAt) >= cutoff)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-  const byDay = new Map<string, PlanRevision>();
+  const byMonth = new Map<string, PlanRevision>();
   const dense: PlanRevision[] = [];
   for (const revision of sorted) {
     if (parseDate(revision.createdAt) >= denseCutoff) dense.push(revision);
-    else byDay.set(revision.createdAt.slice(0, 10), revision);
+    else byMonth.set(revision.createdAt.slice(0, 7), revision);
   }
-  return [...byDay.values(), ...dense]
+  return [...byMonth.values(), ...dense]
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     .slice(-PLAN_REVISION_MAX_COUNT);
 }
@@ -144,12 +179,21 @@ export function capturePlanRevision(input: {
 }
 
 export function appendPlanRevision(state: AppState, revision: PlanRevision, now = new Date(revision.createdAt)): AppState {
-  const planRevisions = compactPlanRevisions([...(state.planRevisions ?? []), revision], now);
-  return { ...state, planRevisions };
+  const historyData = state.settings.historyData ?? { planRevisions: [], monthlySummaries: [] };
+  return {
+    ...state,
+    settings: {
+      ...state.settings,
+      historyData: {
+        ...historyData,
+        planRevisions: compactPlanRevisions([...historyData.planRevisions, revision], now),
+      },
+    },
+  };
 }
 
 export function restorePlanRevisionLayout(state: AppState, revisionId: string): { state: AppState; restoredTaskCount: number } {
-  const revision = (state.planRevisions ?? []).find((item) => item.id === revisionId);
+  const revision = (state.settings.historyData?.planRevisions ?? []).find((item) => item.id === revisionId);
   if (!revision) return { state, restoredTaskCount: 0 };
   const byKey = new Map(revision.placements.map((item) => [item.key, item]));
   let restoredTaskCount = 0;
