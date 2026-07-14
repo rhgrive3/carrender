@@ -1,0 +1,191 @@
+alue.schemaVersion)) return { ok: false, error: 'schemaVersion が不正です' };
++
++  if (value.fixedEvents !== undefined) {
++    if (!Array.isArray(value.fixedEvents)) return { ok: false, error: 'fixedEvents が不正です' };
++    const idError = uniqueIds('fixedEvents', value.fixedEvents);
++    if (idError) return { ok: false, error: idError };
++    for (const event of value.fixedEvents) {
++      if (!isRecord(event) || !nonEmptyString(event.title) || !validTimeRange({ start: event.start, end: event.end })) {
++        return { ok: false, error: 'fixedEvents の時間帯が不正です' };
++      }
++      const hasDate = event.date !== null && event.date !== undefined;
++      const hasWeekday = event.weekday !== null && event.weekday !== undefined;
++      const hasStartDate = event.startDate !== null && event.startDate !== undefined;
++      const hasEndDate = event.endDate !== null && event.endDate !== undefined;
++      if (hasDate && !validISODate(event.date)) return { ok: false, error: 'fixedEvents の日付が不正です' };
++      if (hasWeekday && (!Number.isInteger(event.weekday) || (event.weekday as number) < 0 || (event.weekday as number) > 6)) {
++        return { ok: false, error: 'fixedEvents の曜日が不正です' };
++      }
++      if (hasStartDate !== hasEndDate
++        || (hasStartDate && (!validISODate(event.startDate) || !validISODate(event.endDate) || event.startDate > event.endDate))) {
++        return { ok: false, error: 'fixedEvents の有効期間が不正です' };
++      }
++      if (!hasDate && !hasWeekday && !hasStartDate) return { ok: false, error: 'fixedEvents に対象日がありません' };
++    }
++  }
++
++  const settings = value.settings;
++  if (settings.maxDailyMinutes !== undefined && (!finiteNumber(settings.maxDailyMinutes) || settings.maxDailyMinutes < 0)) {
++    return { ok: false, error: 'settings.maxDailyMinutes が不正です' };
++  }
++  if (settings.sessionMinMinutes !== undefined && (!finiteNumber(settings.sessionMinMinutes) || settings.sessionMinMinutes < 5)) {
++    return { ok: false, error: 'settings.sessionMinMinutes が不正です' };
++  }
++  if (settings.sessionMaxMinutes !== undefined && (!finiteNumber(settings.sessionMaxMinutes) || settings.sessionMaxMinutes < 5)) {
++    return { ok: false, error: 'settings.sessionMaxMinutes が不正です' };
++  }
++  if (finiteNumber(settings.sessionMinMinutes) && finiteNumber(settings.sessionMaxMinutes)
++    && settings.sessionMaxMinutes < settings.sessionMinMinutes) {
++    return { ok: false, error: 'settings のセッション時間上限が下限未満です' };
++  }
++  if (settings.taskGenerationHorizonDays !== undefined
++    && (!finiteNumber(settings.taskGenerationHorizonDays) || settings.taskGenerationHorizonDays < 1)) {
++    return { ok: false, error: 'settings.taskGenerationHorizonDays が不正です' };
++  }
++
++  if (value.version !== undefined && (!Number.isInteger(value.version) || (value.version as number) < 1)) return { ok: false, error: 'version が不正です' };
++  if (value.schemaVersion !== undefined && (!Number.isInteger(value.schemaVersion) || (value.schemaVersion as number) < 1)) return { ok: false, error: 'schemaVersion が不正です' };
+   return { ok: true };
+ }
+diff --git a/scripts/_dev-auth-helper.mjs b/scripts/_dev-auth-helper.mjs
+deleted file mode 100644
+index d4fdde6..0000000
+--- a/scripts/_dev-auth-helper.mjs
++++ /dev/null
+@@ -1,13 +0,0 @@
+-// 開発用スクリプト共通ヘルパー: ログイン画面を突破して新規アカウントを作る
+-// (wrangler pages dev で /api が動いている前提。 npm run pages:dev を別ターミナルで起動しておくこと)
+-export async function registerTestUser(page, base) {
+-  await page.goto(base);
+-  await page.waitForTimeout(800);
+-  await page.locator('.segmented button', { hasText: '新規登録' }).click();
+-  const username = `devtest${Date.now()}`.slice(0, 20);
+-  await page.fill('#auth-username', username);
+-  await page.fill('#auth-password', 'devtestpass');
+-  await page.locator('button[type="submit"]').click();
+-  await page.waitForTimeout(1200);
+-  return username;
+-}
+diff --git a/scripts/data-api.test.ts b/scripts/data-api.test.ts
+index e9c1968..a63c41e 100644
+--- a/scripts/data-api.test.ts
++++ b/scripts/data-api.test.ts
+@@ -1,6 +1,7 @@
+ /** D1全体保存の楽観的ロック・応答安全性・構造検証の回帰テスト。 */
+ /// <reference types="node" />
+ /// <reference types="@cloudflare/workers-types" />
++import { validateAppStatePayload } from '../functions/_shared/appState';
+ import { nextDataVersion, onRequestGet, onRequestPut, utf8ByteLength } from '../functions/api/data';
+ 
+ let failures = 0;
+@@ -121,6 +122,66 @@ const malformedResponse = await putBody(JSON.stringify({
+ }), version);
+ check('構造が壊れたAppStateを保存しない', malformedResponse.status === 400, malformedResponse.status);
+ 
++console.log('--- AppState構造・参照整合性 ---');
++const structured = {
++  ...validState('structured'),
++  goal: { id: 'goal', name: '試験', examDate: '2026-08-31', createdAt: '2026-07-14T00:00:00.000Z' },
++  subjects: [{ id: 'subject', name: '数学', color: '#4f7cff', importance: 3, weakness: 3 }],
++  materials: [{
++    id: 'material', subjectId: 'subject', name: '問題集', totalAmount: 10, doneAmount: 2, minutesPerUnit: 10,
++    startDate: '2026-07-14', targetDate: '2026-08-20', completedRanges: [{ start: 1, end: 2 }], archived: false,
++  }],
++  tasks: [{
++    id: 'task', subjectId: 'subject', materialId: 'material', title: '問題集', scheduledDate: '2026-07-14',
++    estimatedMinutes: 20, amount: 2, status: 'planned', scheduledStart: '18:00', scheduledEnd: '18:20',
++  }],
++  sessions: [{
++    id: 'session', subjectId: 'subject', materialId: 'material', date: '2026-07-14', minutes: 20, amountDone: 2,
++  }],
++  availability: [{ weekday: 1, minutes: 120, windows: [{ start: '18:00', end: '20:00' }] }],
++  dayPlans: [{ date: '2026-07-15', availabilityWindows: null }],
++  fixedEvents: [{ id: 'event', title: '学校', weekday: 1, date: null, start: '08:00', end: '16:00' }],
++  planHistory: [],
++};
++check('内部整合したAppStateを受理', validateAppStatePayload(structured).ok, validateAppStatePayload(structured));
++check('教材総量超過の完了量を拒否', !validateAppStatePayload({ ...structured, materials: [{ ...structured.materials[0], doneAmount: 11 }] }).ok);
++check('重複IDを拒否', !validateAppStatePayload({ ...structured, subjects: [...structured.subjects, { ...structured.subjects[0] }] }).ok);
++check('存在しない科目参照を拒否', !validateAppStatePayload({ ...structured, materials: [{ ...structured.materials[0], subjectId: 'missing' }] }).ok);
++check('未完了タスクの存在しない教材参照を拒否', !validateAppStatePayload({ ...structured, tasks: [{ ...structured.tasks[0], materialId: 'missing' }] }).ok);
++check('教材期限が試験日より後なら拒否', !validateAppStatePayload({ ...structured, materials: [{ ...structured.materials[0], targetDate: '2026-09-01' }] }).ok);
++check('不正な時刻と日付を拒否', !validateAppStatePayload({ ...structured, tasks: [{ ...structured.tasks[0], scheduledDate: '2026-02-30', scheduledStart: '25:00', scheduledEnd: '26:00' }] }).ok);
++check('固定予定の片側だけの有効期間を拒否', !validateAppStatePayload({
++  ...structured,
++  fixedEvents: [{ ...structured.fixedEvents[0], startDate: '2026-07-01', endDate: null }],
++}).ok);
++check('対象日を持たない固定予定を拒否', !validateAppStatePayload({
++  ...structured,
++  fixedEvents: [{ ...structured.fixedEvents[0], weekday: null, date: null }],
++}).ok);
++check('同じ日の日別例外を重複登録できない', !validateAppStatePayload({
++  ...structured,
++  dayPlans: [...structured.dayPlans, { ...structured.dayPlans[0] }],
++}).ok);
++check('不正な未達成履歴を拒否', !validateAppStatePayload({
++  ...structured,
++  planHistory: [{
++    id: 'missed:bad', taskId: 'old', subjectId: 'subject', materialId: 'material', title: '',
++    scheduledDate: '2026-07-13', estimatedMinutes: 20, amount: -1, type: 'new', outcome: 'missed',
++    rangeStart: 2, rangeEnd: 1, capturedAt: 'not-a-date',
++  }],
++}).ok);
++const historicalReferences = {
++  ...structured,
++  tasks: [{ ...structured.tasks[0], id: 'done-old', materialId: 'deleted-material', status: 'done' }],
++  sessions: [{ ...structured.sessions[0], id: 'session-old', materialId: 'deleted-material' }],
++  planHistory: [{
++    id: 'missed:old', taskId: 'old', subjectId: 'subject', materialId: 'deleted-material', title: '削除済み教材',
++    scheduledDate: '2026-07-13', estimatedMinutes: 20, amount: 2, type: 'new', outcome: 'missed',
++    rangeStart: 1, rangeEnd: 2, capturedAt: '2026-07-14T00:00:00.000Z',
++  }],
++};
++check('削除済み教材を指す完了履歴・実績は保持可能', validateAppStatePayload(historicalReferences).ok, validateAppStatePayload(historicalReferences));
++
+ const validSnapshot = appState;
+ appState = JSON.stringify({ onboarded: true, settings: {}, subjects: [], materials: 'broken', tasks: [], sessions: [] });
+ const corruptedGet = await onRequestGet({
+diff --git a/scripts/memory-ui-e2e.mjs b/scripts/memory-ui-e2e.mjs
+index a33e974..148e9a5 100644
+--- a/scripts/memory-ui-e2e.mjs
++++ b/scripts/memory-ui-e2e.mjs
+@@ -122,9 +122,28 @@ try {
+   if (registered.status() !== 201) throw new Error(`registration failed: ${registered.status()} ${await registered.text()}`);
+   await page.waitForFunction((owner) => localStorage.getItem('studycommander_auth_hint') === owner, username);
+   await page.getByText('目標を教えてください', { exact: true }).waitFor();
+-  await page.getByRole('button', { name: /まずはデモデータで試す/ }).click();
++
++  console.log('--- Memory UI: complete real onboarding and persist it ---');
++  await page.locator('#ob-goal').fill('共通テスト本番');
++  await page.getByRole('button', { name: '次へ', exact: true }).click();
++  await page.getByRole('button', { name: '数学', exact: true }).click();
++  await page.getByRole('button', { name: '英語', exact: true }).click();
++  await page.getByRole('button', { name: '次へ(2科目)', exact: true }).click();
++  await page.getByRole('button', { name: '次へ', exact: true }).click();
++  await page.getByRole('button', { name: '教材を追加', exact: true }).click();
++  await page.locator('#ob-mname-0').fill('数学基礎問題集');
++  await page.locator('#ob-mtotal-0').fill('30');
++  await page.getByRole('button', { name: '計画を自動生成する', exact: true }).click();
++  await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
++  await page.waitForFunction(() => {
++    const raw = localStorage.getItem('studycommander_state_v1');
++    return !!raw && JSON.parse(raw).onboarded === true;
++  });
++  await page.reload({ waitUntil: 'domcontentloaded' });
+   await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
++  check('実オンボーディング完了状態が再読み込み後も保持される', await page.getByText('目標を教えてください', { exact: true }).count() === 0);
+   await page.getByRole('button', { name: '教材', exact: true }).click();
++  await page.getByText('数学基礎問題集', { exact: true }).waitFor();
+   await page.getByRole('radio', { name: '暗記カード' }).click();
+   await page.getByRole('heading', { name: '暗記カード' }).waitFor();
+   check('既存下部ナビを増やさず教材から暗記へ入る', await page.locator('.bottom-nav button').count() === 5);
+diff --git a/scripts/onboarding-test.mjs b/scripts/onboarding-test.mjs
+deleted file mode 100644
+index a418766..0000000
+--- a/scripts/onboarding-test.mjs
++++ /dev/null
+@@ -1,40 +0,0 @@
+-// オンボーディング完走テスト
+-// 事前に別ターミナルで `npm run pages:dev` を起動しておくこと(/api がないと動きません)
+-import { chromium } from 'playwright';
+-import { regist
