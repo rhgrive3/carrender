@@ -10,7 +10,8 @@ import type {
 } from '../types';
 import { addDays, APP_TIME_ZONE, diffDays, formatMinutes, hmToMinutes, minutesInTimeZone, minutesToHM, weekdayOf } from './date';
 import { isPlacedPlanTask } from './taskFilters';
-import { dateInTimeZone, generatePlanV2, mergeMinuteRanges, subtractMinuteRanges } from './schedulerV2';
+import { dateInTimeZone, mergeMinuteRanges, subtractMinuteRanges } from './schedulerV2';
+import { generatePlanV2 } from './schedulerRecovery';
 export {
   normalizeUnitRanges,
   remainingUnitRanges,
