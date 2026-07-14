@@ -41,20 +41,23 @@ jobs:
         run: npm test
 
       - name: Cloudflare API integration tests
-        id: api_integration
+        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           npm run test:integration:api 2>&1 | tee api-integration.log
 
-      - name: Preserve API integration failure log
-        if: ${{ failure() && steps.api_integration.outcome == 'failure' }}
+      - name: Preserve API integration log
         uses: actions/upload-artifact@v4
         with:
-          name: api-integration-failure-${{ github.run_id }}
+          name: api-integration-${{ github.run_id }}
           path: api-integration.log
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
+
+      - name: Fail when API integration failed
+        shell: bash
+        run: grep -q 'ALL PASS (main AppState API)' api-integration.log
 
       - name: Production build
         run: npm run build
