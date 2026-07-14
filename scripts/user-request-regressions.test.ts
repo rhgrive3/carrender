@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { buildProgressChartDates, stablePlanTasks } from '../src/lib/progressChart';
-import { generatePlanV2 } from '../src/lib/schedulerV2';
+import { generatePlanV2 } from '../src/lib/schedulerRecovery';
 import { emptyState } from '../src/state/AppContext';
 import type { AppState, DeadlinePolicy, Material, StudySession, StudyTask } from '../src/types';
 
@@ -71,6 +71,7 @@ for (const policy of ['strict', 'normal'] as const) {
   assert.ok(result.scheduledTasks.length > 0, `${policy}の期限超過教材にも予定を生成する`);
   assert.ok(result.scheduledTasks.every((task) => task.scheduledDate >= TODAY), `${policy}の回復予定は今日以降に置く`);
   assert.ok(result.warnings.some((warning) => warning.code === 'OVERDUE_RECOVERY'), `${policy}の期限超過を明示する`);
+  assert.ok(result.scheduledTasks.every((task) => task.dueDate === '2026-07-10'), `${policy}の元期限を表示用データへ保持する`);
 }
 
 const originalTask: StudyTask = {
