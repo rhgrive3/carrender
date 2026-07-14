@@ -198,6 +198,7 @@ function collectionDescriptors(state: AppState, previous: AppState | null): Coll
 
 export class AppStateIndexedDbRepository {
   private databasePromise: Promise<IDBDatabase> | null = null;
+  private writeChain: Promise<void> = Promise.resolve();
 
   constructor(readonly owner: string) {
     if (!owner.trim()) throw new Error('Main state repository owner is required');
@@ -208,7 +209,14 @@ export class AppStateIndexedDbRepository {
     return this.databasePromise;
   }
 
+  private enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.writeChain.catch(() => undefined).then(operation);
+    this.writeChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
   async loadState(): Promise<AppState | null> {
+    await this.writeChain.catch(() => undefined);
     const database = await this.database();
     const storeNames = Object.values(MAIN_STATE_STORES);
     const transaction = database.transaction(storeNames, 'readonly');
@@ -261,6 +269,7 @@ export class AppStateIndexedDbRepository {
   }
 
   async loadSyncMetadata(): Promise<MainSyncMetadata | null> {
+    await this.writeChain.catch(() => undefined);
     const database = await this.database();
     const transaction = database.transaction(MAIN_STATE_STORES.meta, 'readonly');
     const result = await requestResult(transaction.objectStore(MAIN_STATE_STORES.meta).get('sync')) as SyncMetaRecord | undefined;
@@ -268,32 +277,36 @@ export class AppStateIndexedDbRepository {
     return result?.value?.owner ? result.value : null;
   }
 
-  async saveSyncMetadata(metadata: MainSyncMetadata): Promise<void> {
-    const database = await this.database();
-    const transaction = database.transaction(MAIN_STATE_STORES.meta, 'readwrite');
-    transaction.objectStore(MAIN_STATE_STORES.meta).put({ key: 'sync', value: metadata } satisfies SyncMetaRecord);
-    await transactionComplete(transaction);
+  saveSyncMetadata(metadata: MainSyncMetadata): Promise<void> {
+    return this.enqueueWrite(async () => {
+      const database = await this.database();
+      const transaction = database.transaction(MAIN_STATE_STORES.meta, 'readwrite');
+      transaction.objectStore(MAIN_STATE_STORES.meta).put({ key: 'sync', value: metadata } satisfies SyncMetaRecord);
+      await transactionComplete(transaction);
+    });
   }
 
-  async replaceState(state: AppState): Promise<AppStateWriteStats> {
-    return this.writeState(state, null, true);
+  replaceState(state: AppState): Promise<AppStateWriteStats> {
+    return this.enqueueWrite(() => this.writeState(state, null, true));
   }
 
-  async saveState(state: AppState, previous: AppState | null): Promise<AppStateWriteStats> {
-    return this.writeState(state, previous, false);
+  saveState(state: AppState, previous: AppState | null): Promise<AppStateWriteStats> {
+    return this.enqueueWrite(() => this.writeState(state, previous, false));
   }
 
   async migrateLegacyState(state: AppState): Promise<void> {
-    await this.replaceState(state);
+    const normalized = migrateState(state);
+    if (!normalized.ok) throw new Error('移行元の予定データが不正です');
+    await this.replaceState(normalized.state);
     const restored = await this.loadState();
-    if (!restored || !sameStoredValue(restored, migrateState(state).state)) {
+    if (!restored || !sameStoredValue(restored, normalized.state)) {
       throw new Error('IndexedDBへの移行後検証に失敗しました');
     }
   }
 
   private async writeState(state: AppState, previous: AppState | null, replace: boolean): Promise<AppStateWriteStats> {
     const database = await this.database();
-    const storeNames = Object.values(MAIN_STATE_STORES).filter((store) => store !== MAIN_STATE_STORES.meta || true);
+    const storeNames = Object.values(MAIN_STATE_STORES);
     const transaction = database.transaction(storeNames, 'readwrite');
     const completion = transactionComplete(transaction);
     const stats: AppStateWriteStats = { puts: 0, deletes: 0, clearedStores: 0 };
@@ -307,13 +320,11 @@ export class AppStateIndexedDbRepository {
         }
       }
 
-      const metaStore = transaction.objectStore(MAIN_STATE_STORES.meta);
-      metaStore.put(stateMeta(state));
+      transaction.objectStore(MAIN_STATE_STORES.meta).put(stateMeta(state));
       stats.puts += 1;
 
-      const settingsStore = transaction.objectStore(MAIN_STATE_STORES.settings);
       if (replace || !previous || !sameStoredValue(state.settings, previous.settings)) {
-        settingsStore.put({ key: 'settings', value: state.settings } satisfies SettingsRecord);
+        transaction.objectStore(MAIN_STATE_STORES.settings).put({ key: 'settings', value: state.settings } satisfies SettingsRecord);
         stats.puts += 1;
       }
 
@@ -325,9 +336,6 @@ export class AppStateIndexedDbRepository {
       if (state.goal && (replace || !previous?.goal || !sameStoredValue(state.goal, previous.goal))) {
         goalStore.put(state.goal);
         stats.puts += 1;
-      } else if (!state.goal && !replace && previous?.goal) {
-        goalStore.delete(previous.goal.id);
-        stats.deletes += 1;
       }
 
       for (const descriptor of collectionDescriptors(state, replace ? null : previous)) {
