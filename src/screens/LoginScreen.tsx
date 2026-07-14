@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Eye, EyeOff, Target, TriangleAlert } from 'lucide-react';
 import { useAuth } from '../state/AuthContext';
 import { Segmented } from '../components/ui/bits';
@@ -15,6 +15,10 @@ function validatePassword(password: string): string | null {
   return null;
 }
 
+function readOnlineStatus(): boolean {
+  return typeof navigator === 'undefined' ? true : navigator.onLine;
+}
+
 export function LoginScreen() {
   const { login, register, busy, error, clearError } = useAuth();
   const [mode, setMode] = useState<Mode>('login');
@@ -22,9 +26,20 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [online, setOnline] = useState(readOnlineStatus);
 
   const displayError = localError ?? error;
-  const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const offline = !online;
+
+  useEffect(() => {
+    const updateConnectivity = () => setOnline(readOnlineStatus());
+    window.addEventListener('online', updateConnectivity);
+    window.addEventListener('offline', updateConnectivity);
+    return () => {
+      window.removeEventListener('online', updateConnectivity);
+      window.removeEventListener('offline', updateConnectivity);
+    };
+  }, []);
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -36,6 +51,11 @@ export function LoginScreen() {
     e.preventDefault();
     setLocalError(null);
     clearError();
+
+    if (offline) {
+      setLocalError('オフラインのため認証できません。通信が戻ってからもう一度試してください');
+      return;
+    }
 
     const trimmedUsername = username.trim();
     const usernameError = validateUsername(trimmedUsername);
@@ -82,7 +102,11 @@ export function LoginScreen() {
             />
           </div>
 
-          {offline && <div className="auth-offline-note">オフラインです。通信環境を確認してください</div>}
+          {offline && (
+            <div className="auth-offline-note" role="status" aria-live="polite">
+              オフラインです。通信が戻るとログインできます
+            </div>
+          )}
 
           {displayError && (
             <div className="auth-error" role="alert">
@@ -135,8 +159,8 @@ export function LoginScreen() {
               <p className="field-hint">メールアドレスや認証コードは不要です</p>
             </div>
 
-            <button type="submit" className="btn btn-primary btn-block mt-8" disabled={busy}>
-              {busy ? '処理中…' : mode === 'login' ? 'ログイン' : '新規登録して始める'}
+            <button type="submit" className="btn btn-primary btn-block mt-8" disabled={busy || offline}>
+              {offline ? 'オフラインでは認証できません' : busy ? '処理中…' : mode === 'login' ? 'ログイン' : '新規登録して始める'}
             </button>
           </form>
         </div>
