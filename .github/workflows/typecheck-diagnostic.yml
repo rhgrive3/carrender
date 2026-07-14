@@ -1,0 +1,35 @@
+name: Typecheck diagnostic
+
+on:
+  push:
+    branches:
+      - agent/mandatory-entity-merge-20260714
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Capture typecheck
+        run: |
+          set +e
+          npm run typecheck > typecheck.log 2>&1
+          status=$?
+          cat typecheck.log
+          echo "$status" > typecheck.status
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-diagnostic
+          path: |
+            typecheck.log
+            typecheck.status
