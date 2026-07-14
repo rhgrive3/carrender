@@ -5,6 +5,7 @@ import { useToast } from '../components/ui/Toast';
 import { computeAchievements, unlockedCount } from '../lib/achievements';
 import { shareStudyCard } from '../lib/sharecard';
 import { isPlacedPlanTask } from '../lib/taskFilters';
+import { stablePlanTasks } from '../lib/progressChart';
 import { ProgressBar } from '../components/ui/bits';
 import {
   addDays,
@@ -83,7 +84,7 @@ export function RecordsScreen() {
 
   const plannedByDay = useMemo(() => {
     const map = new Map<string, number>();
-    for (const task of state.tasks) {
+    for (const task of stablePlanTasks(state.tasks, state.sessions)) {
       if (!isPlacedPlanTask(task)) continue;
       map.set(task.scheduledDate, (map.get(task.scheduledDate) ?? 0) + task.estimatedMinutes);
     }
@@ -91,7 +92,7 @@ export function RecordsScreen() {
       map.set(entry.scheduledDate, (map.get(entry.scheduledDate) ?? 0) + entry.estimatedMinutes);
     }
     return map;
-  }, [state.planHistory, state.tasks]);
+  }, [state.planHistory, state.sessions, state.tasks]);
 
   const days = useMemo(() => periodDays(period, offset, t), [period, offset, t]);
   const prevDays = useMemo(() => periodDays(period, offset - 1, t), [period, offset, t]);
