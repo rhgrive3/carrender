@@ -10,10 +10,10 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { AppState, ISODate, Material } from '../../types';
-import { addDays, diffDays, formatDateShort } from '../../lib/date';
+import type { AppState, ISODate, Material, UnitRange } from '../../types';
+import { formatDateShort } from '../../lib/date';
+import { buildProgressChartDates, stablePlanTasks } from '../../lib/progressChart';
 import { actualMaterialAmountThrough, isPlacedPlanTask, legacyProgressBaselineRanges, plannedMaterialAmountThrough } from '../../lib/taskFilters';
-import type { UnitRange } from '../../types';
 
 interface GoalProgressChartProps {
   state: AppState;
@@ -53,36 +53,6 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value * 10) / 10));
 }
 
-function materialStartDate(material: Material): ISODate {
-  return material.startDate || material.createdAt.slice(0, 10);
-}
-
-function buildDateRange(materials: Material[], refDate: ISODate, plannedDates: ISODate[]): ISODate[] {
-  const start = materials.reduce<ISODate>((min, material) => {
-    const d = materialStartDate(material);
-    return d < min ? d : min;
-  }, refDate);
-  const end = materials.reduce<ISODate>((max, material) => {
-    return material.targetDate > max ? material.targetDate : max;
-  }, refDate);
-
-  const span = Math.max(0, diffDays(start, end));
-  const step = span > 240 ? 7 : span > 120 ? 3 : 1;
-  const dates = new Set<ISODate>();
-  for (let i = 0; i <= span; i += step) {
-    dates.add(addDays(start, i));
-  }
-  dates.add(refDate);
-  for (const material of materials) {
-    dates.add(materialStartDate(material));
-    dates.add(material.targetDate);
-  }
-  for (const date of plannedDates) {
-    dates.add(date);
-  }
-  return [...dates].sort();
-}
-
 export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
   const chart = useMemo(() => {
     const activeMaterials = state.materials
@@ -93,8 +63,9 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       return { points: [] as ChartPoint[], series: [] as Series[], materials: [] as Material[] };
     }
 
+    const stableTasks = stablePlanTasks(state.tasks, state.sessions);
     const plannedByMaterial = new Map<string, { date: ISODate; amount: number; range?: UnitRange }[]>();
-    for (const task of state.tasks) {
+    for (const task of stableTasks) {
       if (!task.materialId || task.type !== 'new' || !isPlacedPlanTask(task) || task.amount <= 0) continue;
       const list = plannedByMaterial.get(task.materialId) ?? [];
       const range = task.materialRange
@@ -110,7 +81,12 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       ...[...plannedByMaterial.values()].flatMap((list) => list.map((item) => item.date)),
       ...(state.planHistory ?? []).map((entry) => entry.scheduledDate),
     ];
-    const dates = buildDateRange(activeMaterials, refDate, plannedDates);
+    const dates = buildProgressChartDates(
+      activeMaterials,
+      refDate,
+      plannedDates,
+      state.sessions.map((session) => session.date),
+    );
 
     const series: Series[] = [];
     activeMaterials.forEach((material, index) => {
@@ -135,10 +111,10 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       const point: ChartPoint = { date, label: formatDateShort(date) };
 
       activeMaterials.forEach((material, index) => {
-        const start = materialStartDate(material);
+        const start = material.startDate || material.createdAt.slice(0, 10);
         const baselineRanges = legacyProgressBaselineRanges(material, state.sessions);
         const plannedByDate = plannedMaterialAmountThrough(
-          state.tasks,
+          stableTasks,
           material.id,
           material.totalAmount,
           date,
@@ -222,7 +198,7 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
             {chart.series.map((item) => (
               <Line
                 key={item.key}
-                type={item.kind === 'target' ? 'stepAfter' : 'monotone'}
+                type="monotone"
                 dataKey={item.key}
                 name={item.name}
                 stroke={item.color}
