@@ -13,8 +13,8 @@ export function readStoredShellTab(
   online = typeof navigator === 'undefined' || navigator.onLine,
 ): ShellTab {
   // When the PWA is relaunched offline, Today is the safest recovery surface:
-  // it exposes resumable study sessions and pending work without requiring the
-  // previously selected feature to finish its network-dependent bootstrap.
+  // it exposes resumable study sessions and pending work without requiring a
+  // previously selected feature to finish any network-dependent bootstrap.
   if (!online || !storage) return 'today';
   try {
     const value = storage.getItem(SHELL_TAB_STORAGE_KEY);
