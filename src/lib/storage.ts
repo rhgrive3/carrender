@@ -9,10 +9,10 @@ const BACKUP_KEY = 'studycommander_state_migration_backup';
 const TIMER_KEY = 'studycommander_timer_v1';
 const UPDATED_KEY = 'studycommander_state_updated_at_v1';
 /**
- * v5: v4の記録再構築情報に加え、再計算前の未達成予定をplanHistoryへ保持する。
- * 旧セッションは現在進捗を互換基準として残し、推測で二重加減算しない。
+ * v6: v5に加え、旧データで教材期限が単一目標日を越えている場合は、
+ * 教材期限を失わないよう目標日を最新の使用中教材期限まで延長する。
  */
-export const STATE_VERSION = 5;
+export const STATE_VERSION = 6;
 
 
 export function isAppStateShape(value: unknown): value is AppState {
@@ -272,12 +272,24 @@ export function normalizeState(input: AppState): AppState {
   const validSubjectIds = new Set(subjects.map((subject) => subject.id));
   const fallbackSubjectId = subjects[0]?.id;
   const normalizeSubjectId = (candidate: string) => validSubjectIds.has(candidate) || !fallbackSubjectId ? candidate : fallbackSubjectId;
+  const activeMaterialTargets = (input.materials ?? [])
+    .filter((material) => material.archived !== true && validISODate(material.targetDate))
+    .map((material) => material.targetDate)
+    .sort();
+  const latestActiveMaterialTarget = activeMaterialTargets[activeMaterialTargets.length - 1];
+  // v5で追加した「教材期限 <= 目標日」の不変条件より前のデータには、
+  // すでに目標日より後の教材が存在し得る。教材の期限を勝手に短縮せず、
+  // 単一目標の方を延長して計画・D1同期を継続可能にする。
+  const goal = input.goal && latestActiveMaterialTarget && latestActiveMaterialTarget > input.goal.examDate
+    ? { ...input.goal, examDate: latestActiveMaterialTarget }
+    : input.goal;
 
   return {
     ...input,
     version: STATE_VERSION,
     schemaVersion: STATE_VERSION,
     settings,
+    goal,
     subjects,
     availability,
     dayPlans: normalizeDayPlans(input.dayPlans),

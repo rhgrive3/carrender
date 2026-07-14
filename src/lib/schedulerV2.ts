@@ -1063,18 +1063,48 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       const averageStrictMinutes = totalStrictMinutes / Math.max(1, activeStrictDays);
       const maxAvailableBudget = balancedDaysBase.reduce((max, day) => Math.max(max, day.budget), 0);
       const capCouldPossiblyFit = (cap: number) => {
-        const totalCapacity = balancedDaysBase.reduce((sum, day) => sum + Math.min(day.budget, cap), 0);
+        const activeDays = balancedDaysBase.filter((day) => balancedItems.some((item) =>
+          day.date >= item.release && day.date <= item.deadline));
+        const totalCapacity = activeDays.reduce((sum, day) => sum + Math.min(day.budget, cap), 0);
         if (totalCapacity < totalStrictMinutes) return false;
-        return balancedItems.every((item) => {
-          let capacityUnits = 0;
-          for (const day of balancedDaysBase) {
-            if (day.date < item.release || day.date > item.deadline) continue;
-            const minuteCap = Math.min(day.budget, cap, item.maxMinutesPerDay ?? Number.POSITIVE_INFINITY);
-            const unitCap = Math.floor(minuteCap / Math.max(item.minutesPerUnit, 0.0001));
-            capacityUnits += Math.min(unitCap, item.maxUnitsPerDay ?? Number.POSITIVE_INFINITY);
+        const unitsAvailableOn = (item: SolverItem, day: SolverDayInput) => {
+          if (day.date < item.release || day.date > item.deadline) return 0;
+          const minuteCap = Math.min(day.budget, cap, item.maxMinutesPerDay ?? Number.POSITIVE_INFINITY);
+          const unitCap = Math.floor(minuteCap / Math.max(item.minutesPerUnit, 0.0001));
+          return Math.max(0, Math.min(unitCap, item.maxUnitsPerDay ?? Number.POSITIVE_INFINITY));
+        };
+        const unitsAvailableAcross = (item: SolverItem, days: SolverDayInput[]) => {
+          if (!item.splittable) {
+            return days.some((day) => unitsAvailableOn(item, day) >= item.requiredUnits) ? item.requiredUnits : 0;
           }
+          return days.reduce((sum, day) => sum + unitsAvailableOn(item, day), 0);
+        };
+        if (!balancedItems.every((item) => {
+          const capacityUnits = unitsAvailableAcross(item, balancedDaysBase);
           return capacityUnits >= item.requiredUnits;
-        });
+        })) return false;
+
+        // 各期限までに「後ろの残り日では収容できない分」を全教材ぶん合算する。
+        // 教材ごとの容量と総分数だけでは、単位幅が違う複数教材の組合せ損失を
+        // 見抜けない。実データでは195分/日なら25分教材と40分教材を個別には
+        // 収容可能に見えたが、早い期限までに必要な525分を2日390分へ置けず、
+        // バックトラックが探索上限を使い切って期限直前解へ戻っていた。
+        for (const cutoff of activeDays.map((day) => day.date)) {
+          let mandatoryMinutesThroughCutoff = 0;
+          for (const item of balancedItems) {
+            const capacityAfterCutoff = unitsAvailableAcross(
+              item,
+              balancedDaysBase.filter((day) => day.date > cutoff),
+            );
+            const mandatoryUnits = Math.max(0, item.requiredUnits - capacityAfterCutoff);
+            mandatoryMinutesThroughCutoff += minutesForUnits(item.minutesPerUnit, mandatoryUnits);
+          }
+          const capacityThroughCutoff = activeDays
+            .filter((day) => day.date <= cutoff)
+            .reduce((sum, day) => sum + Math.min(day.budget, cap), 0);
+          if (mandatoryMinutesThroughCutoff > capacityThroughCutoff) return false;
+        }
+        return true;
       };
       // A raw average can be impossible after unit granularity is applied. For
       // example, 21 × 40-minute units over six days average 140 minutes, but a

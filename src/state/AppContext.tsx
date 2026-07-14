@@ -841,6 +841,7 @@ interface AppContextValue {
   hasUnsyncedChanges: boolean;
   resolveSyncConflict: (choice: 'local' | 'cloud') => Promise<void>;
   retrySync: () => void;
+  syncErrorMessage: string | null;
   localSaveError: string | null;
 }
 
@@ -933,6 +934,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const lastLocallyTrackedState = useRef(state);
   const [syncReady, setSyncReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
   const [localSaveError, setLocalSaveError] = useState<string | null>(null);
   const [syncConflictInfo, setSyncConflictInfo] = useState<MainSyncConflict | null>(null);
   const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false);
@@ -968,6 +970,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     remoteKnown.current = true;
     syncConflict.current = false;
     setSyncConflictInfo(null);
+    setSyncErrorMessage(null);
     // A newer local edit may have landed while this request was in flight. In
     // that case the saved generation becomes the new base, but the device must
     // remain dirty until the newer snapshot is sent.
@@ -994,6 +997,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pendingPush.current = true;
     syncConflict.current = true;
     setSyncConflictInfo({ remoteState, remoteUpdatedAt: updatedAt, localBaseUpdatedAt });
+    setSyncErrorMessage(null);
     setHasUnsyncedChanges(true);
     setSyncStatus('conflict');
   }, []);
@@ -1009,6 +1013,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pendingPush.current = false;
     syncConflict.current = false;
     setSyncConflictInfo(null);
+    setSyncErrorMessage(null);
     markLocalClean(updatedAt);
     setSyncStatus('synced');
   }, [dispatch, markLocalClean]);
@@ -1018,11 +1023,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (syncConflict.current) return;
       if (!remoteKnown.current) {
         pendingPush.current = true;
-        setSyncStatus(typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'error');
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+        setSyncErrorMessage(offline ? null : 'クラウドの保存状態を確認できていません');
+        setSyncStatus(offline ? 'offline' : 'error');
         return;
       }
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         pendingPush.current = true;
+        setSyncErrorMessage(null);
         setSyncStatus('offline');
         return;
       }
@@ -1037,12 +1045,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const latest = await apiGetData();
             const metadata = owner ? getMainSyncMetadata(owner) : null;
             if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
-            else setSyncStatus('error');
+            else {
+              setSyncErrorMessage(error.message);
+              setSyncStatus('error');
+            }
           } catch (refreshError) {
             const refresh = refreshError as ApiError;
+            setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
             setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');
           }
         } else {
+          setSyncErrorMessage(error.isNetworkError ? null : error.message);
           setSyncStatus(error.isNetworkError ? 'offline' : 'error');
         }
       }
@@ -1116,6 +1129,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pushChain.current = Promise.resolve();
     syncConflict.current = false;
     setSyncConflictInfo(null);
+    setSyncErrorMessage(null);
     setSyncReady(false);
     setSyncStatus('syncing');
     (async () => {
@@ -1162,12 +1176,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const latest = await apiGetData();
             const metadata = getMainSyncMetadata(owner);
             if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
-            else setSyncStatus('error');
+            else {
+              setSyncErrorMessage(error.message);
+              setSyncStatus('error');
+            }
           } catch (refreshError) {
             const refresh = refreshError as ApiError;
+            setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
             setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');
           }
         } else {
+          setSyncErrorMessage(error.isNetworkError ? null : error.message);
           setSyncStatus(error.isNetworkError ? 'offline' : 'error');
         }
       } finally {
@@ -1215,6 +1234,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       localState: stateRef.current,
       remoteState: conflict.remoteState,
     });
+    setSyncErrorMessage(null);
     setSyncStatus('syncing');
     if (choice === 'cloud') {
       applyCloudState(conflict.remoteState, conflict.remoteUpdatedAt);
@@ -1231,15 +1251,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const metadata = getMainSyncMetadata(owner);
         if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
       } else {
+        setSyncErrorMessage(error.isNetworkError ? null : error.message);
         setSyncStatus(error.isNetworkError ? 'offline' : 'error');
       }
       throw caught;
     }
   }, [applyCloudState, establishConflict, finishSuccessfulPush, owner, syncConflictInfo]);
 
-  const retrySync = useCallback(() => setSyncAttempt((attempt) => attempt + 1), []);
+  const retrySync = useCallback(() => {
+    setSyncErrorMessage(null);
+    setSyncStatus('syncing');
+    setSyncAttempt((attempt) => attempt + 1);
+  }, []);
 
-  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, localSaveError }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, localSaveError]);
+  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError]);
   if (owner && !syncReady) {
     return <div className="screen"><div className="card">クラウドの最新データを確認中…</div></div>;
   }

@@ -40,12 +40,20 @@ export interface AppStateValidationResult {
   error?: string;
 }
 
+export interface AppStateValidationOptions {
+  /**
+   * v5以前に保存済みの「教材期限 > 単一目標日」だけを読出し時に通す。
+   * クライアントのv6移行が目標日を延長してから、次のPUTで正規化する。
+   */
+  allowLegacyGoalDateOverflow?: boolean;
+}
+
 /**
  * D1 must never become the first place malformed state is accepted. Older
  * valid schema versions may omit newer optional fields, but any supplied
  * values and all cross references must already be internally consistent.
  */
-export function validateAppStatePayload(value: unknown): AppStateValidationResult {
+export function validateAppStatePayload(value: unknown, options: AppStateValidationOptions = {}): AppStateValidationResult {
   if (!isRecord(value)) return { ok: false, error: '学習データはオブジェクトである必要があります' };
   if (typeof value.onboarded !== 'boolean') return { ok: false, error: 'onboarded が不正です' };
   if (!isRecord(value.settings)) return { ok: false, error: 'settings が不正です' };
@@ -101,7 +109,7 @@ export function validateAppStatePayload(value: unknown): AppStateValidationResul
     if (typeof material.startDate === 'string' && material.startDate > material.targetDate) {
       return { ok: false, error: 'materials の開始日と目標完了日の順序が不正です' };
     }
-    if (examDate && material.archived !== true && material.targetDate > examDate) {
+    if (!options.allowLegacyGoalDateOverflow && examDate && material.archived !== true && material.targetDate > examDate) {
       return { ok: false, error: 'materials の目標完了日が試験日より後です' };
     }
     if (material.completedRanges !== undefined) {

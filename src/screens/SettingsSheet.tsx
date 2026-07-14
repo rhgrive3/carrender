@@ -20,7 +20,7 @@ const SYNC_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 };
 
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { state, dispatch, execute, syncStatus, syncConflict, hasUnsyncedChanges, resolveSyncConflict, retrySync } = useApp();
+  const { state, dispatch, execute, syncStatus, syncConflict, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage } = useApp();
   const { user, logout, busy: authBusy } = useAuth();
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -363,7 +363,10 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           </button>
         </div>
         {(syncStatus === 'offline' || syncStatus === 'error') && !syncConflict && (
-          <button type="button" className="btn btn-ghost btn-sm mt-8" onClick={retrySync}>同期を再試行</button>
+          <>
+            {syncErrorMessage && <p className="muted mt-8" role="alert">{syncErrorMessage}</p>}
+            <button type="button" className="btn btn-ghost btn-sm mt-8" onClick={retrySync}>同期を再試行</button>
+          </>
         )}
         {syncConflict && (
           <div className="card status-danger mt-12" role="alert" style={{ padding: 12 }}>
