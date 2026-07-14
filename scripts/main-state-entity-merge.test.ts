@@ -136,4 +136,31 @@ function withMonthlySummary(input: AppState, studyMinutes: number, sessionCount:
   assert.deepEqual(result.conflicts[0], { section: 'scheduleState', key: 'value', reason: 'bothChanged' });
 }
 
+{
+  const base = state();
+  const staleRevision = {
+    id: 'plan-revision:stale:2024-01-01T00:00:00.000Z', generationId: 'stale', createdAt: '2024-01-01T00:00:00.000Z',
+    reason: '古い計画', fromDate: '2024-01-01', placements: [], changes: [], materialChanges: [],
+  };
+  const freshRevision = {
+    id: 'plan-revision:fresh:2026-07-14T00:00:00.000Z', generationId: 'fresh', createdAt: '2026-07-14T00:00:00.000Z',
+    reason: '新しい計画', fromDate: '2026-07-14', placements: [], changes: [], materialChanges: [],
+  };
+  const local = {
+    ...base,
+    settings: { ...base.settings, historyData: { planRevisions: [freshRevision], monthlySummaries: [] } },
+  };
+  const remote = {
+    ...base,
+    sessions: [...base.sessions, session('remote-new', 'remote')],
+    settings: { ...base.settings, historyData: { planRevisions: [staleRevision, freshRevision], monthlySummaries: [] } },
+  };
+  const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote, new Date('2026-07-15T00:00:00.000Z'));
+  assert.deepEqual(
+    result.merged?.settings.historyData?.planRevisions.map((revision) => revision.id),
+    [freshRevision.id],
+    '古い端末との同期でも1年超の計画履歴を復活させない',
+  );
+}
+
 console.log('✅ main state entity merge regressions passed');

@@ -1,4 +1,5 @@
 import type { AppSettings, AppState } from '../types';
+import { compactPlanRevisions } from './planHistory';
 
 export type MainStateEntitySection =
   | 'goal'
@@ -96,12 +97,14 @@ function mapOf(entries: [string, unknown][]): Map<string, unknown> {
   return new Map(entries);
 }
 
-function mergePlanRevisions(local: AppSettings, remote: AppSettings): NonNullable<AppSettings['historyData']>['planRevisions'] {
+function mergePlanRevisions(
+  local: AppSettings,
+  remote: AppSettings,
+  now: Date,
+): NonNullable<AppSettings['historyData']>['planRevisions'] {
   const localRevisions = local.historyData?.planRevisions ?? [];
   const remoteRevisions = remote.historyData?.planRevisions ?? [];
-  return [...new Map([...localRevisions, ...remoteRevisions].map((item) => [item.id, item])).values()]
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    .slice(-32);
+  return compactPlanRevisions([...localRevisions, ...remoteRevisions], now);
 }
 
 function chooseEntity(input: {
@@ -139,6 +142,7 @@ export function mergeMainStates(
   baseHashes: MainStateEntityHashSnapshot | null | undefined,
   local: AppState,
   remote: AppState,
+  now = new Date(),
 ): MainStateMergeResult {
   if (!baseHashes) {
     return {
@@ -195,7 +199,7 @@ export function mergeMainStates(
   const settings: AppSettings = {
     ...settingsCoreValue,
     historyData: {
-      planRevisions: mergePlanRevisions(local.settings, remote.settings),
+      planRevisions: mergePlanRevisions(local.settings, remote.settings, now),
       monthlySummaries,
     },
   };
