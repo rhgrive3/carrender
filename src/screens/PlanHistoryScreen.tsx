@@ -3,6 +3,7 @@ import { History, RotateCcw } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ui/Toast';
 import { formatDateShort, formatMinutes } from '../lib/date';
+import { restorePlanRevisionLayout } from '../lib/planHistory';
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -17,15 +18,16 @@ function formatTimestamp(value: string): string {
 }
 
 export function PlanHistoryScreen() {
-  const { state, execute } = useApp();
+  const { state, dispatch } = useApp();
   const toast = useToast();
+  const historyData = state.settings.historyData ?? { planRevisions: [], monthlySummaries: [] };
   const revisions = useMemo(
-    () => [...(state.planRevisions ?? [])].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
-    [state.planRevisions],
+    () => [...historyData.planRevisions].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [historyData.planRevisions],
   );
   const summaries = useMemo(
-    () => [...(state.historySummaries ?? [])].sort((left, right) => right.month.localeCompare(left.month)),
-    [state.historySummaries],
+    () => [...historyData.monthlySummaries].sort((left, right) => right.month.localeCompare(left.month)),
+    [historyData.monthlySummaries],
   );
 
   return (
@@ -63,8 +65,11 @@ export function PlanHistoryScreen() {
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => {
-                  const result = execute({ type: 'RESTORE_PLAN_REVISION', revisionId: revision.id });
-                  toast(result.changed ? '現在の完了状況を保ったまま配置を復元しました' : '復元できる未完了タスクはありませんでした');
+                  const restored = restorePlanRevisionLayout(state, revision.id);
+                  if (restored.restoredTaskCount > 0) dispatch({ type: 'REPLACE_STATE', state: restored.state });
+                  toast(restored.restoredTaskCount > 0
+                    ? `${restored.restoredTaskCount}件を現在の完了状況を保ったまま復元しました`
+                    : '復元できる未完了タスクはありませんでした');
                 }}
               >
                 <RotateCcw size={14} strokeWidth={2.4} aria-hidden="true" /> 復元
