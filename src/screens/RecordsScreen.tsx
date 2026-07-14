@@ -87,8 +87,11 @@ export function RecordsScreen() {
       if (!isPlacedPlanTask(task)) continue;
       map.set(task.scheduledDate, (map.get(task.scheduledDate) ?? 0) + task.estimatedMinutes);
     }
+    for (const entry of state.planHistory ?? []) {
+      map.set(entry.scheduledDate, (map.get(entry.scheduledDate) ?? 0) + entry.estimatedMinutes);
+    }
     return map;
-  }, [state.tasks]);
+  }, [state.planHistory, state.tasks]);
 
   const days = useMemo(() => periodDays(period, offset, t), [period, offset, t]);
   const prevDays = useMemo(() => periodDays(period, offset - 1, t), [period, offset, t]);

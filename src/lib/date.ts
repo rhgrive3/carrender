@@ -22,9 +22,9 @@ function isoFromUTCDate(d: Date): ISODate {
 }
 
 /** 日本時間(Asia/Tokyo)での "YYYY-MM-DD" */
-export function toISODate(d: Date): ISODate {
+export function toISODate(d: Date, timeZone = APP_TIME_ZONE): ISODate {
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: APP_TIME_ZONE,
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -35,13 +35,53 @@ export function toISODate(d: Date): ISODate {
   return `${y}-${m}-${day}`;
 }
 
-export function today(): ISODate {
-  return toISODate(new Date());
+export function today(timeZone = APP_TIME_ZONE): ISODate {
+  return toISODate(new Date(), timeZone);
 }
 
-export function parseISO(date: ISODate): Date {
-  return new Date(utcMs(date));
+/** 指定タイムゾーンでの0:00からの経過分。端末タイムゾーンへ依存させない。 */
+export function minutesInTimeZone(date: Date, timeZone = APP_TIME_ZONE): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0);
+  return (hour % 24) * 60 + minute;
 }
+
+/** 指定タイムゾーンのローカル日付・時刻を、保存用UTC ISO文字列へ変換する。 */
+export function localDateTimeToISOString(date: ISODate, time: string, timeZone = APP_TIME_ZONE): string {
+  const { y, m, d } = partsOf(date);
+  const [hour, minute] = time.split(':').map(Number);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new Error('INVALID_LOCAL_TIME');
+  }
+  const targetAsUtc = Date.UTC(y, m - 1, d, hour, minute);
+  let candidate = targetAsUtc;
+  // Intlから得た現地表示との差分で補正する。Tokyoでは1回で収束し、
+  // DSTがあるzoneでも通常2回以内に対象の現地時刻へ一致する。
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(candidate));
+    const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+    const shownAsUtc = Date.UTC(value('year'), value('month') - 1, value('day'), value('hour') % 24, value('minute'));
+    const delta = targetAsUtc - shownAsUtc;
+    candidate += delta;
+    if (delta === 0) break;
+  }
+  return new Date(candidate).toISOString();
+}
+
 
 export function addDays(date: ISODate, days: number): ISODate {
   return isoFromUTCDate(new Date(utcMs(date) + days * DAY_MS));
@@ -145,8 +185,9 @@ export function hmToMinutes(hm: string): number {
 }
 
 export function minutesToHM(min: number): string {
-  const h = Math.floor(min / 60) % 24;
-  const m = Math.round(min % 60);
+  const rounded = Math.max(0, Math.round(min));
+  const h = Math.floor(rounded / 60) % 24;
+  const m = rounded % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 

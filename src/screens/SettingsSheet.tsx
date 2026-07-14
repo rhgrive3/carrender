@@ -119,6 +119,12 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       toast('試験日は今日以降を指定してください');
       return;
     }
+    const outsideGoal = state.materials.filter((material) => !material.archived && material.targetDate > examDate);
+    if (outsideGoal.length > 0) {
+      const first = outsideGoal[0];
+      toast(`「${first.name}」など${outsideGoal.length}件の目標完了日が試験日より後です。先に教材期限を修正してください`);
+      return;
+    }
     const result = execute({ type: 'UPDATE_GOAL', goal: { ...state.goal, name: goalName.trim(), examDate } });
     toast(result.message ?? '目標を更新しました');
     if (result.changed) { setGoalDirty(false); setOtherExternalUpdate(false); }
@@ -523,17 +529,6 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         />
       </div>
       <div className="field-row">
-        <div className="field">
-          <label htmlFor="st-timezone">タイムゾーン</label>
-          <select id="st-timezone" value={studyDraft.timezone ?? 'Asia/Tokyo'} onChange={(e) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, timezone: e.target.value })); }}>
-            <option value="Asia/Tokyo">Asia/Tokyo</option>
-            <option value="Asia/Seoul">Asia/Seoul</option>
-            <option value="Asia/Singapore">Asia/Singapore</option>
-            <option value="Europe/London">Europe/London</option>
-            <option value="America/New_York">America/New_York</option>
-            <option value="America/Los_Angeles">America/Los_Angeles</option>
-          </select>
-        </div>
         <div className="field">
           <label htmlFor="st-horizon">具体計画の最低日数</label>
           <NumericInput id="st-horizon" value={studyDraft.taskGenerationHorizonDays ?? 42} min={7} max={90} onChange={(v) => { markDirty('study'); setStudyDraft((prev) => ({ ...prev, taskGenerationHorizonDays: Math.max(7, Math.min(90, v)) })); }} />

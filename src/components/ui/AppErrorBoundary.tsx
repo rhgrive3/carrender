@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
+import { today } from '../../lib/date';
 import { exportJSON, loadState } from '../../lib/storage';
 
 interface Props { children: ReactNode }
@@ -23,7 +24,7 @@ export class AppErrorBoundary extends Component<Props, State> {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `studycommander-recovery-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `studycommander-recovery-${today()}.json`;
     link.click();
     URL.revokeObjectURL(url);
   };

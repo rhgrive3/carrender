@@ -5,7 +5,7 @@ import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
 import { resolveSessionProgress, useApp } from '../../state/AppContext';
 import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
-import { minutesToHM, today } from '../../lib/date';
+import { APP_TIME_ZONE, minutesInTimeZone, minutesToHM, today } from '../../lib/date';
 import type { StudySession } from '../../types';
 
 export interface RecordPreset {
@@ -45,8 +45,8 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
   const [showMemo, setShowMemo] = useState(Boolean(session?.memo));
   const [recordDate, setRecordDate] = useState(session?.date ?? today());
   const [startTime, setStartTime] = useState(() => session
-    ? new Date(session.startedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
-    : minutesToHM(new Date().getHours() * 60 + new Date().getMinutes()));
+    ? new Date(session.startedAt).toLocaleTimeString('en-GB', { timeZone: APP_TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false })
+    : minutesToHM(minutesInTimeZone(new Date())));
 
   const materials = useMemo(
     () => state.materials.filter((m) => (!m.archived || m.id === session?.materialId) && m.subjectId === subjectId),

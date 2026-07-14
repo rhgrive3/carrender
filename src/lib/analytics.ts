@@ -61,7 +61,9 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
   // --- 直近7日の予定達成率 ---
   const tasks7d = state.tasks.filter((t) => t.scheduledDate >= weekFrom && t.scheduledDate <= ref);
   const relevant = tasks7d.filter(isPlacedPlanTask);
-  const planned7d = relevant.reduce((sum, t) => sum + t.estimatedMinutes, 0);
+  const missed7d = (state.planHistory ?? []).filter((entry) => entry.scheduledDate >= weekFrom && entry.scheduledDate <= ref);
+  const planned7d = relevant.reduce((sum, t) => sum + t.estimatedMinutes, 0)
+    + missed7d.reduce((sum, entry) => sum + entry.estimatedMinutes, 0);
   const done7d = relevant.filter((t) => t.status === 'done').reduce((sum, t) => sum + t.estimatedMinutes, 0);
   const planAchievementRate7d = planned7d > 0 ? Math.min(1, done7d / planned7d) : 0;
 
@@ -72,7 +74,10 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
       (t) => t.subjectId === subj.id && t.scheduledDate >= from14 && t.scheduledDate <= ref && isPlacedPlanTask(t),
     );
     const sSessions = sessions.filter((s) => s.subjectId === subj.id && s.date >= from14 && s.date <= ref);
-    const planned = sTasks.reduce((sum, t) => sum + t.estimatedMinutes, 0);
+    const missed = (state.planHistory ?? []).filter((entry) =>
+      entry.subjectId === subj.id && entry.scheduledDate >= from14 && entry.scheduledDate <= ref);
+    const planned = sTasks.reduce((sum, t) => sum + t.estimatedMinutes, 0)
+      + missed.reduce((sum, entry) => sum + entry.estimatedMinutes, 0);
     const actual = sSessions.reduce((sum, s) => sum + s.minutes, 0);
     const done = sTasks.filter((t) => t.status === 'done').reduce((sum, t) => sum + t.estimatedMinutes, 0);
     return {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { RotateCcw, Server } from 'lucide-react';
 import type { MemoryConflict } from '../infrastructure/repositories';
 import { useToast } from '../../../components/ui/Toast';
+import { APP_TIME_ZONE } from '../../../lib/date';
 import { MemoryDialog } from './MemoryDialog';
 import { useMemory } from './MemoryContext';
 
@@ -61,7 +62,7 @@ export function MemoryConflictsDialog({ onClose }: { onClose: () => void }) {
           <div className="memory-conflict-list" role="listbox" aria-label="同期競合">
             {conflicts.map((conflict) => (
               <button type="button" role="option" aria-selected={selected?.id === conflict.id} className={selected?.id === conflict.id ? 'active' : ''} key={conflict.id} onClick={() => setSelectedId(conflict.id)}>
-                <b>{conflict.entityType}</b><span>{conflict.entityId}</span><small>{new Date(conflict.createdAt).toLocaleString('ja-JP')}</small>
+                <b>{conflict.entityType}</b><span>{conflict.entityId}</span><small>{new Date(conflict.createdAt).toLocaleString('ja-JP', { timeZone: APP_TIME_ZONE })}</small>
               </button>
             ))}
           </div>

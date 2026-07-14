@@ -155,12 +155,6 @@ export function buildMemoryCard(input: CreateMemoryCardInput, now = new Date().t
   };
 }
 
-export async function createMemoryCard(repository: MemoryRepository, input: CreateMemoryCardInput): Promise<MemoryItem> {
-  const built = buildMemoryCard(input);
-  await repository.saveContentBundle(built.bundle, built.setMember ? [built.setMember] : []);
-  return built.bundle.items[0];
-}
-
 export async function createMemorySet(
   repository: MemoryRepository,
   input: { name: string; description?: string; tags?: string[] },
@@ -249,29 +243,6 @@ export async function addAnswerToSense(
   };
   await repository.saveContentBundle({ items: [], senses: [], answers: [answer], examples: [], exercises: [] });
   return answer;
-}
-
-export async function addItemsToSet(
-  repository: MemoryRepository,
-  setId: string,
-  itemIds: string[],
-): Promise<void> {
-  const existing = await repository.listSetMembers(setId);
-  const known = new Set(existing.map((member) => member.itemId));
-  const now = new Date().toISOString();
-  const additions = [...new Set(itemIds)]
-    .filter((itemId) => !known.has(itemId))
-    .map((itemId, index): MemorySetMember => ({
-      setId,
-      itemId,
-      order: existing.length + index,
-      createdAt: now,
-    }));
-  if (additions.length === 0) return;
-  await repository.saveContentBundle(
-    { items: [], senses: [], answers: [], examples: [], exercises: [] },
-    additions,
-  );
 }
 
 /** Marks an Item and every unverified descendant as explicitly user-reviewed. */

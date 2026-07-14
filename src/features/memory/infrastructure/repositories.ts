@@ -312,7 +312,7 @@ function compareMutationOrder(left: MemoryPendingMutation, right: MemoryPendingM
  * Produces a stable dependency order while preserving every per-entity mutation
  * chain. Creates/updates run parent-first; tombstones run child-first.
  */
-export function sortPendingMutationsForSync(mutations: MemoryPendingMutation[]): MemoryPendingMutation[] {
+function sortPendingMutationsForSync(mutations: MemoryPendingMutation[]): MemoryPendingMutation[] {
   const ordered = [...mutations].sort(compareMutationOrder);
   const byEntity = new Map<string, number[]>();
   ordered.forEach((mutation, index) => {

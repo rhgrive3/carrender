@@ -19,7 +19,7 @@ import type {
   UnscheduledWorkItem,
   ValidationIssue,
 } from '../types';
-import { addDays, diffDays, hmToMinutes, minutesToHM, weekdayOf } from './date';
+import { addDays, diffDays, hmToMinutes, minutesInTimeZone, minutesToHM, toISODate, weekdayOf } from './date';
 import type { SlotAllocation, SolverDayInput, SolverItem } from './strictSolver';
 import { compareItemsForSearch, countItemPlacements, minutesForUnits, solveStrict } from './strictSolver';
 
@@ -103,11 +103,6 @@ export function mergeMinuteRanges(ranges: MinuteRange[]): MinuteRange[] {
     else merged.push(range);
   }
   return merged;
-}
-
-export function mergeTimeRanges(ranges: TimeRange[]): TimeRange[] {
-  return mergeMinuteRanges(ranges.map((range) => ({ start: hmToMinutes(range.start), end: hmToMinutes(range.end) })))
-    .map((range) => ({ start: minutesToHM(range.start), end: minutesToHM(range.end) }));
 }
 
 export function subtractMinuteRanges(windows: MinuteRange[], busy: MinuteRange[]): MinuteRange[] {
@@ -207,7 +202,7 @@ function removeClaimedRanges(ranges: UnitRange[], claimed: UnitRange[]): UnitRan
   return result;
 }
 
-export function preferredFinishDateFor(material: Material): ISODate {
+function preferredFinishDateFor(material: Material): ISODate {
   if (material.preferredFinishDate) return material.preferredFinishDate;
   const span = Math.max(0, diffDays(material.startDate, material.targetDate));
   if (material.deadlinePolicy === 'flexible') return material.targetDate;
@@ -218,7 +213,7 @@ export function preferredFinishDateFor(material: Material): ISODate {
   return proportional < material.startDate ? material.startDate : proportional > leadDate ? (leadDate < material.startDate ? material.startDate : leadDate) : proportional;
 }
 
-export interface SafetyFinishInput {
+interface SafetyFinishInput {
   start: ISODate;
   deadline: ISODate;
   deadlinePolicy: Material['deadlinePolicy'];
@@ -232,7 +227,7 @@ export interface SafetyFinishInput {
  * 期限当日を通常の完了日として使わない。暦日ではなく、固定予定を引いた容量で
  * 予備を残せる最も早い日を求める。容量が足りない場合だけ期限へ近づける。
  */
-export function computeSafetyFinishDate(input: SafetyFinishInput): ISODate {
+function computeSafetyFinishDate(input: SafetyFinishInput): ISODate {
   const span = Math.max(0, diffDays(input.start, input.deadline));
   const baseReserve = span <= 7 ? 1 : span <= 21 ? 2 : span <= 60 ? 5 : Math.ceil(span * 0.12);
   const reserve = input.deadlinePolicy === 'strict' ? baseReserve + 1 : baseReserve;
@@ -253,7 +248,7 @@ function mondayKey(date: ISODate): ISODate {
 }
 
 /** 頻度指定の候補日を週の中で均等に選ぶ。容量不足なら後段で日を追加する。 */
-export function selectCadenceDates(
+function selectCadenceDates(
   material: Material,
   dates: ReadonlyArray<ISODate>,
   capacityForDate: (date: ISODate) => number,
@@ -292,22 +287,14 @@ function extendCadenceForCapacity(
 }
 
 export function dateInTimeZone(date: Date, timeZone: string): ISODate {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
-  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
-  return `${value('year')}-${value('month')}-${value('day')}`;
-}
-
-function minutesInTimeZone(date: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(date);
-  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
-  return (value('hour') % 24) * 60 + value('minute');
+  return toISODate(date, timeZone);
 }
 
 function issue(targetId: string, field: string, value: unknown, reason: string, suggestion: string): ValidationIssue {
   return { targetId, field, value, reason, suggestion };
 }
 
-export function validateStateV2(state: AppState): ValidationIssue[] {
+function validateStateV2(state: AppState): ValidationIssue[] {
   const errors: ValidationIssue[] = [];
   for (const material of state.materials) {
     const total = material.totalUnits ?? material.totalAmount;
@@ -315,6 +302,7 @@ export function validateStateV2(state: AppState): ValidationIssue[] {
     if (!(material.minutesPerUnit > 0)) errors.push(issue(material.id, 'minutesPerUnit', material.minutesPerUnit, '見積時間は0より大きい必要があります', '1以上を指定してください'));
     if (!((material.unitStep ?? 1) > 0)) errors.push(issue(material.id, 'unitStep', material.unitStep, '単位刻みは0より大きい必要があります', '1以上を指定してください'));
     if (material.targetDate && material.startDate > material.targetDate) errors.push(issue(material.id, 'targetDate', material.targetDate, '期限が開始日より前です', '開始日以降の日付を指定してください'));
+    if (state.goal && !material.archived && material.targetDate > state.goal.examDate) errors.push(issue(material.id, 'targetDate', material.targetDate, '教材の目標完了日が試験日より後です', '試験日以前へ変更してください'));
     if (material.minimumChunkUnits !== undefined && material.minimumChunkUnits <= 0) errors.push(issue(material.id, 'minimumChunkUnits', material.minimumChunkUnits, '最小チャンクは0より大きい必要があります', '1以上を指定してください'));
     if (material.maximumChunkUnits !== undefined && material.maximumChunkUnits < (material.minimumChunkUnits ?? 1)) errors.push(issue(material.id, 'maximumChunkUnits', material.maximumChunkUnits, '最大チャンクが最小チャンク未満です', '最小チャンク以上にしてください'));
     if (material.maxUnitsPerDay !== undefined && material.maxUnitsPerDay <= 0) errors.push(issue(material.id, 'maxUnitsPerDay', material.maxUnitsPerDay, '1日上限は0より大きい必要があります', '1以上を指定してください'));
@@ -427,7 +415,7 @@ function deterministicHash(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-export function deterministicTaskId(generationId: string, workItemId: string, date: ISODate, start: string, range?: UnitRange) {
+function deterministicTaskId(generationId: string, workItemId: string, date: ISODate, start: string, range?: UnitRange) {
   return `task_${deterministicHash([generationId, workItemId, date, start, range?.start ?? '', range?.end ?? ''].join('|'))}`;
 }
 
@@ -788,7 +776,7 @@ function eligibleCapacity(calendar: Map<ISODate, CalendarDay>, from: ISODate, to
  * ObjectiveReportの辞書式比較。上位目的を下位の重み付き合計で逆転させない。
  * 負ならaが良い。
  */
-export function compareObjectives(a: ObjectiveReport, b: ObjectiveReport): number {
+function compareObjectives(a: ObjectiveReport, b: ObjectiveReport): number {
   const keys: (keyof ObjectiveReport)[] = [
     'strictDeadlineViolations',
     'lockViolations',
@@ -1557,7 +1545,7 @@ function countMaterialStreaks(tasks: StudyTask[]) {
  * 期限・固定条件を満たした候補同士だけを比較するための負荷指標。
  * ここでは重み付き合計にせず、compareObjectivesの後半で辞書式に扱う。
  */
-export function computeLoadBalanceMetrics(
+function computeLoadBalanceMetrics(
   state: AppState,
   tasks: StudyTask[],
   safetyFinishByMaterial: ReadonlyMap<string, ISODate> = new Map(),

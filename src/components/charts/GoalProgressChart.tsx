@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import type { AppState, ISODate, Material } from '../../types';
 import { addDays, diffDays, formatDateShort } from '../../lib/date';
-import { isPlacedPlanTask, plannedMaterialAmountThrough } from '../../lib/taskFilters';
+import { actualMaterialAmountThrough, isPlacedPlanTask, legacyProgressBaselineRanges, plannedMaterialAmountThrough } from '../../lib/taskFilters';
 import type { UnitRange } from '../../types';
 
 interface GoalProgressChartProps {
@@ -106,18 +106,11 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       list.sort((a, b) => a.date.localeCompare(b.date));
     }
 
-    const plannedDates = [...plannedByMaterial.values()].flatMap((list) => list.map((item) => item.date));
+    const plannedDates = [
+      ...[...plannedByMaterial.values()].flatMap((list) => list.map((item) => item.date)),
+      ...(state.planHistory ?? []).map((entry) => entry.scheduledDate),
+    ];
     const dates = buildDateRange(activeMaterials, refDate, plannedDates);
-    const sessionsByMaterial = new Map<string, { date: ISODate; amount: number }[]>();
-    for (const session of state.sessions) {
-      if (!session.materialId || session.amountDone <= 0) continue;
-      const list = sessionsByMaterial.get(session.materialId) ?? [];
-      list.push({ date: session.date, amount: session.amountDone });
-      sessionsByMaterial.set(session.materialId, list);
-    }
-    for (const list of sessionsByMaterial.values()) {
-      list.sort((a, b) => a.date.localeCompare(b.date));
-    }
 
     const series: Series[] = [];
     activeMaterials.forEach((material, index) => {
@@ -138,35 +131,19 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       });
     });
 
-    const totalRecordedByMaterial = new Map<string, number>();
-    for (const [materialId, list] of sessionsByMaterial) {
-      totalRecordedByMaterial.set(
-        materialId,
-        list.reduce((sum, item) => sum + item.amount, 0),
-      );
-    }
-
     const points: ChartPoint[] = dates.map((date) => {
       const point: ChartPoint = { date, label: formatDateShort(date) };
 
       activeMaterials.forEach((material, index) => {
         const start = materialStartDate(material);
-        const baseline = Math.max(0, material.doneAmount - (totalRecordedByMaterial.get(material.id) ?? 0));
-        const completedRanges = material.completedRanges
-          ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
-        let baselineLeft = baseline;
-        const baselineRanges = completedRanges.flatMap((range) => {
-          if (baselineLeft <= 0) return [];
-          const amount = Math.min(baselineLeft, range.end - range.start + 1);
-          baselineLeft -= amount;
-          return [{ start: range.start, end: range.start + amount - 1 }];
-        });
+        const baselineRanges = legacyProgressBaselineRanges(material, state.sessions);
         const plannedByDate = plannedMaterialAmountThrough(
           state.tasks,
           material.id,
           material.totalAmount,
           date,
           baselineRanges,
+          state.planHistory ?? [],
         );
         point[`m${index}Target`] = date < start ? 0 : clampPercent((plannedByDate / material.totalAmount) * 100);
 
@@ -175,12 +152,7 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
           return;
         }
 
-        const recorded = sessionsByMaterial.get(material.id) ?? [];
-        const doneByDate =
-          baseline +
-          recorded.reduce((sum, item) => {
-            return item.date <= date ? sum + item.amount : sum;
-          }, 0);
+        const doneByDate = actualMaterialAmountThrough(material, state.sessions, date);
         point[`m${index}Actual`] = clampPercent((doneByDate / material.totalAmount) * 100);
       });
 
@@ -188,7 +160,7 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
     });
 
     return { points, series, materials: activeMaterials };
-  }, [refDate, state.materials, state.sessions, state.tasks]);
+  }, [refDate, state.materials, state.planHistory, state.sessions, state.tasks]);
 
   if (chart.points.length === 0) {
     return (

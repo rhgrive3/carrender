@@ -1,4 +1,4 @@
-import type { StudyTask, UnitRange } from '../types';
+import type { Material, PlanHistoryEntry, StudySession, StudyTask, UnitRange } from '../types';
 
 /** 現行計画や集計に含めてよい、実際に配置されたタスクだけを返す。 */
 export function isPlacedPlanTask(task: StudyTask): boolean {
@@ -19,6 +19,99 @@ export function compareTaskDisplayOrder(a: StudyTask, b: StudyTask): number {
     || a.id.localeCompare(b.id);
 }
 
+function boundedRange(range: UnitRange, totalAmount: number): UnitRange | null {
+  const start = Math.max(1, Math.min(totalAmount, Math.floor(range.start)));
+  const end = Math.max(1, Math.min(totalAmount, Math.floor(range.end)));
+  return start <= end ? { start, end } : null;
+}
+
+function mergeUnitRanges(ranges: UnitRange[], totalAmount = Number.MAX_SAFE_INTEGER): UnitRange[] {
+  const normalized = ranges
+    .map((range) => boundedRange(range, totalAmount))
+    .filter((range): range is UnitRange => range !== null)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: UnitRange[] = [];
+  for (const range of normalized) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start <= previous.end + 1) previous.end = Math.max(previous.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
+}
+
+function unitRangeAmount(ranges: UnitRange[]): number {
+  return ranges.reduce((sum, range) => sum + range.end - range.start + 1, 0);
+}
+
+function intersectUnitRanges(left: UnitRange[], right: UnitRange[]): UnitRange[] {
+  const intersections: UnitRange[] = [];
+  for (const a of left) {
+    for (const b of right) {
+      const start = Math.max(a.start, b.start);
+      const end = Math.min(a.end, b.end);
+      if (start <= end) intersections.push({ start, end });
+    }
+  }
+  return mergeUnitRanges(intersections);
+}
+
+function subtractUnitRanges(base: UnitRange[], removals: UnitRange[]): UnitRange[] {
+  let result = mergeUnitRanges(base);
+  for (const removal of mergeUnitRanges(removals)) {
+    result = result.flatMap((range) => {
+      if (removal.end < range.start || removal.start > range.end) return [range];
+      return [
+        ...(removal.start > range.start ? [{ start: range.start, end: removal.start - 1 }] : []),
+        ...(removal.end < range.end ? [{ start: removal.end + 1, end: range.end }] : []),
+      ];
+    });
+  }
+  return mergeUnitRanges(result);
+}
+
+/**
+ * 現在の完了範囲のうち、日付へ正確に帰属できない旧記録分。
+ * v4以前のセッションは推測せず、チャート開始時点の基準進捗として扱う。
+ */
+export function legacyProgressBaselineRanges(material: Material, sessions: StudySession[]): UnitRange[] {
+  const completed = mergeUnitRanges(
+    material.completedRanges
+      ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []),
+    material.totalAmount,
+  );
+  const exact = mergeUnitRanges(
+    sessions
+      .filter((session) => session.materialId === material.id)
+      .flatMap((session) => session.progressRangesAdded ?? []),
+    material.totalAmount,
+  );
+  return subtractUnitRanges(completed, intersectUnitRanges(exact, completed));
+}
+
+/** 正確な進捗範囲だけを和集合化し、重複セッションで実績を水増ししない。 */
+export function actualMaterialAmountThrough(
+  material: Material,
+  sessions: StudySession[],
+  date: string,
+): number {
+  const completed = mergeUnitRanges(
+    material.completedRanges
+      ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []),
+    material.totalAmount,
+  );
+  const baseline = legacyProgressBaselineRanges(material, sessions);
+  const exactThroughDate = mergeUnitRanges(
+    sessions
+      .filter((session) => session.materialId === material.id && session.date <= date)
+      .flatMap((session) => session.progressRangesAdded ?? []),
+    material.totalAmount,
+  );
+  return Math.min(
+    material.totalAmount,
+    unitRangeAmount(mergeUnitRanges([...baseline, ...intersectUnitRanges(exactThroughDate, completed)], material.totalAmount)),
+  );
+}
+
 /** 教材タスクの範囲を和集合化し、古い重複タスクで目標量が膨らむのを防ぐ。 */
 export function plannedMaterialAmountThrough(
   tasks: StudyTask[],
@@ -26,6 +119,7 @@ export function plannedMaterialAmountThrough(
   totalAmount: number,
   date: string,
   baselineRanges: UnitRange[] = [],
+  planHistory: PlanHistoryEntry[] = [],
 ): number {
   const relevant = tasks.filter((task) =>
     task.materialId === materialId
@@ -33,32 +127,33 @@ export function plannedMaterialAmountThrough(
     && task.scheduledDate <= date
     && task.amount > 0
     && isPlacedPlanTask(task));
-  const ranges = [...baselineRanges, ...relevant.flatMap((task) => {
-    const range = task.materialRange
-      ?? (task.rangeStart !== null && task.rangeEnd !== null ? { start: task.rangeStart, end: task.rangeEnd } : undefined);
-    if (!range) return [];
-    const start = Math.max(1, Math.min(totalAmount, Math.floor(range.start)));
-    const end = Math.max(1, Math.min(totalAmount, Math.floor(range.end)));
-    return start <= end ? [{ start, end }] : [];
-  })].flatMap((range) => {
-    const start = Math.max(1, Math.min(totalAmount, Math.floor(range.start)));
-    const end = Math.max(1, Math.min(totalAmount, Math.floor(range.end)));
-    return start <= end ? [{ start, end }] : [];
-  }).sort((a, b) => a.start - b.start || a.end - b.end);
-  let rangedAmount = 0;
-  let current: { start: number; end: number } | null = null;
-  for (const range of ranges) {
-    if (!current) current = { ...range };
-    else if (range.start <= current.end + 1) current.end = Math.max(current.end, range.end);
-    else {
-      rangedAmount += current.end - current.start + 1;
-      current = { ...range };
-    }
-  }
-  if (current) rangedAmount += current.end - current.start + 1;
+  const historical = planHistory.filter((entry) =>
+    entry.materialId === materialId
+    && entry.type === 'new'
+    && entry.scheduledDate <= date
+    && entry.amount > 0);
+  const ranges = mergeUnitRanges([
+    ...baselineRanges,
+    ...relevant.flatMap((task) => {
+      const range = task.materialRange
+        ?? (task.rangeStart !== null && task.rangeEnd !== null ? { start: task.rangeStart, end: task.rangeEnd } : undefined);
+      return range ? [range] : [];
+    }),
+    ...historical.flatMap((entry) => {
+      const range = entry.materialRange
+        ?? (entry.rangeStart !== null && entry.rangeEnd !== null ? { start: entry.rangeStart, end: entry.rangeEnd } : undefined);
+      return range ? [range] : [];
+    }),
+  ], totalAmount);
+  const relevantIds = new Set(relevant.map((task) => task.id));
   const unRangedAmount = relevant.reduce((sum, task) => {
     const hasRange = !!task.materialRange || (task.rangeStart !== null && task.rangeEnd !== null);
     return sum + (hasRange ? 0 : task.amount);
+  }, 0) + historical.reduce((sum, entry) => {
+    const hasRange = !!entry.materialRange || (entry.rangeStart !== null && entry.rangeEnd !== null);
+    // 同じ手動タスクを未来へ再配置した場合、過去の未達成予定と現在予定を
+    // 二重に目標量へ足さない。日付前なら履歴、再配置日以降は現行タスクが代表する。
+    return sum + (hasRange || relevantIds.has(entry.taskId) ? 0 : entry.amount);
   }, 0);
-  return Math.min(totalAmount, rangedAmount + unRangedAmount);
+  return Math.min(totalAmount, unitRangeAmount(ranges) + unRangedAmount);
 }

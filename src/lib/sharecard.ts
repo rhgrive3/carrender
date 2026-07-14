@@ -19,7 +19,7 @@ function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: n
   ctx.closePath();
 }
 
-export function buildShareCard(state: AppState, ref: ISODate): Blob | null {
+function buildShareCard(state: AppState, ref: ISODate): Blob | null {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
