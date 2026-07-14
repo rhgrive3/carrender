@@ -1,0 +1,69 @@
+name: Full audit export
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Core verification
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Generate audit reports
+        shell: bash
+        run: |
+          set +e
+          mkdir -p audit-reports
+          find . -type f \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -not -path './dist/*' \
+            | sort > audit-reports/files.txt
+          find src functions scripts schema -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.mjs' -o -name '*.sql' \) -print0 \
+            | xargs -0 wc -l | sort -n > audit-reports/line-counts.txt
+          npx --yes knip@5.65.0 --reporter json > audit-reports/knip.json 2> audit-reports/knip.stderr.txt
+          echo $? > audit-reports/knip.exit.txt
+          npx --yes madge@8.0.0 --circular --extensions ts,tsx src functions > audit-reports/cycles.txt 2> audit-reports/cycles.stderr.txt
+          echo $? > audit-reports/cycles.exit.txt
+          npm audit --omit=dev --json > audit-reports/npm-audit-production.json
+          echo $? > audit-reports/npm-audit-production.exit.txt
+          npm audit --json > audit-reports/npm-audit-all.json
+          echo $? > audit-reports/npm-audit-all.exit.txt
+          grep -RInE 'TODO|FIXME|HACK|XXX|console\.(log|warn|error)|@ts-ignore|@ts-expect-error|eslint-disable|any\b|as unknown as' src functions scripts \
+            > audit-reports/suspicious-patterns.txt || true
+          git ls-files > audit-reports/tracked-files.txt
+          git status --short > audit-reports/git-status.txt
+
+      - name: Upload complete source and reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: carrender-full-audit-source
+          path: |
+            .
+            !node_modules/**
+            !dist/**
+            !.git/**
+          include-hidden-files: true
+          retention-days: 1
