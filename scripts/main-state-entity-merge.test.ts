@@ -117,4 +117,23 @@ function withMonthlySummary(input: AppState, studyMinutes: number, sessionCount:
   assert.deepEqual(result.conflicts[0], { section: 'monthlySummaries', key: '2025-01', reason: 'bothChanged' });
 }
 
+{
+  const base = { ...state(), lastPlannedDate: '2026-07-14', lastPlanReason: 'base' };
+  const local = { ...base, materials: base.materials.map((item) => item.id === 'material-a' ? { ...item, name: '端末編集' } : item) };
+  const remote = { ...base, lastPlannedDate: '2026-07-15', lastPlanReason: 'クラウドで予定再生成' };
+  const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
+  assert.equal(result.merged?.lastPlannedDate, '2026-07-15', 'クラウドだけで更新された予定メタデータを保持する');
+  assert.equal(result.merged?.lastPlanReason, 'クラウドで予定再生成');
+  assert.ok(result.appliedRemoteKeys.includes('scheduleState:value'));
+}
+
+{
+  const base = { ...state(), lastPlannedDate: '2026-07-14', lastPlanReason: 'base' };
+  const local = { ...base, lastPlannedDate: '2026-07-15', lastPlanReason: '端末で予定再生成' };
+  const remote = { ...base, lastPlannedDate: '2026-07-16', lastPlanReason: 'クラウドで予定再生成' };
+  const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
+  assert.equal(result.merged, null, '両端末で予定を再生成した場合は診断状態を勝手に選ばない');
+  assert.deepEqual(result.conflicts[0], { section: 'scheduleState', key: 'value', reason: 'bothChanged' });
+}
+
 console.log('✅ main state entity merge regressions passed');
