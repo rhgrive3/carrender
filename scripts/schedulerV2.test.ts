@@ -777,6 +777,52 @@ console.log('--- 19. 負荷平準化・安全完了日・頻度目標 ---');
   const earlyMinutes = resultD.scheduledTasks.filter((task) => task.materialId === constrained.id && task.scheduledDate <= '2026-07-11').reduce((sum, task) => sum + task.estimatedMinutes, 0);
   check('後半固定予定を見越して必要量を前半へ置く', earlyMinutes >= 300, { earlyMinutes, tasks: resultD.scheduledTasks });
   check('後半固定予定でも通常期限を守る', resultD.deadlineReports.find((report) => report.workItemId === `material:${constrained.id}`)?.feasible === true, resultD.deadlineReports);
+
+  // ケースE: 単位時間も期限も異なる複数教材を、教材ごとの独立配分でなく
+  // 全教材共通の日別負荷枠で割り当てる。遅い期限の教材も最後へ固めない。
+  const mixedMaterials = [
+    mat('mixed-20', { deadlinePolicy: 'normal', targetDate: '2026-07-24', totalAmount: 40, totalUnits: 40, minutesPerUnit: 20 }),
+    mat('mixed-25', { deadlinePolicy: 'normal', targetDate: '2026-07-24', totalAmount: 32, totalUnits: 32, minutesPerUnit: 25 }),
+    mat('mixed-50', { deadlinePolicy: 'normal', targetDate: '2026-07-24', totalAmount: 12, totalUnits: 12, minutesPerUnit: 50 }),
+    mat('mixed-70', { deadlinePolicy: 'normal', targetDate: '2026-07-24', totalAmount: 8, totalUnits: 8, minutesPerUnit: 70 }),
+    mat('mixed-later-30', { deadlinePolicy: 'normal', targetDate: '2026-07-28', totalAmount: 12, totalUnits: 12, minutesPerUnit: 30 }),
+  ];
+  const resultE = generatePlanV2(baseState(mixedMaterials, [{ start: '09:00', end: '14:00' }], 300, {
+    goal: { id: 'mixed-goal', name: '目標', examDate: '2026-07-28', createdAt: fixedNow.toISOString() },
+    settings: { ...emptyState().settings, maxDailyMinutes: 300, sessionMinMinutes: 5, sessionMaxMinutes: 90, taskGenerationHorizonDays: 19 },
+  }), context({ generationId: 'balance-e' }));
+  const mixedLoads = byDay(resultE.scheduledTasks);
+  const laterDates = resultE.scheduledTasks
+    .filter((task) => task.materialId === 'mixed-later-30')
+    .map((task) => task.scheduledDate);
+  check('単位幅の異なる複数教材も未配置を出さない', resultE.status === 'success'
+    && resultE.unscheduledWork.length === 0, { status: resultE.status, unscheduled: resultE.unscheduledWork });
+  check('複数教材の合計日負荷を必要平均付近へ平準化する',
+    Math.max(0, ...mixedLoads.values()) <= 290,
+    { loads: Object.fromEntries(mixedLoads), objective: resultE.objectiveReport },
+  );
+  check('期限が遅い教材も計画末尾へ一括せず前半から混ぜる',
+    laterDates.some((date) => date <= '2026-07-19') && new Set(laterDates).size >= 4,
+    laterDates,
+  );
+
+  // ケースF: 安全完了日は予備を残す目標。分単位では足りても単位端数で
+  // そこまでに置けない時は、未配置にせず実期限までの予備日へ流す。
+  const granularBuffer = mat('granular-buffer', {
+    deadlinePolicy: 'normal', targetDate: D3, totalAmount: 3, totalUnits: 3, minutesPerUnit: 60,
+  });
+  const resultF = generatePlanV2(baseState([granularBuffer], [{ start: '09:00', end: '10:40' }], 100, {
+    settings: { ...emptyState().settings, maxDailyMinutes: 100, sessionMinMinutes: 5, sessionMaxMinutes: 90, taskGenerationHorizonDays: 3 },
+  }), context({ generationId: 'balance-f' }));
+  check('安全完了日までの単位端数は未配置にせず実期限までに回収する',
+    resultF.status === 'success' && resultF.unscheduledWork.length === 0
+      && resultF.scheduledTasks.some((task) => task.materialId === granularBuffer.id && task.scheduledDate === D3),
+    { status: resultF.status, tasks: resultF.scheduledTasks, unscheduled: resultF.unscheduledWork },
+  );
+  check('予備期間を使った量を警告で明示する',
+    resultF.warnings.some((warning) => warning.code === 'SAFETY_BUFFER_USED' && warning.minutes === 60),
+    resultF.warnings,
+  );
 }
 
 console.log(failures === 0 ? '\n🎉 ALL PASS (schedulerV2 spec)' : `\n💥 ${failures} FAILURES`);

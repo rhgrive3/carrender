@@ -286,6 +286,96 @@ function extendCadenceForCapacity(
   return selected;
 }
 
+interface BalancedLoadDay {
+  date: ISODate;
+  availableMinutes: number;
+  baseLoadMinutes: number;
+}
+
+interface BalancedLoadItem {
+  id: string;
+  release: ISODate;
+  deadline: ISODate;
+  requiredUnits: number;
+  minutesPerUnit: number;
+  cadenceDates: ReadonlySet<ISODate>;
+  perDayCap: number;
+  maxUnitsPerDay?: number;
+  splittable: boolean;
+}
+
+function normalMinutesAtLoadCap(day: BalancedLoadDay, loadCap: number): number {
+  return Math.max(0, Math.min(day.availableMinutes, loadCap - day.baseLoadMinutes));
+}
+
+function unitsAvailableOnBalancedDay(item: BalancedLoadItem, day: BalancedLoadDay, loadCap: number): number {
+  if (day.date < item.release || day.date > item.deadline || !item.cadenceDates.has(day.date)) return 0;
+  const minutes = Math.min(normalMinutesAtLoadCap(day, loadCap), item.perDayCap);
+  return Math.max(0, Math.min(
+    Math.floor(minutes / Math.max(item.minutesPerUnit, 0.0001)),
+    item.maxUnitsPerDay ?? Number.POSITIVE_INFINITY,
+  ));
+}
+
+function unitsAvailableAcrossBalancedDays(
+  item: BalancedLoadItem,
+  days: ReadonlyArray<BalancedLoadDay>,
+  loadCap: number,
+): number {
+  if (!item.splittable) {
+    return days.some((day) => unitsAvailableOnBalancedDay(item, day, loadCap) >= item.requiredUnits)
+      ? item.requiredUnits
+      : 0;
+  }
+  return days.reduce((sum, day) => sum + unitsAvailableOnBalancedDay(item, day, loadCap), 0);
+}
+
+/**
+ * 既に予約されたstrict・手動タスクを含む総日負荷の最小上限を求める。
+ * 単純平均だけでなく、教材の開始日・安全完了日・頻度日・単位幅を使った
+ * 累積必要量を確認するため、低すぎて後半に未配置を生む上限は採用しない。
+ */
+function minimumBalancedDailyLoadCap(
+  items: ReadonlyArray<BalancedLoadItem>,
+  days: ReadonlyArray<BalancedLoadDay>,
+  minimumStepMinutes = 5,
+): number {
+  if (items.length === 0 || days.length === 0) return 0;
+  const activeDays = days.filter((day) => items.some((item) =>
+    day.date >= item.release && day.date <= item.deadline && item.cadenceDates.has(day.date)));
+  if (activeDays.length === 0) return 0;
+  const totalRequired = items.reduce((sum, item) => sum + minutesForUnits(item.minutesPerUnit, item.requiredUnits), 0);
+  const baseTotal = activeDays.reduce((sum, day) => sum + day.baseLoadMinutes, 0);
+  const maximumLoad = activeDays.reduce((max, day) => Math.max(max, day.baseLoadMinutes + day.availableMinutes), 0);
+  let loadCap = Math.max(
+    ...activeDays.map((day) => day.baseLoadMinutes),
+    Math.ceil(((totalRequired + baseTotal) / activeDays.length) / minimumStepMinutes) * minimumStepMinutes,
+  );
+
+  const couldFit = (candidateCap: number) => {
+    if (!items.every((item) => unitsAvailableAcrossBalancedDays(item, activeDays, candidateCap) >= item.requiredUnits)) return false;
+    for (const cutoff of activeDays.map((day) => day.date)) {
+      let mandatoryMinutes = 0;
+      for (const item of items) {
+        const unitsAfter = unitsAvailableAcrossBalancedDays(
+          item,
+          activeDays.filter((day) => day.date > cutoff),
+          candidateCap,
+        );
+        mandatoryMinutes += minutesForUnits(item.minutesPerUnit, Math.max(0, item.requiredUnits - unitsAfter));
+      }
+      const sharedCapacity = activeDays
+        .filter((day) => day.date <= cutoff)
+        .reduce((sum, day) => sum + normalMinutesAtLoadCap(day, candidateCap), 0);
+      if (mandatoryMinutes > sharedCapacity) return false;
+    }
+    return true;
+  };
+
+  while (loadCap < maximumLoad && !couldFit(loadCap)) loadCap += minimumStepMinutes;
+  return Math.min(maximumLoad, loadCap);
+}
+
 export function dateInTimeZone(date: Date, timeZone: string): ISODate {
   return toISODate(date, timeZone);
 }
@@ -1263,6 +1353,10 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   for (let date = today; date <= calendarEnd; date = addDays(date, 1)) dates.push(date);
   const dateIndex = new Map(dates.map((date, index) => [date, index]));
   const capBase = dates.map((date) => calendar.get(date)?.budget ?? 0);
+  const baseLoadByDate = dates.map((date) => {
+    const day = calendar.get(date);
+    return day ? day.originalBudget - day.budget : 0;
+  });
 
   interface CurveState {
     material: Material;
@@ -1279,6 +1373,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     cadenceDates: Set<ISODate>;
     dailyTargetMinutes: number | null;
     weeklyTargetMinutes: number | null;
+    requiredUnits: number;
   }
   const capacityByDate = dates.map((date, index) => ({ date, minutes: capBase[index] }));
   const curves: CurveState[] = curveMaterials.map((material) => {
@@ -1324,9 +1419,38 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       cadenceDates,
       dailyTargetMinutes: material.dailyTarget ? minutesForUnits(material.minutesPerUnit, material.dailyTarget) : null,
       weeklyTargetMinutes: material.weeklyTarget ? minutesForUnits(material.minutesPerUnit, material.weeklyTarget) : null,
+      requiredUnits: sumRangeLengths(ranges),
     };
   });
   for (const curve of curves) safetyFinishByMaterial.set(curve.material.id, curve.curveEnd);
+  const balancedLoadDays: BalancedLoadDay[] = dates.map((date, index) => ({
+    date,
+    availableMinutes: capBase[index],
+    baseLoadMinutes: baseLoadByDate[index],
+  }));
+  const balancedLoadItems: BalancedLoadItem[] = curves.map((curve) => ({
+    id: curve.material.id,
+    release: curve.curveStart,
+    deadline: curve.curveEnd,
+    requiredUnits: curve.requiredUnits,
+    minutesPerUnit: curve.material.minutesPerUnit,
+    cadenceDates: curve.cadenceDates,
+    perDayCap: curve.perDayCap,
+    maxUnitsPerDay: curve.material.maxUnitsPerDay,
+    splittable: curve.material.splittable !== false,
+  }));
+  const balancedLoadItemById = new Map(balancedLoadItems.map((item) => [item.id, item]));
+  const theoreticalNormalLoadCap = minimumBalancedDailyLoadCap(balancedLoadItems, balancedLoadDays);
+  // 異なる単位幅(20/25/30/40/50/60/70分など)を同じ日に詰めると、理論上限
+  // ぴったりでは最後の1単位が入らず、教材ごとの小さな負債が安全完了日に残る。
+  // 最大1単位ぶんだけ詰合せ余白を持たせ、未配置や予備日への一括移動を防ぐ。
+  const packingHeadroom = Math.min(
+    sessionMax,
+    Math.ceil(Math.max(0, ...curves.map((curve) => curve.material.minutesPerUnit)) / 5) * 5,
+  );
+  const maximumNormalLoad = balancedLoadDays.reduce((max, day) => Math.max(max, day.baseLoadMinutes + day.availableMinutes), 0);
+  const normalLoadCap = Math.min(maximumNormalLoad, theoreticalNormalLoadCap + packingHeadroom);
+  const normalCapacityByDate = balancedLoadDays.map((day) => normalMinutesAtLoadCap(day, normalLoadCap));
   const progressDeficits: ProgressDeficit[] = [];
   for (const curve of curves) {
     if (curve.needMinutes > 0 && curve.windowCapacity <= 0) {
@@ -1336,7 +1460,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   // 日別容量を必要シェアで正規化しながら累積目標を作る
   for (let i = 0; i < dates.length; i += 1) {
     const date = dates[i];
-    const capacity = capBase[i];
+    const capacity = normalCapacityByDate[i];
     const active = curves.filter((curve) => curve.needMinutes > 0
       && date >= curve.curveStart && date <= curve.curveEnd && curve.cadenceDates.has(date));
     if (active.length === 0 || capacity <= 0) {
@@ -1347,7 +1471,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       const endIdx = dateIndex.get(curve.curveEnd) ?? dates.length - 1;
       const remainingWindow = Math.max(1, dates.slice(i, endIdx + 1)
         .filter((candidate) => curve.cadenceDates.has(candidate))
-        .reduce((sum, candidate) => sum + (calendar.get(candidate)?.budget ?? 0), 0));
+        .reduce((sum, candidate) => sum + normalCapacityByDate[dateIndex.get(candidate) ?? 0], 0));
       const weeklyDays = dates.filter((candidate) => mondayKey(candidate) === mondayKey(date) && curve.cadenceDates.has(candidate)).length;
       const preferredMinutes = Math.max(
         curve.dailyTargetMinutes ?? 0,
@@ -1374,26 +1498,110 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   // strict作業は上で実区間を消費済み。ここでは残り容量へ通常教材だけを配分する。
   for (let dateIdx = 0; dateIdx < dates.length && dates[dateIdx] <= concreteEnd; dateIdx += 1) {
     const date = dates[dateIdx];
-    const candidates = curves
-      .filter((curve) => curve.ranges.length > 0 && date >= curve.curveStart && curve.cadenceDates.has(date))
-      .map((curve) => ({ curve, debt: Math.max(0, curveTargetAt(curve, date) - curve.scheduledMinutes) }))
-      .filter((candidate) => candidate.debt > 0)
-      .sort((a, b) => b.debt - a.debt || a.curve.curveEnd.localeCompare(b.curve.curveEnd) || b.curve.material.priority - a.curve.material.priority || a.curve.material.id.localeCompare(b.curve.material.id));
-    for (const { curve, debt } of candidates) {
-      const material = curve.material;
-      // debtはその日の基準ペース。大きなチャンクしか置けない/将来容量が消えた時は
-      // 1チャンクに切らず必要量まで置く。通常時はdebt自体が基準+許容範囲に留まる。
-      const wantedUnits = Math.ceil(debt / material.minutesPerUnit);
-      if (wantedUnits <= 0) continue;
-      const placed = allocateMaterial(material, curve.ranges, calendar, date, date, wantedUnits, 70, sessionMin, sessionMax, assignments, fixed.valid);
-      if (placed.length === 0) continue;
-      assignments.push(...placed);
-      curve.scheduledMinutes += placed.reduce((sum, item) => sum + item.end - item.start, 0);
+    const targetTotal = curves.reduce((sum, curve) => sum + curveTargetAt(curve, date), 0);
+    const scheduledBeforeDate = curves.reduce((sum, curve) => sum + curve.scheduledMinutes, 0);
+    const dailyLimit = normalCapacityByDate[dateIdx];
+    const dailyGoal = Math.min(dailyLimit, Math.max(0, Math.ceil(targetTotal - scheduledBeforeDate)));
+    const dailyPackingCeiling = Math.min(dailyLimit, dailyGoal + packingHeadroom);
+    let placedToday = 0;
+    let previousMaterialId: string | null = null;
+    while (placedToday < dailyLimit) {
+      const candidates = curves
+        .filter((curve) => curve.ranges.length > 0
+          && date >= curve.curveStart && date <= curve.curveEnd && curve.cadenceDates.has(date))
+        .map((curve) => {
+          const item = balancedLoadItemById.get(curve.material.id)!;
+          const remainingUnits = sumRangeLengths(curve.ranges);
+          const futureUnits = unitsAvailableAcrossBalancedDays(
+            item,
+            balancedLoadDays.filter((day) => day.date > date),
+            normalLoadCap,
+          );
+          return {
+            curve,
+            debt: Math.max(0, curveTargetAt(curve, date) - curve.scheduledMinutes),
+            debtUnits: Math.max(0, curveTargetAt(curve, date) - curve.scheduledMinutes)
+              / Math.max(curve.material.minutesPerUnit, 0.0001),
+            mandatoryUnits: Math.max(0, remainingUnits - futureUnits),
+            slackUnits: futureUnits - remainingUnits,
+            repeatsPrevious: curve.material.id === previousMaterialId ? 1 : 0,
+          };
+        })
+        .filter((candidate) => candidate.debt > 0 || candidate.mandatoryUnits > 0)
+        .sort((a, b) => b.mandatoryUnits - a.mandatoryUnits
+          || a.repeatsPrevious - b.repeatsPrevious
+          || b.debtUnits - a.debtUnits
+          || b.debt - a.debt
+          || a.slackUnits - b.slackUnits
+          || a.curve.curveEnd.localeCompare(b.curve.curveEnd)
+          || b.curve.material.priority - a.curve.material.priority
+          || a.curve.material.id.localeCompare(b.curve.material.id));
+      if (candidates.length === 0) break;
+      let placedCandidate = false;
+      for (const candidate of candidates) {
+        const { curve } = candidate;
+        const material = curve.material;
+        const remainingUnits = sumRangeLengths(curve.ranges);
+        const remainingGoal = Math.max(0, (candidate.mandatoryUnits > 0 ? dailyLimit : dailyPackingCeiling) - placedToday);
+        const unitsByGoal = Math.floor(remainingGoal / Math.max(material.minutesPerUnit, 0.0001));
+        const unitStep = material.unitStep ?? 1;
+        const oneChunkUnits = material.maximumChunkUnits
+          ?? Math.max(unitStep, Math.floor(sessionMax / Math.max(material.minutesPerUnit, 0.0001)));
+        const wantedUnits = Math.min(
+          remainingUnits,
+          unitsByGoal,
+          Math.max(candidate.mandatoryUnits, Math.ceil(candidate.debt / material.minutesPerUnit)),
+          material.splittable === false ? remainingUnits : oneChunkUnits,
+        );
+        if (wantedUnits <= 0) continue;
+        const placed = allocateMaterial(material, curve.ranges, calendar, date, date, wantedUnits, 70, sessionMin, sessionMax, assignments, fixed.valid);
+        if (placed.length === 0) continue;
+        const placedMinutes = placed.reduce((sum, item) => sum + item.end - item.start, 0);
+        assignments.push(...placed);
+        curve.scheduledMinutes += placedMinutes;
+        placedToday += placedMinutes;
+        previousMaterialId = material.id;
+        placedCandidate = true;
+        break;
+      }
+      if (!placedCandidate) break;
     }
   }
 
-  // 意図的に空き時間を残す。以前の「残り予算を最小セッションまで埋める」
-  // 前倒しループは、期限に余裕がある教材を初日に集中させていたため廃止した。
+  // 安全完了日は平準化目標であって、未配置を作るための強制期限ではない。
+  // 単位端数や共有容量の競合で残った分は、まず同じ日負荷上限を守りながら
+  // 教材期限までの予備日へ流し、それでも足りない場合だけ物理容量を使う。
+  for (const curve of [...curves].sort((a, b) => a.material.targetDate.localeCompare(b.material.targetDate)
+    || b.material.priority - a.material.priority || a.material.id.localeCompare(b.material.id))) {
+    if (curve.ranges.length === 0 || curve.curveEnd >= curve.material.targetDate) continue;
+    const recoveryStart = addDays(curve.curveEnd, 1);
+    const beforeRecovery = sumRangeLengths(curve.ranges);
+    for (let date = recoveryStart; date <= curve.material.targetDate && curve.ranges.length > 0; date = addDays(date, 1)) {
+      const day = calendar.get(date);
+      if (!day) continue;
+      const currentLoad = day.originalBudget - day.budget;
+      const smoothMinutes = Math.max(0, Math.min(day.budget, normalLoadCap - currentLoad));
+      const wantedUnits = Math.floor(smoothMinutes / Math.max(curve.material.minutesPerUnit, 0.0001));
+      if (wantedUnits <= 0) continue;
+      const placed = allocateMaterial(curve.material, curve.ranges, calendar, date, date, wantedUnits, 65, sessionMin, sessionMax, assignments, fixed.valid);
+      const placedMinutes = placed.reduce((sum, item) => sum + item.end - item.start, 0);
+      assignments.push(...placed);
+      curve.scheduledMinutes += placedMinutes;
+    }
+    for (let date = recoveryStart; date <= curve.material.targetDate && curve.ranges.length > 0; date = addDays(date, 1)) {
+      const placed = allocateMaterial(curve.material, curve.ranges, calendar, date, date, Number.POSITIVE_INFINITY, 65, sessionMin, sessionMax, assignments, fixed.valid);
+      const placedMinutes = placed.reduce((sum, item) => sum + item.end - item.start, 0);
+      assignments.push(...placed);
+      curve.scheduledMinutes += placedMinutes;
+    }
+    const recoveredUnits = beforeRecovery - sumRangeLengths(curve.ranges);
+    if (recoveredUnits > 0) warnings.push({
+      code: 'SAFETY_BUFFER_USED',
+      targetId: curve.material.id,
+      minutes: minutesForUnits(curve.material.minutesPerUnit, recoveredUnits),
+      message: `${curve.material.name}は未配置を避けるため、予備期間の一部へ配置しました`,
+    });
+  }
 
   // ---------- 進捗負債(共有容量で正規化した目標に対する不足) ----------
   for (const curve of curves) {

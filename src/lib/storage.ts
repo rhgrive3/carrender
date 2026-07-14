@@ -250,15 +250,17 @@ export function normalizeState(input: AppState): AppState {
     : availabilityDefaults
   ).map((slot) => {
     const fallback = availabilityDefaults.find((x) => x.weekday === slot.weekday) ?? availabilityDefaults[0];
-    const maxMinutes = maximumGeneratedMinutes(slot.weekday);
-    const minutes = Number.isFinite(slot.minutes)
-      ? Math.max(0, Math.min(maxMinutes, Math.floor(slot.minutes)))
-      : fallback.minutes;
-    const windows = sanitizeTimeRanges(slot.windows, windowsFromMinutes(slot.weekday, minutes));
+    const rawMinutes = Number.isFinite(slot.minutes) ? Math.max(0, Math.floor(slot.minutes)) : fallback.minutes;
+    const windows = sanitizeTimeRanges(slot.windows, windowsFromMinutes(slot.weekday, rawMinutes));
+    // 曜日別の分数は設定画面で時間帯から自動計算される派生値。以前は
+    // windowsが正しく残っていても平日を18:00〜23:59相当の359分へ毎起動時に
+    // クランプしていたため、利用可能容量が失われ週末集中と未配置を生んでいた。
+    // 重複時間帯は二重計上せず、常に保存された時間帯から復元する。
+    const minutes = totalTimeRangeMinutes(windows);
     return {
       ...fallback,
       ...slot,
-      minutes: Math.min(minutes, windows.reduce((sum, window) => sum + timeRangeMinutes(window), 0)),
+      minutes,
       windows,
     };
   });
@@ -497,10 +499,26 @@ function validTimeRange(start: unknown, end: unknown): start is string {
   return validTime(start) && validTime(end) && start < end;
 }
 
-function timeRangeMinutes(range: TimeRange): number {
-  const [startHour, startMinute] = range.start.split(':').map(Number);
-  const [endHour, endMinute] = range.end.split(':').map(Number);
-  return endHour * 60 + endMinute - (startHour * 60 + startMinute);
+function totalTimeRangeMinutes(ranges: TimeRange[]): number {
+  const numeric = ranges
+    .map((range) => ({ start: timeValue(range.start), end: timeValue(range.end) }))
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  let total = 0;
+  let current: { start: number; end: number } | undefined;
+  for (const range of numeric) {
+    if (!current) current = { ...range };
+    else if (range.start <= current.end) current.end = Math.max(current.end, range.end);
+    else {
+      total += current.end - current.start;
+      current = { ...range };
+    }
+  }
+  return total + (current ? current.end - current.start : 0);
+}
+
+function timeValue(value: string): number {
+  const [hour, minute] = value.split(':').map(Number);
+  return hour * 60 + minute;
 }
 
 function sanitizeTimeRanges(value: unknown, fallback: TimeRange[]): TimeRange[] {
