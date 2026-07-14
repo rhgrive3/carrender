@@ -143,17 +143,27 @@ function referentialIntegrityConflicts(
   deletedKeys: string[],
 ): MainStateMergeConflict[] {
   const deleted = new Set(deletedKeys);
+  const subjects = [...(output.get('subjects')?.values() ?? [])] as AppState['subjects'];
   const materials = [...(output.get('materials')?.values() ?? [])] as AppState['materials'];
   const tasks = [...(output.get('tasks')?.values() ?? [])] as AppState['tasks'];
   const sessions = [...(output.get('sessions')?.values() ?? [])] as AppState['sessions'];
+  const subjectIds = new Set(subjects.map((subject) => subject.id));
+  const materialById = new Map(materials.map((material) => [material.id, material]));
   const conflicts: MainStateMergeConflict[] = [];
+  const seen = new Set<string>();
+  const push = (conflict: MainStateMergeConflict) => {
+    const id = `${conflict.section}:${conflict.key}:${conflict.reason}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    conflicts.push(conflict);
+  };
 
   for (const key of deleted) {
     if (key.startsWith('materials:')) {
       const materialId = key.slice('materials:'.length);
       if (tasks.some((task) => task.materialId === materialId)
         || sessions.some((session) => session.materialId === materialId)) {
-        conflicts.push({ section: 'materials', key: materialId, reason: 'deleteVsEdit' });
+        push({ section: 'materials', key: materialId, reason: 'deleteVsEdit' });
       }
     }
     if (key.startsWith('subjects:')) {
@@ -161,8 +171,30 @@ function referentialIntegrityConflicts(
       if (materials.some((material) => material.subjectId === subjectId)
         || tasks.some((task) => task.subjectId === subjectId)
         || sessions.some((session) => session.subjectId === subjectId)) {
-        conflicts.push({ section: 'subjects', key: subjectId, reason: 'deleteVsEdit' });
+        push({ section: 'subjects', key: subjectId, reason: 'deleteVsEdit' });
       }
+    }
+  }
+
+  for (const material of materials) {
+    if (!subjectIds.has(material.subjectId)) {
+      push({ section: 'materials', key: material.id, reason: 'deleteVsEdit' });
+    }
+  }
+  for (const task of tasks) {
+    const material = task.materialId ? materialById.get(task.materialId) : undefined;
+    if (!subjectIds.has(task.subjectId)
+      || (task.materialId && !material)
+      || (material && material.subjectId !== task.subjectId)) {
+      push({ section: 'tasks', key: task.id, reason: 'bothChanged' });
+    }
+  }
+  for (const session of sessions) {
+    const material = session.materialId ? materialById.get(session.materialId) : undefined;
+    if (!subjectIds.has(session.subjectId)
+      || (session.materialId && !material)
+      || (material && material.subjectId !== session.subjectId)) {
+      push({ section: 'sessions', key: session.id, reason: 'bothChanged' });
     }
   }
 
