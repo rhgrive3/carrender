@@ -10,7 +10,7 @@ export function isShellTab(value: unknown): value is ShellTab {
 
 export function readStoredShellTab(
   storage: Pick<Storage, 'getItem'> | null | undefined,
-  online = typeof navigator === 'undefined' || navigator.onLine,
+  online = typeof navigator === 'undefined' || navigator.onLine !== false,
 ): ShellTab {
   // When the PWA is relaunched offline, Today is the safest recovery surface:
   // it exposes resumable study sessions and pending work without requiring a
