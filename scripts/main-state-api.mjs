@@ -323,9 +323,8 @@ try {
 
   const duplicateBegin = await begin(user.cookie, 'mutation-large-state-0001', legacyPut.data.updatedAt, largeEncoded);
   check('同一mutation再送を確定済み成功として返す', duplicateBegin.response.status === 200 && duplicateBegin.data.status === 'committed' && duplicateBegin.data.updatedAt === currentVersion, duplicateBegin);
-  const changedManifest = structuredClone(largeEncoded);
-  changedManifest.manifest.totalItems += 1;
-  const mutationReuse = await begin(user.cookie, 'mutation-large-state-0001', legacyPut.data.updatedAt, changedManifest);
+  const changedEncoded = encodeState({ ...largeState, lastPlanReason: 'different-mutation-content' });
+  const mutationReuse = await begin(user.cookie, 'mutation-large-state-0001', legacyPut.data.updatedAt, changedEncoded);
   check('同じmutationIdの内容差替えを拒否', mutationReuse.response.status === 409, mutationReuse);
 
   const legacyAfterMigrationGet = await jsonRequest('/api/data', { cookie: user.cookie });
