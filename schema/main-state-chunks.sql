@@ -1,4 +1,6 @@
 -- Apply after schema/schema.sql when provisioning a fresh database.
+-- Chunks belong to immutable generations; only main_state_heads makes one
+-- fully validated committed generation visible to readers.
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS main_state_generations (
