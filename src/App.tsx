@@ -26,8 +26,9 @@ import { InstallBanner } from './components/pwa/InstallBanner';
 import { shouldShowInstallGate } from './lib/pwa';
 import { MemoryProvider, useMemory } from './features/memory/ui/MemoryContext';
 import { resolveAppOwnerIdentity } from './state/ownerIdentity';
+import { readStoredShellTab, storeShellTab, type ShellTab } from './lib/shellNavigation';
 
-type Tab = 'today' | 'plan' | 'materials' | 'records' | 'analytics';
+type Tab = ShellTab;
 
 const TABS: { id: Tab; label: string; Icon: (p: { active: boolean }) => JSX.Element }[] = [
   { id: 'today', label: '今日', Icon: IconHome },
@@ -47,13 +48,17 @@ function Shell() {
     activeSession: activeMemorySession,
     pendingCount: memoryPendingCount,
   } = useMemory();
-  const [tab, setTab] = useState<Tab>('today');
+  const [tab, setTab] = useState<Tab>(() => readStoredShellTab(typeof window === 'undefined' ? null : window.sessionStorage));
   const [materialsPane, setMaterialsPane] = useState<MaterialsPane>('materials');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [memoryTodaySummary, setMemoryTodaySummary] = useState<{
     weakCount: number;
     recent?: { answerCount: number; needsReviewCount: number };
   }>({ weakCount: 0 });
+
+  useEffect(() => {
+    storeShellTab(typeof window === 'undefined' ? null : window.sessionStorage, tab);
+  }, [tab]);
 
   // Auth may replace a legacy username owner with the stable user ID after an
   // offline launch reconnects. AppProvider/Shell remounts at that boundary,
