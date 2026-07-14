@@ -162,11 +162,12 @@ function AuthGate({ children }: { children: JSX.Element }) {
 
   if (status === 'checking') {
     return (
-      <div className="auth-shell" aria-hidden="true">
+      <div className="auth-shell" role="status" aria-live="polite" aria-busy="true">
         <div className="auth-logo-block">
-          <div className="auth-logo boot-pulse">
+          <div className="auth-logo boot-pulse" aria-hidden="true">
             <Target size={32} strokeWidth={2} color="#fff" />
           </div>
+          <p className="auth-subtitle">アカウント情報を確認しています…</p>
         </div>
       </div>
     );
