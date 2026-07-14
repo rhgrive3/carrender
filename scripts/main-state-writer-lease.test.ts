@@ -31,8 +31,22 @@ class FakeStorage {
   assert.equal(hasMainStateWriterLease('user', 1_000 + MAIN_STATE_WRITER_LEASE_MS + 2, store, 'tab-b'), false);
 }
 
+{
+  const store = new FakeStorage();
+  assert.equal(ensureMainStateWriterLease('user', 100_000, store, 'tab-a'), true);
+  assert.equal(
+    ensureMainStateWriterLease('user', 1_000, store, 'tab-b'),
+    true,
+    '端末時計が巻き戻っても未来のリースが同期を長時間停止させない',
+  );
+  assert.equal(hasMainStateWriterLease('user', 1_001, store, 'tab-b'), true);
+}
+
 assert.equal(parseMainStateWriterLease('{bad json'), null);
 assert.equal(parseMainStateWriterLease(JSON.stringify({ owner: 'user' })), null);
+assert.equal(parseMainStateWriterLease(JSON.stringify({ owner: '', holderId: 'tab', acquiredAt: 1, expiresAt: 2 })), null);
+assert.equal(parseMainStateWriterLease(JSON.stringify({ owner: 'user', holderId: '', acquiredAt: 1, expiresAt: 2 })), null);
+assert.equal(parseMainStateWriterLease(JSON.stringify({ owner: 'user', holderId: 'tab', acquiredAt: 2, expiresAt: 1 })), null);
 assert.deepEqual(
   parseMainStateWriterLease(JSON.stringify({ owner: 'user', holderId: 'tab', acquiredAt: 1, expiresAt: 2 })),
   { owner: 'user', holderId: 'tab', acquiredAt: 1, expiresAt: 2 },
