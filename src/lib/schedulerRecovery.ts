@@ -9,7 +9,8 @@ function recoveryEnd(state: AppState, today: ISODate): ISODate {
 
 /**
  * 期限切れを「候補日なし」として捨てず、ローリング計画期間へ回収してから
- * 既存ソルバーへ渡す。元の期限はタスク表示・期限レポートへ戻す。
+ * 既存ソルバーへ渡す。厳守期限は既に破られているため、回復フェーズでは
+ * 通常配置へ落として容量分だけでも必ず出し、元の期限・方針はレポートへ戻す。
  */
 export function generatePlanV2(state: AppState, context: SchedulerContext): ScheduleGenerationResult {
   const today = dateInTimeZone(context.now, context.timezone);
@@ -24,9 +25,16 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
 
   const adjustedState: AppState = {
     ...state,
-    materials: state.materials.map((material) => overdue.has(material.id)
-      ? { ...material, targetDate: end, preferredFinishDate: undefined }
-      : material),
+    materials: state.materials.map((material) => {
+      const original = overdue.get(material.id);
+      if (!original) return material;
+      return {
+        ...material,
+        targetDate: end,
+        preferredFinishDate: undefined,
+        deadlinePolicy: original.deadlinePolicy === 'strict' ? 'normal' : original.deadlinePolicy,
+      };
+    }),
   };
   const result = generateBasePlanV2(adjustedState, context);
   const warnings = [...overdue.values()].map((material) => ({
@@ -34,6 +42,12 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     targetId: material.id,
     message: `${material.name}は期限を${diffDays(material.targetDate, today)}日超過しています。未完了分を${today}〜${end}へ回復計画として再配置しました`,
   }));
+  const overdueStrict = [...overdue.values()].filter((material) => material.deadlinePolicy === 'strict').length;
+  const overdueNormalMinutes = result.deadlineReports.reduce((sum, report) => {
+    const materialId = report.workItemId.startsWith('material:') ? report.workItemId.slice('material:'.length) : null;
+    const material = materialId ? overdue.get(materialId) : undefined;
+    return material?.deadlinePolicy === 'normal' ? sum + report.requiredMinutes : sum;
+  }, 0);
 
   return {
     ...result,
@@ -45,9 +59,22 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       const materialId = report.workItemId.startsWith('material:') ? report.workItemId.slice('material:'.length) : null;
       const material = materialId ? overdue.get(materialId) : undefined;
       return material
-        ? { ...report, deadline: material.targetDate, overdueDays: diffDays(material.targetDate, today) }
+        ? {
+            ...report,
+            policy: material.deadlinePolicy,
+            deadline: material.targetDate,
+            feasible: material.deadlinePolicy === 'flexible' ? null : false,
+            scheduledMinutes: 0,
+            shortageMinutes: report.requiredMinutes,
+            overdueDays: diffDays(material.targetDate, today),
+          }
         : report;
     }),
+    objectiveReport: {
+      ...result.objectiveReport,
+      strictDeadlineViolations: result.objectiveReport.strictDeadlineViolations + overdueStrict,
+      normalOverdueMinutes: result.objectiveReport.normalOverdueMinutes + overdueNormalMinutes,
+    },
     warnings: [...warnings, ...result.warnings],
   };
 }
