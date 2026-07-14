@@ -15,6 +15,21 @@ function restoreSyncMetadata(owner: string, repositoryMetadata: Awaited<ReturnTy
   }
 }
 
+export interface StoredStateBaseline {
+  current: AppState | null;
+}
+
+/** Advance the differential baseline only after IndexedDB committed the snapshot. */
+export async function persistMainStateSnapshot(
+  repository: Pick<AppStateIndexedDbRepository, 'saveState'>,
+  snapshot: AppState,
+  baseline: StoredStateBaseline,
+): Promise<void> {
+  const previous = baseline.current;
+  await repository.saveState(snapshot, previous);
+  baseline.current = snapshot;
+}
+
 /**
  * Restores the account-scoped IndexedDB snapshot before AppProvider starts its
  * cloud reconciliation. localStorage remains the synchronous emergency cache;
@@ -100,12 +115,12 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
       if (cancelled) return;
       lastStoredState.current = stored;
       const current = stateRef.current;
-      if (stored) await repository.saveState(current, stored);
-      else await repository.migrateLegacyState(current);
-      if (!cancelled) {
+      if (stored) await persistMainStateSnapshot(repository, current, lastStoredState);
+      else {
+        await repository.migrateLegacyState(current);
         lastStoredState.current = current;
-        setReadyOwner(owner);
       }
+      if (!cancelled) setReadyOwner(owner);
     }).catch((caught) => {
       if (cancelled) return;
       console.error('予定データのIndexedDB保存開始に失敗しました', caught);
@@ -122,9 +137,7 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
   useEffect(() => {
     const repository = repositoryRef.current;
     if (!repository || readyOwner !== owner) return;
-    const previous = lastStoredState.current;
-    lastStoredState.current = state;
-    void repository.saveState(state, previous).then(
+    void persistMainStateSnapshot(repository, state, lastStoredState).then(
       () => setError(null),
       (caught) => {
         console.error('予定データのIndexedDB保存に失敗しました', caught);
@@ -148,10 +161,9 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
     const persist = () => {
       const repository = repositoryRef.current;
       if (!repository || readyOwner !== owner) return;
-      const snapshot = stateRef.current;
-      const previous = lastStoredState.current;
-      lastStoredState.current = snapshot;
-      void repository.saveState(snapshot, previous);
+      void persistMainStateSnapshot(repository, stateRef.current, lastStoredState).catch((caught) => {
+        console.error('pagehide時のIndexedDB保存に失敗しました', caught);
+      });
       const metadata = getMainSyncMetadata(owner);
       if (metadata) void repository.saveSyncMetadata(metadata);
     };
