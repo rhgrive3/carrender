@@ -3,7 +3,7 @@
  * 実行: npx vite-node scripts/schedulerV2.test.ts
  */
 import { generatePlan } from '../src/lib/scheduler';
-import { generatePlanV2, validateGeneratedScheduleV2 } from '../src/lib/schedulerV2';
+import { computeLoadBalanceMetrics, generatePlanV2, validateGeneratedScheduleV2 } from '../src/lib/schedulerV2';
 import type { SolverDayInput, SolverItem } from '../src/lib/strictSolver';
 import { isChunkAllowed, minutesForUnits, solveStrict } from '../src/lib/strictSolver';
 import { normalizeState } from '../src/lib/storage';
@@ -823,6 +823,19 @@ console.log('--- 19. 負荷平準化・安全完了日・頻度目標 ---');
     resultF.warnings.some((warning) => warning.code === 'SAFETY_BUFFER_USED' && warning.minutes === 60),
     resultF.warnings,
   );
+}
+
+
+// ============================================================
+console.log('--- 日別負荷評価は空白日を含む ---');
+{
+  const state = baseState([], [{ start: '09:00', end: '15:00' }], 360);
+  const metrics = computeLoadBalanceMetrics(state, [
+    manualTask('load-d1', { scheduledDate: D1, estimatedMinutes: 300 }),
+    manualTask('load-d3', { scheduledDate: D3, estimatedMinutes: 300 }),
+  ]);
+  check('予定のない中間日を0分として分散へ含める', metrics.dailyLoadVariance > 0, metrics);
+  check('予定のない中間日との隣接差を評価する', metrics.adjacentDayDifference === 600, metrics);
 }
 
 console.log(failures === 0 ? '\n🎉 ALL PASS (schedulerV2 spec)' : `\n💥 ${failures} FAILURES`);

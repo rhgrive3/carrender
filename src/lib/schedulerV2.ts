@@ -1783,7 +1783,7 @@ function countMaterialStreaks(tasks: StudyTask[]) {
  * 期限・固定条件を満たした候補同士だけを比較するための負荷指標。
  * ここでは重み付き合計にせず、compareObjectivesの後半で辞書式に扱う。
  */
-function computeLoadBalanceMetrics(
+export function computeLoadBalanceMetrics(
   state: AppState,
   tasks: StudyTask[],
   safetyFinishByMaterial: ReadonlyMap<string, ISODate> = new Map(),
@@ -1792,7 +1792,13 @@ function computeLoadBalanceMetrics(
   | 'subjectConcentration' | 'materialConcentration' | 'cadenceViolations'
   | 'dailyTargetDeviation' | 'weeklyTargetDeviation' | 'safetyBufferViolationMinutes'> {
   const planned = tasks.filter((task) => task.status === 'planned');
-  const dates = [...new Set(planned.map((task) => task.scheduledDate))].sort();
+  const scheduledDates = [...new Set(planned.map((task) => task.scheduledDate))].sort();
+const dates: ISODate[] = [];
+if (scheduledDates.length > 0) {
+  for (let date = scheduledDates[0]; date <= scheduledDates[scheduledDates.length - 1]; date = addDays(date, 1)) {
+    dates.push(date);
+  }
+}
   const daily = new Map<ISODate, number>();
   const byDaySubject = new Map<ISODate, Map<string, number>>();
   const byDayMaterial = new Map<ISODate, Map<string, number>>();
