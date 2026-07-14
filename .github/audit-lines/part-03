@@ -1,0 +1,407 @@
+-await page.getByText('まずはデモデータで試す').click();
+-await page.waitForTimeout(900);
+-await page.screenshot({ path: `${OUT}/dark-today.png` });
+-
+-for (const [label, name] of [
+-  ['計画', 'plan'],
+-  ['教材', 'materials'],
+-  ['記録', 'records'],
+-  ['分析', 'analytics'],
+-]) {
+-  await page.locator('.bottom-nav button', { hasText: label }).click();
+-  await page.waitForTimeout(450);
+-  await page.screenshot({ path: `${OUT}/dark-${name}.png` });
+-}
+-
+-// タイマー → 終了 → 記録シートが出るか(バグ修正の検証)
+-await page.locator('.bottom-nav button', { hasText: '今日' }).click();
+-await page.waitForTimeout(400);
+-await page.getByText('今すぐ開始').first().click();
+-await page.waitForTimeout(1600);
+-await page.screenshot({ path: `${OUT}/dark-timer.png` });
+-await page.getByText('終了して記録').click();
+-await page.waitForTimeout(700);
+-const sheetVisible = await page.locator('.sheet').count();
+-console.log('記録シート表示:', sheetVisible > 0 ? 'OK' : 'NG');
+-await page.screenshot({ path: `${OUT}/dark-record.png` });
+-
+-// 保存して今日画面に反映されるか
+-await page.getByText('保存する').click();
+-await page.waitForTimeout(900);
+-await page.screenshot({ path: `${OUT}/dark-after-save.png` });
+-const bodyText = await page.textContent('body');
+-console.log('実績反映:', bodyText.includes('0分') ? '(要確認)' : 'OK');
+-
+-await browser.close();
+-console.log('done');
+diff --git a/scripts/screenshot.mjs b/scripts/screenshot.mjs
+deleted file mode 100644
+index 3f432f9..0000000
+--- a/scripts/screenshot.mjs
++++ /dev/null
+@@ -1,61 +0,0 @@
+-// UI確認用スクリーンショット (iPhone幅390px + iPad幅820px)
+-// 事前に別ターミナルで `npm run pages:dev` を起動しておくこと(/api がないと動きません)
+-import { chromium } from 'playwright';
+-import { registerTestUser } from './_dev-auth-helper.mjs';
+-
+-const OUT = process.env.SHOT_DIR ?? '/tmp/shots';
+-const BASE = 'http://localhost:8788/';
+-
+-const browser = await chromium.launch();
+-
+-async function shoot(width, height, suffix) {
+-  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
+-  await page.goto(BASE);
+-  await page.waitForTimeout(1200);
+-  await page.screenshot({ path: `${OUT}/login-${suffix}.png` });
+-  await registerTestUser(page, BASE);
+-  await page.screenshot({ path: `${OUT}/onboarding-${suffix}.png` });
+-
+-  // デモデータ開始
+-  await page.getByText('まずはデモデータで試す').click();
+-  await page.waitForTimeout(900);
+-  await page.screenshot({ path: `${OUT}/today-${suffix}.png`, fullPage: false });
+-  await page.screenshot({ path: `${OUT}/today-full-${suffix}.png`, fullPage: true });
+-
+-  for (const [label, name] of [
+-    ['計画', 'plan'],
+-    ['教材', 'materials'],
+-    ['記録', 'records'],
+-    ['分析', 'analytics'],
+-  ]) {
+-    await page.locator('.bottom-nav button', { hasText: label }).click();
+-    await page.waitForTimeout(500);
+-    await page.screenshot({ path: `${OUT}/${name}-${suffix}.png`, fullPage: true });
+-  }
+-
+-  // タイマー起動 (今日タブ → 今すぐ開始)
+-  await page.locator('.bottom-nav button', { hasText: '今日' }).click();
+-  await page.waitForTimeout(400);
+-  const startBtn = page.getByText('今すぐ開始');
+-  if (await startBtn.count()) {
+-    await startBtn.first().click();
+-    await page.waitForTimeout(700);
+-    await page.screenshot({ path: `${OUT}/timer-${suffix}.png` });
+-    // 終了 → 記録シート
+-    await page.getByText('終了して記録').click();
+-    await page.waitForTimeout(600);
+-    await page.screenshot({ path: `${OUT}/record-${suffix}.png` });
+-  }
+-
+-  // ライトモード確認 (設定 → ライト)
+-  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+-  await page.waitForTimeout(300);
+-  await page.screenshot({ path: `${OUT}/record-light-${suffix}.png` });
+-
+-  await page.close();
+-}
+-
+-await shoot(390, 844, 'iphone');
+-await shoot(820, 1180, 'ipad');
+-await browser.close();
+-console.log('done');
+diff --git a/scripts/smoke.ts b/scripts/smoke.ts
+index e1b9647..aab665d 100644
+--- a/scripts/smoke.ts
++++ b/scripts/smoke.ts
+@@ -4,7 +4,8 @@
+  */
+ /// <reference types="node" />
+ import { buildDemoState } from '../src/data/demo';
+-import { generatePlan, generatePlanV2, computeCapacity, computeDayStatus, availableMinutesOn, freeSlotsOn, futureFreeSlotsOn, fixedEventsOn, mergeMinuteRanges, normalizeUnitRanges, remainingUnitRanges, updateMinutesPerUnitEstimate } from '../src/lib/scheduler';
++import { generatePlan, computeCapacity, computeDayStatus, availableMinutesOn, freeSlotsOn, futureFreeSlotsOn, fixedEventsOn, normalizeUnitRanges, remainingUnitRanges, updateMinutesPerUnitEstimate } from '../src/lib/scheduler';
++import { generatePlanV2, mergeMinuteRanges } from '../src/lib/schedulerV2';
+ import { generateReviewTasks } from '../src/lib/review';
+ import { computeAnalytics, todayQuotaFor } from '../src/lib/analytics';
+ import { computeAchievements, unlockedCount } from '../src/lib/achievements';
+@@ -76,9 +77,9 @@ const outOfRange = state.tasks.filter(
+ );
+ check('全自動タスクが25〜90分の範囲(最終残量を除く)', outOfRange.length === 0, outOfRange.map((x) => `${x.title} ${x.estimatedMinutes}分`));
+ 
+-// 未達成タスクがデモに含まれる
++// 未達成タスクは現在の計画から分離した履歴として保持する
+ const overdueDemo = state.tasks.filter((x) => x.status === 'planned' && x.scheduledDate < t);
+-check('デモに未達成タスクがある', overdueDemo.length >= 2, overdueDemo.length);
++check('デモに未達成履歴がある', (state.planHistory ?? []).length >= 2, state.planHistory?.length ?? 0);
+ 
+ console.log('--- 週間タスク分布 ---');
+ for (let i = 0; i < 7; i++) {
+diff --git a/src/components/charts/GoalProgressChart.tsx b/src/components/charts/GoalProgressChart.tsx
+index f6ee8ad..0380ec8 100644
+--- a/src/components/charts/GoalProgressChart.tsx
++++ b/src/components/charts/GoalProgressChart.tsx
+@@ -12,7 +12,7 @@ import {
+ } from 'recharts';
+ import type { AppState, ISODate, Material } from '../../types';
+ import { addDays, diffDays, formatDateShort } from '../../lib/date';
+-import { isPlacedPlanTask, plannedMaterialAmountThrough } from '../../lib/taskFilters';
++import { actualMaterialAmountThrough, isPlacedPlanTask, legacyProgressBaselineRanges, plannedMaterialAmountThrough } from '../../lib/taskFilters';
+ import type { UnitRange } from '../../types';
+ 
+ interface GoalProgressChartProps {
+@@ -106,18 +106,11 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
+       list.sort((a, b) => a.date.localeCompare(b.date));
+     }
+ 
+-    const plannedDates = [...plannedByMaterial.values()].flatMap((list) => list.map((item) => item.date));
++    const plannedDates = [
++      ...[...plannedByMaterial.values()].flatMap((list) => list.map((item) => item.date)),
++      ...(state.planHistory ?? []).map((entry) => entry.scheduledDate),
++    ];
+     const dates = buildDateRange(activeMaterials, refDate, plannedDates);
+-    const sessionsByMaterial = new Map<string, { date: ISODate; amount: number }[]>();
+-    for (const session of state.sessions) {
+-      if (!session.materialId || session.amountDone <= 0) continue;
+-      const list = sessionsByMaterial.get(session.materialId) ?? [];
+-      list.push({ date: session.date, amount: session.amountDone });
+-      sessionsByMaterial.set(session.materialId, list);
+-    }
+-    for (const list of sessionsByMaterial.values()) {
+-      list.sort((a, b) => a.date.localeCompare(b.date));
+-    }
+ 
+     const series: Series[] = [];
+     activeMaterials.forEach((material, index) => {
+@@ -138,35 +131,19 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
+       });
+     });
+ 
+-    const totalRecordedByMaterial = new Map<string, number>();
+-    for (const [materialId, list] of sessionsByMaterial) {
+-      totalRecordedByMaterial.set(
+-        materialId,
+-        list.reduce((sum, item) => sum + item.amount, 0),
+-      );
+-    }
+-
+     const points: ChartPoint[] = dates.map((date) => {
+       const point: ChartPoint = { date, label: formatDateShort(date) };
+ 
+       activeMaterials.forEach((material, index) => {
+         const start = materialStartDate(material);
+-        const baseline = Math.max(0, material.doneAmount - (totalRecordedByMaterial.get(material.id) ?? 0));
+-        const completedRanges = material.completedRanges
+-          ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
+-        let baselineLeft = baseline;
+-        const baselineRanges = completedRanges.flatMap((range) => {
+-          if (baselineLeft <= 0) return [];
+-          const amount = Math.min(baselineLeft, range.end - range.start + 1);
+-          baselineLeft -= amount;
+-          return [{ start: range.start, end: range.start + amount - 1 }];
+-        });
++        const baselineRanges = legacyProgressBaselineRanges(material, state.sessions);
+         const plannedByDate = plannedMaterialAmountThrough(
+           state.tasks,
+           material.id,
+           material.totalAmount,
+           date,
+           baselineRanges,
++          state.planHistory ?? [],
+         );
+         point[`m${index}Target`] = date < start ? 0 : clampPercent((plannedByDate / material.totalAmount) * 100);
+ 
+@@ -175,12 +152,7 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
+           return;
+         }
+ 
+-        const recorded = sessionsByMaterial.get(material.id) ?? [];
+-        const doneByDate =
+-          baseline +
+-          recorded.reduce((sum, item) => {
+-            return item.date <= date ? sum + item.amount : sum;
+-          }, 0);
++        const doneByDate = actualMaterialAmountThrough(material, state.sessions, date);
+         point[`m${index}Actual`] = clampPercent((doneByDate / material.totalAmount) * 100);
+       });
+ 
+@@ -188,7 +160,7 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
+     });
+ 
+     return { points, series, materials: activeMaterials };
+-  }, [refDate, state.materials, state.sessions, state.tasks]);
++  }, [refDate, state.materials, state.planHistory, state.sessions, state.tasks]);
+ 
+   if (chart.points.length === 0) {
+     return (
+diff --git a/src/components/forms/RecordSheet.tsx b/src/components/forms/RecordSheet.tsx
+index 297fcfb..df94dd7 100644
+--- a/src/components/forms/RecordSheet.tsx
++++ b/src/components/forms/RecordSheet.tsx
+@@ -5,7 +5,7 @@ import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
+ import { resolveSessionProgress, useApp } from '../../state/AppContext';
+ import { useToast } from '../ui/Toast';
+ import { todayQuotaFor } from '../../lib/analytics';
+-import { minutesToHM, today } from '../../lib/date';
++import { APP_TIME_ZONE, minutesInTimeZone, minutesToHM, today } from '../../lib/date';
+ import type { StudySession } from '../../types';
+ 
+ export interface RecordPreset {
+@@ -45,8 +45,8 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
+   const [showMemo, setShowMemo] = useState(Boolean(session?.memo));
+   const [recordDate, setRecordDate] = useState(session?.date ?? today());
+   const [startTime, setStartTime] = useState(() => session
+-    ? new Date(session.startedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+-    : minutesToHM(new Date().getHours() * 60 + new Date().getMinutes()));
++    ? new Date(session.startedAt).toLocaleTimeString('en-GB', { timeZone: APP_TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false })
++    : minutesToHM(minutesInTimeZone(new Date())));
+ 
+   const materials = useMemo(
+     () => state.materials.filter((m) => (!m.archived || m.id === session?.materialId) && m.subjectId === subjectId),
+diff --git a/src/components/timer/TimerContext.tsx b/src/components/timer/TimerContext.tsx
+index 6b11af4..48d42e9 100644
+--- a/src/components/timer/TimerContext.tsx
++++ b/src/components/timer/TimerContext.tsx
+@@ -214,7 +214,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
+       workCompletedSec: 0,
+       owner: user?.username ?? '',
+     });
+-  }, []);
++  }, [user?.username]);
+ 
+   /** モード切替。それまでの実勉強時間は引き継ぐ */
+   const setMode = useCallback((mode: TimerMode) => {
+diff --git a/src/components/ui/AppErrorBoundary.tsx b/src/components/ui/AppErrorBoundary.tsx
+index 46734a4..ba14db7 100644
+--- a/src/components/ui/AppErrorBoundary.tsx
++++ b/src/components/ui/AppErrorBoundary.tsx
+@@ -1,5 +1,6 @@
+ import { Component } from 'react';
+ import type { ErrorInfo, ReactNode } from 'react';
++import { today } from '../../lib/date';
+ import { exportJSON, loadState } from '../../lib/storage';
+ 
+ interface Props { children: ReactNode }
+@@ -23,7 +24,7 @@ export class AppErrorBoundary extends Component<Props, State> {
+     const url = URL.createObjectURL(blob);
+     const link = document.createElement('a');
+     link.href = url;
+-    link.download = `studycommander-recovery-${new Date().toISOString().slice(0, 10)}.json`;
++    link.download = `studycommander-recovery-${today()}.json`;
+     link.click();
+     URL.revokeObjectURL(url);
+   };
+diff --git a/src/data/defaults.ts b/src/data/defaults.ts
+index f41b264..099bb2a 100644
+--- a/src/data/defaults.ts
++++ b/src/data/defaults.ts
+@@ -27,7 +27,6 @@ export function defaultSettings(): AppSettings {
+       intervals: [1, 3, 7, 14, 30],
+     },
+     weeklyTargetMinutes: 0,
+-    timezone: 'Asia/Tokyo',
+     taskGenerationHorizonDays: 42,
+     estimateAlpha: 0.2,
+     timer: defaultTimerSettings(),
+diff --git a/src/data/demo.ts b/src/data/demo.ts
+index 9a2bea7..28fcb15 100644
+--- a/src/data/demo.ts
++++ b/src/data/demo.ts
+@@ -1,5 +1,5 @@
+ import type { AppState, Material, StudySession, StudyTask, Subject } from '../types';
+-import { addDays, genId, today } from '../lib/date';
++import { addDays, genId, localDateTimeToISOString, today } from '../lib/date';
+ import { generatePlan } from '../lib/scheduler';
+ import { defaultSettings, defaultAvailability } from './defaults';
+ 
+@@ -98,7 +98,7 @@ export function buildDemoState(): AppState {
+     for (const [materialId, minutes, amount, focus] of dayPat.entries) {
+       const m = materials.find((x) => x.id === materialId);
+       if (!m) continue;
+-      const startedAt = new Date(`${date}T${String(hour).padStart(2, '0')}:00:00`).toISOString();
++      const startedAt = localDateTimeToISOString(date, `${String(hour).padStart(2, '0')}:00`);
+       hour += 1;
+       const taskId = genId('task');
+       sessions.push({
+@@ -212,8 +212,8 @@ export function buildDemoState(): AppState {
+   });
+ 
+   const base: AppState = {
+-    version: 3,
+-    schemaVersion: 3,
++    version: 5,
++    schemaVersion: 5,
+     isDemo: true,
+     onboarded: true,
+     goal: {
+@@ -225,6 +225,7 @@ export function buildDemoState(): AppState {
+     subjects,
+     materials,
+     tasks: [...doneTasks, ...reviewTasks],
++    planHistory: [],
+     sessions,
+     availability: defaultAvailability(),
+     dayPlans: [],
+@@ -243,5 +244,24 @@ export function buildDemoState(): AppState {
+ 
+   // 今日以降の計画を自動生成して完成状態にする
+   const { state } = generatePlan(base, t, '初期プラン作成');
+-  return { ...state, tasks: [...state.tasks, ...missedTasks], lastReschedule: null };
++  return {
++    ...state,
++    planHistory: missedTasks.map((task) => ({
++      id: `missed:${task.id}:${task.scheduledDate}`,
++      taskId: task.id,
++      subjectId: task.subjectId,
++      materialId: task.materialId,
++      title: task.title,
++      scheduledDate: task.scheduledDate,
++      estimatedMinutes: task.estimatedMinutes,
++      amount: task.amount,
++      type: task.type,
++      outcome: 'missed' as const,
++      rangeStart: task.rangeStart,
++      rangeEnd: task.rangeEnd,
++      materialRange: task.materialRange,
++      capturedAt: new Date().toISOString(),
++    })),
++    lastReschedule: null,
++  };
+ }
+diff --git a/src/features/memory/application/content.ts b/src/features/memory/application/content.ts
+index 63a316e..f53d282 100644
+--- a/src/features/memory/application/content.ts
++++ b/src/features/memory/application/content.ts
+@@ -155,12 +155,6 @@ export function buildMemoryCard(input: CreateMemoryCardInput, now = new Date().t
+   };
+ }
+ 
+-export async function createMemoryCard(repository: MemoryRepository, input: CreateMemoryCardInput): Promise<MemoryItem> {
+-  const built = buildMemoryCard(input);
+-  await repository.saveContentBundle(built.bundle, built.setMember ? [built.setMember] : []);
+-  return built.bundle.items[0];
+-}
+-
+ export async function createMemorySet(
+   repository: MemoryRepository,
+   input: { name: string; description?: string; tags?: string[] },
+@@ -251,29 +245,6 @@ export async function addAnswerToSense(
+   return answer;
+ }
+ 
+-export async function addItemsToSet(
+-  repository: MemoryRepository,
+-  setId: string,
+-  itemIds: string[],
+-): Promise<void> {
+-  const existing = await repository.listSetMembers(setId);
+-  const known = new Set(existing.map((member) => member.itemId));
+-  const now = new Date().toISOString();
+-  const additions = [...new Set(itemIds)]
+-    .filter((itemId) => !known.has(itemId))
+-    .map((itemId, index): MemorySetMember => ({
+-      setId,
+-      itemId,
+-      order: existing.length + index,
+-      createdAt: now,
+-    }));
+-  if (additions.length === 0) return;
+-  await repository.saveContentBundle(
+-    { items: [], senses: [], answers: [], examples: [], exercises: [] },
+-    additions,
+-  );
+-}
+-
+ /** Marks an Item and every unverified descendant as explicitly user-reviewed. */
+ export async function verifyMemoryItem(repository: MemoryRepository, itemId: string): Promise<number> {
+   const content = await repository.loadContent();
