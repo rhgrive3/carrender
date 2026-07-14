@@ -33,7 +33,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     return json({ error: '保存データの読み込みに失敗しました' }, { status: 500 });
   }
 
-  const validation = validateAppStatePayload(appState);
+  // v5の厳密検証導入前に保存された「教材期限 > 目標日」は、v6クライアントが
+  // 教材期限を保ったまま目標日を延長して修復できるようGETだけ許可する。
+  // 新規PUTは引き続き厳密検証し、不整合な状態をD1へ増やさない。
+  const validation = validateAppStatePayload(appState, { allowLegacyGoalDateOverflow: true });
   if (!validation.ok) {
     return json({ error: `保存データが破損しています: ${validation.error ?? '形式不明'}` }, { status: 500 });
   }

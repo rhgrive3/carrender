@@ -695,7 +695,34 @@ console.log('--- 19. 負荷平準化・安全完了日・頻度目標 ---');
   check('40分単位strictが期限前の安全予備を残す', chunkyResult.objectiveReport.safetyBufferViolationMinutes === 0, chunkyResult.objectiveReport);
   check('40分単位strictの期限保証を維持する', chunkyResult.deadlineReports.find((report) => report.workItemId === `material:${chunkyStrict.id}`)?.feasible === true, chunkyResult.deadlineReports);
 
-  // ケースB3: ローリング日数が目標日より短くても、目標日前に具体予定を打ち切らない。
+  // ケースB3: 添付実データの化学特講Ⅰ(13問×25分)と数学特講ⅢC
+  // (21問×40分)を縮約したケース。平均195分/日は総分数と教材単体では
+  // 足りて見えるが、早い期限までの組合せ上は不可能で200分/日が必要。
+  const chemistrySpecial = mat('chemistry-special-real', {
+    deadlinePolicy: 'strict', targetDate: '2026-07-13', totalAmount: 13, totalUnits: 13, minutesPerUnit: 25,
+  });
+  const mathSpecial = mat('math-special-real', {
+    deadlinePolicy: 'strict', targetDate: '2026-07-17', totalAmount: 21, totalUnits: 21, minutesPerUnit: 40,
+  });
+  const multiStrictResult = generatePlanV2(baseState(
+    [chemistrySpecial, mathSpecial],
+    [{ start: '09:00', end: '12:20' }],
+    200,
+    { settings: { ...emptyState().settings, maxDailyMinutes: 200, sessionMinMinutes: 25, sessionMaxMinutes: 90, taskGenerationHorizonDays: 14 } },
+  ), context({ generationId: 'balance-multi-strict-real', maxSearchNodes: 20_000, maxSearchMilliseconds: 400 }));
+  const chemistryDates = multiStrictResult.scheduledTasks
+    .filter((task) => task.materialId === chemistrySpecial.id)
+    .map((task) => task.scheduledDate);
+  const mathDates = multiStrictResult.scheduledTasks
+    .filter((task) => task.materialId === mathSpecial.id)
+    .map((task) => task.scheduledDate);
+  check('複数strictでも化学特講を期限日に固めず安全完了日までへ分散する', chemistryDates.length > 1 && chemistryDates.every((date) => date <= '2026-07-11'), chemistryDates);
+  check('複数strictでも数学特講を期限直前へ戻さない', mathDates.length > 1 && mathDates.every((date) => date <= '2026-07-15'), mathDates);
+  check('複数strictの期限保証と安全予備を維持する', multiStrictResult.objectiveReport.strictDeadlineViolations === 0
+    && multiStrictResult.objectiveReport.unscheduledStrictMinutes === 0
+    && multiStrictResult.objectiveReport.safetyBufferViolationMinutes === 0, multiStrictResult.objectiveReport);
+
+  // ケースB4: ローリング日数が目標日より短くても、目標日前に具体予定を打ち切らない。
   const goalScoped = mat('goal-scoped', {
     deadlinePolicy: 'normal', targetDate: '2026-07-20', totalAmount: 11, totalUnits: 11, minutesPerUnit: 60,
   });

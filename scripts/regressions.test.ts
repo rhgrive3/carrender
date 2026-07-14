@@ -321,6 +321,17 @@ console.log('--- 初期設定の時間帯 ---');
     && legacy.dayPlans[0].load === 'heavy'
     && legacy.dayPlans[0].memo === '新しい'
     && legacy.dayPlans[0].availabilityWindows?.[0]?.start === '20:00', legacy.dayPlans);
+  const legacyGoalOverflow = normalizeState({
+    ...state(),
+    version: 5,
+    schemaVersion: 5,
+    goal: { id: 'legacy-goal', name: '夏期期間終了', examDate: addDays(ref, 20), createdAt: new Date().toISOString() },
+    materials: [{ ...material, name: 'ハム数', targetDate: addDays(ref, 30) }],
+  });
+  check('旧データの教材期限を失わず単一目標日を延長して同期可能なv6へ移行', legacyGoalOverflow.version === 6
+    && legacyGoalOverflow.schemaVersion === 6
+    && legacyGoalOverflow.goal?.examDate === addDays(ref, 30)
+    && legacyGoalOverflow.materials[0].targetDate === addDays(ref, 30), legacyGoalOverflow.goal);
 }
 
 console.log('--- 記録編集・削除の再構築 ---');

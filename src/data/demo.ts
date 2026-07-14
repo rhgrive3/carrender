@@ -212,8 +212,8 @@ export function buildDemoState(): AppState {
   });
 
   const base: AppState = {
-    version: 5,
-    schemaVersion: 5,
+    version: 6,
+    schemaVersion: 6,
     isDemo: true,
     onboarded: true,
     goal: {

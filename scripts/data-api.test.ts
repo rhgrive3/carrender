@@ -149,6 +149,15 @@ check('重複IDを拒否', !validateAppStatePayload({ ...structured, subjects: [
 check('存在しない科目参照を拒否', !validateAppStatePayload({ ...structured, materials: [{ ...structured.materials[0], subjectId: 'missing' }] }).ok);
 check('未完了タスクの存在しない教材参照を拒否', !validateAppStatePayload({ ...structured, tasks: [{ ...structured.tasks[0], materialId: 'missing' }] }).ok);
 check('教材期限が試験日より後なら拒否', !validateAppStatePayload({ ...structured, materials: [{ ...structured.materials[0], targetDate: '2026-09-01' }] }).ok);
+const legacyGoalOverflow = { ...structured, materials: [{ ...structured.materials[0], targetDate: '2026-09-01' }] };
+const beforeLegacyRead = appState;
+appState = JSON.stringify(legacyGoalOverflow);
+const legacyGoalOverflowGet = await onRequestGet({
+  request: new Request('https://example.test/api/data', { headers: { Cookie: 'sc_session=session' } }),
+  env: { DB: db },
+} as Parameters<typeof onRequestGet>[0]) as Response;
+appState = beforeLegacyRead;
+check('保存済み旧データの目標日超過だけはv6移行のためGETできる', legacyGoalOverflowGet.status === 200, legacyGoalOverflowGet.status);
 check('不正な時刻と日付を拒否', !validateAppStatePayload({ ...structured, tasks: [{ ...structured.tasks[0], scheduledDate: '2026-02-30', scheduledStart: '25:00', scheduledEnd: '26:00' }] }).ok);
 check('固定予定の片側だけの有効期間を拒否', !validateAppStatePayload({
   ...structured,
