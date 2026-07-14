@@ -163,4 +163,31 @@ function withMonthlySummary(input: AppState, studyMinutes: number, sessionCount:
   );
 }
 
+{
+  const base = state();
+  const local = {
+    ...base,
+    materials: base.materials.filter((item) => item.id !== 'material-a'),
+    sessions: base.sessions.filter((item) => item.materialId !== 'material-a'),
+  };
+  const remote = { ...base, sessions: [...base.sessions, session('remote-new', '削除と同時に追加')] };
+  const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
+  assert.equal(result.merged, null, '教材削除と同時に別端末で紐づく記録が追加された場合は参照切れを作らない');
+  assert.ok(result.conflicts.some((conflict) => conflict.section === 'materials' && conflict.key === 'material-a'));
+}
+
+{
+  const base = state();
+  const local = {
+    ...base,
+    subjects: [],
+    materials: [],
+    sessions: [],
+  };
+  const remote = { ...base, materials: [...base.materials, { ...material('material-c', '追加教材'), subjectId: 'subject' }] };
+  const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
+  assert.equal(result.merged, null, '科目削除と同時に別端末で教材が追加された場合は参照切れを作らない');
+  assert.ok(result.conflicts.some((conflict) => conflict.section === 'subjects' && conflict.key === 'subject'));
+}
+
 console.log('✅ main state entity merge regressions passed');
