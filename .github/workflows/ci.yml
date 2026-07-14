@@ -41,14 +41,14 @@ jobs:
         run: npm test
 
       - name: Cloudflare API integration tests
-        id: api-integration
+        id: api_integration
         shell: bash
         run: |
           set -o pipefail
           npm run test:integration:api 2>&1 | tee api-integration.log
 
       - name: Preserve API integration failure log
-        if: failure() && steps.api-integration.outcome == 'failure'
+        if: failure() && steps.api_integration.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: api-integration-failure-${{ github.run_id }}
