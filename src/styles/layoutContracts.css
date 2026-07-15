@@ -5,14 +5,17 @@
  * ビューポート下端へ固定する。sticky / absolute / static へ変更しない。
  * iOS/iPadOSではホームインジケータ領域を操作面から除外する。
  * このファイルは他の画面CSSより後に読み込み、意図しない上書きを防ぐ。
+ * ナビは .app-shell の外に置く。スクロール・transform・contain を持つ親を
+ * fixed の包含ブロックにしないための意図的なレイアウト契約。
  */
 .bottom-nav[data-layout-contract='fixed-bottom-navigation'] {
   position: fixed !important;
   top: auto !important;
-  right: auto !important;
+  right: 0 !important;
   bottom: 0 !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
+  left: 0 !important;
+  margin-inline: auto !important;
+  transform: none !important;
   width: min(100vw, 760px) !important;
   max-width: 760px !important;
   padding-bottom: env(safe-area-inset-bottom, 0px) !important;
