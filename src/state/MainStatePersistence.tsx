@@ -74,9 +74,9 @@ export function persistMainStateSnapshot(
 
 /**
  * Restores the account-scoped IndexedDB snapshot before AppProvider starts its
- * cloud reconciliation. localStorage remains the synchronous emergency cache;
- * when it exists for this owner it wins because pagehide can update it after an
- * asynchronous IndexedDB write was suspended by iOS.
+ * cloud reconciliation. localStorage remains a synchronous emergency cache, but
+ * it wins only when its timestamp is newer than IndexedDB (for example, an iOS
+ * pagehide update whose asynchronous IndexedDB write was suspended).
  */
 export function MainStateBootstrap({ owner, children }: { owner: string; children: ReactNode }) {
   const [readyOwner, setReadyOwner] = useState<string | null>(null);
