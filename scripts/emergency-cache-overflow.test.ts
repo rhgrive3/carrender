@@ -26,6 +26,7 @@ class ControlledStorage {
 }
 
 assert.equal(shouldUseEmergencyStateCache(null, '2026-07-16T08:00:00.000Z', true), false, 'undated legacy cache never overwrites IndexedDB');
+assert.equal(shouldUseEmergencyStateCache('not-a-date', '2026-07-16T08:00:00.000Z', true), false, 'invalid cache timestamp never overwrites IndexedDB');
 assert.equal(shouldUseEmergencyStateCache('2026-07-16T07:00:00.000Z', '2026-07-16T08:00:00.000Z', true), false, 'older emergency cache never overwrites IndexedDB');
 assert.equal(shouldUseEmergencyStateCache('2026-07-16T09:00:00.000Z', '2026-07-16T08:00:00.000Z', true), true, 'newer pagehide cache may recover the latest edit');
 assert.equal(shouldUseEmergencyStateCache(null, null, false), true, 'legacy cache remains usable when IndexedDB has no state');
