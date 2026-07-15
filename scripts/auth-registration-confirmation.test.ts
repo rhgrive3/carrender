@@ -20,6 +20,9 @@ assert.match(source, /const clearDisplayedError = \(\) => \{[\s\S]*setLocalError
 assert.match(source, /id="auth-username"[\s\S]*onChange=\{\(e\) => \{[\s\S]*setUsername\(e\.target\.value\)[\s\S]*clearDisplayedError\(\)/, 'ユーザー名の修正時に古いエラーを消す');
 assert.match(source, /id="auth-password"[\s\S]*onChange=\{\(e\) => \{[\s\S]*setPassword\(e\.target\.value\)[\s\S]*clearDisplayedError\(\)/, 'パスワードの修正時に古いエラーを消す');
 assert.match(source, /id="auth-password-confirmation"[\s\S]*onChange=\{\(e\) => \{[\s\S]*setPasswordConfirmation\(e\.target\.value\)[\s\S]*clearDisplayedError\(\)/, '確認用パスワードの修正時に古いエラーを消す');
+assert.match(authContext, /function clearHints\(\): void \{[\s\S]*removeItem\(AUTH_HINT_KEY\)[\s\S]*removeItem\(AUTH_USER_HINT_KEY\)/, '認証ヒントを一括破棄できる');
+assert.match(authContext, /if \(user\.id\) \{[\s\S]*setItem\(AUTH_USER_HINT_KEY, JSON\.stringify\(user\)\)[\s\S]*\} else \{[\s\S]*removeItem\(AUTH_USER_HINT_KEY\)[\s\S]*setItem\(AUTH_HINT_KEY, user\.username\)/, '旧形式ユーザーへ切り替える時は古いv2ヒントを残さない');
+assert.match(authContext, /catch \{[\s\S]*try \{[\s\S]*clearHints\(\)[\s\S]*\} catch/, 'ヒント保存が途中失敗した場合は混在した認証情報を破棄する');
 assert.match(authContext, /const operationInFlight = useRef\(false\)/, '再描画前でも認証操作を排他できる同期ロックを持つ');
 assert.match(authContext, /if \(operationInFlight\.current\) return false;[\s\S]*operationInFlight\.current = true/, '同時に開始された二つ目の認証操作を拒否する');
 assert.match(authContext, /const authStateVersion = useRef\(0\)/, '認証状態を変更する操作の世代を追跡する');

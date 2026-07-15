@@ -51,18 +51,32 @@ function readHint(): AuthUser | null {
   }
 }
 
+function clearHints(): void {
+  localStorage.removeItem(AUTH_HINT_KEY);
+  localStorage.removeItem(AUTH_USER_HINT_KEY);
+}
+
 function writeHint(user: AuthUser | null): void {
   try {
     if (user) {
-      // Keep the legacy text hint for backward compatibility and offline upgrades.
+      if (user.id) {
+        // Write the canonical v2 value first. If either write fails, the catch
+        // block clears both keys so a stale account cannot survive beside a
+        // newly written legacy username.
+        localStorage.setItem(AUTH_USER_HINT_KEY, JSON.stringify(user));
+      } else {
+        localStorage.removeItem(AUTH_USER_HINT_KEY);
+      }
       localStorage.setItem(AUTH_HINT_KEY, user.username);
-      if (user.id) localStorage.setItem(AUTH_USER_HINT_KEY, JSON.stringify(user));
     } else {
-      localStorage.removeItem(AUTH_HINT_KEY);
-      localStorage.removeItem(AUTH_USER_HINT_KEY);
+      clearHints();
     }
   } catch {
-    // localStorageが使えなくても致命的ではない
+    try {
+      clearHints();
+    } catch {
+      // localStorageが使えなくても致命的ではない
+    }
   }
 }
 
