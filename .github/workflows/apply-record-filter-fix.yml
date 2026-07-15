@@ -108,3 +108,4 @@ assert.match(recordsSource, /logSubjectOptions\.map\(\(subject\)/, '学習ログ
           git add src/lib/recordSubjects.ts src/screens/RecordsScreen.tsx scripts/record-subject-display.test.ts .github/workflows/apply-record-filter-fix.yml
           git commit -m "fix: filter records by deleted subjects"
           git push origin HEAD:fix/record-deleted-subject-filter
+# trigger
