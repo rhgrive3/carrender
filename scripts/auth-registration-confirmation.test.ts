@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../src/screens/LoginScreen.tsx', import.meta.url), 'utf8');
+const authContext = await readFile(new URL('../src/state/AuthContext.tsx', import.meta.url), 'utf8');
 
 assert.match(source, /const \[passwordConfirmation, setPasswordConfirmation\] = useState\(''\)/, '確認用パスワードを独立して保持する');
 assert.match(source, /mode === 'register' && password !== passwordConfirmation/, '新規登録時だけ一致確認を行う');
@@ -15,5 +16,10 @@ assert.match(source, /id="auth-password"[\s\S]*disabled=\{busy\}/, '認証処理
 assert.match(source, /id="auth-password-confirmation"[\s\S]*disabled=\{busy\}/, '認証処理中は確認用パスワードを変更できない');
 assert.match(source, /className="password-toggle-btn"[\s\S]*disabled=\{busy\}/, '認証処理中はパスワード表示状態を変更できない');
 assert.match(source, /setPassword\(''\)[\s\S]*setPasswordConfirmation\(''\)[\s\S]*setShowPassword\(false\)/, 'モード切り替え時に認証情報と表示状態を破棄する');
+assert.match(authContext, /const operationInFlight = useRef\(false\)/, '再描画前でも認証操作を排他できる同期ロックを持つ');
+assert.match(authContext, /if \(operationInFlight\.current\) return false;[\s\S]*operationInFlight\.current = true/, '同時に開始された二つ目の認証操作を拒否する');
+assert.match(authContext, /const login = useCallback[\s\S]*if \(!beginOperation\(\)\) return false/, 'ログインAPI呼び出し前に排他を取得する');
+assert.match(authContext, /const register = useCallback[\s\S]*if \(!beginOperation\(\)\) return false/, '登録API呼び出し前に排他を取得する');
+assert.match(authContext, /const logout = useCallback[\s\S]*if \(!beginOperation\(\)\) return;/, 'ログアウトも認証操作と重複させない');
 
 console.log('✅ auth registration confirmation regressions passed');

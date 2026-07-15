@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { apiLogin, apiLogout, apiMe, apiRegister } from '../lib/api';
 import type { ApiError } from '../lib/api';
@@ -82,6 +82,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [offlineUnverified, setOfflineUnverified] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const operationInFlight = useRef(false);
+
+  const beginOperation = useCallback((): boolean => {
+    if (operationInFlight.current) return false;
+    operationInFlight.current = true;
+    setBusy(true);
+    return true;
+  }, []);
+
+  const endOperation = useCallback(() => {
+    operationInFlight.current = false;
+    setBusy(false);
+  }, []);
 
   const reconcile = useCallback(async () => {
     try {
@@ -123,7 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [offlineUnverified, reconcile]);
 
   const login = useCallback(async (username: string, password: string) => {
-    setBusy(true);
+    if (!beginOperation()) return false;
     setError(null);
     try {
       const res = await apiLogin(username, password);
@@ -137,12 +150,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError((e as Error).message);
       return false;
     } finally {
-      setBusy(false);
+      endOperation();
     }
-  }, []);
+  }, [beginOperation, endOperation]);
 
   const register = useCallback(async (username: string, password: string) => {
-    setBusy(true);
+    if (!beginOperation()) return false;
     setError(null);
     try {
       const res = await apiRegister(username, password);
@@ -156,12 +169,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError((e as Error).message);
       return false;
     } finally {
-      setBusy(false);
+      endOperation();
     }
-  }, []);
+  }, [beginOperation, endOperation]);
 
   const logout = useCallback(async () => {
-    setBusy(true);
+    if (!beginOperation()) return;
     try {
       await apiLogout();
     } catch {
@@ -174,9 +187,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearOwnedState();
       // Account-scoped IndexedDB is retained. It can contain offline edits and
       // attempts that have not reached D1 yet; the next login resumes their sync.
-      setBusy(false);
+      endOperation();
     }
-  }, []);
+  }, [beginOperation, endOperation]);
 
   const clearError = useCallback(() => setError(null), []);
 
