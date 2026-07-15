@@ -11,6 +11,7 @@ const study = await read('src/features/memory/ui/MemoryStudy.tsx');
 const result = await read('src/features/memory/ui/MemoryResult.tsx');
 const simpleSession = await read('src/features/memory/application/simpleSession.ts');
 const cardUx = await read('src/styles/memory-card-ux.css');
+const compactFixes = await read('src/styles/memory-compact-fixes.css');
 const main = await read('src/main.tsx');
 
 assert.doesNotMatch(feature, /MemoryAnalytics/u, '分析画面をfeatureから外す');
@@ -40,7 +41,10 @@ assert.match(cardUx, /backface-visibility:\s*hidden/u, '反転中に裏写りさ
 assert.match(cardUx, /\.memory-simple-set-cards > \.card \+ \.card[\s\S]*margin-top:\s*0/u, '2枚目だけ下へずれるグローバルmarginを解除する');
 assert.match(cardUx, /\.memory-simple-set-card[\s\S]*height:\s*100%/u, 'セットカードの高さを揃える');
 assert.match(cardUx, /prefers-reduced-motion:\s*reduce/u, '視差低減設定では安全な切替へ落とす');
-assert.match(main, /memory-card-ux\.css/u, '暗記カードUXスタイルを読み込む');
+assert.match(compactFixes, /\.memory-card-swipe-hint[\s\S]*display:\s*none/u, '説明的なスワイプ文言を画面へ出さない');
+assert.match(compactFixes, /\.memory-simple-result-grid > \.card \+ \.card[\s\S]*margin-top:\s*0/u, '結果カードが2枚目以降だけ大きくならない');
+assert.match(compactFixes, /\.memory-simple-result-grid > \.card[\s\S]*min-height:\s*104px/u, '結果カードを簡潔な固定高さへ揃える');
+assert.match(main, /memory-card-ux\.css[\s\S]*memory-compact-fixes\.css/u, '暗記カードUX修正を最後に読み込む');
 assert.doesNotMatch(result, /苦手分析|Learning Target|Composition/u, '結果画面から分析導線と専門用語を削除する');
 assert.match(simpleSession, /!target\.exerciseId/u, '旧問題データを出題対象から除外する');
 assert.match(simpleSession, /includeUnverifiedAi: false/u, '未確認AIデータを通常学習へ混ぜない');
