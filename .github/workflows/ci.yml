@@ -21,13 +21,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Apply deleted-subject filter fix
-        if: github.ref == 'refs/heads/agent/fix-deleted-subject-filter-v2' && github.actor != 'github-actions[bot]'
+        if: github.event_name == 'pull_request' && github.head_ref == 'agent/fix-deleted-subject-filter-v2' && github.actor != 'github-actions[bot]'
         run: |
           python <<'PY'
           from pathlib import Path
-
           lib = Path('src/lib/recordSubjects.ts')
           text = lib.read_text()
           marker = "\n/** セッションを科目別に集計し、削除済み科目も失わず返す。 */\n"
@@ -48,35 +49,23 @@ export function listRecordSubjectFilters(
 }
 """
           if 'export function listRecordSubjectFilters' not in text:
-            if marker not in text:
-              raise SystemExit('recordSubjects marker not found')
+            if marker not in text: raise SystemExit('recordSubjects marker not found')
             lib.write_text(text.replace(marker, '\n' + addition + marker))
-
           screen = Path('src/screens/RecordsScreen.tsx')
           text = screen.read_text()
-          text = text.replace(
-            "import { resolveRecordSubject, summarizeRecordSubjects } from '../lib/recordSubjects';",
-            "import { listRecordSubjectFilters, resolveRecordSubject, summarizeRecordSubjects } from '../lib/recordSubjects';",
-          )
+          text = text.replace("import { resolveRecordSubject, summarizeRecordSubjects } from '../lib/recordSubjects';", "import { listRecordSubjectFilters, resolveRecordSubject, summarizeRecordSubjects } from '../lib/recordSubjects';")
           memo_marker = "  const filteredLogSessions = useMemo(() => {\n"
           memo_addition = "  const logSubjectOptions = useMemo(\n    () => listRecordSubjectFilters(state.sessions, state.subjects),\n    [state.sessions, state.subjects],\n  );\n"
           if 'const logSubjectOptions = useMemo(' not in text:
-            if memo_marker not in text:
-              raise SystemExit('filteredLogSessions marker not found')
+            if memo_marker not in text: raise SystemExit('filteredLogSessions marker not found')
             text = text.replace(memo_marker, memo_addition + memo_marker)
           old = "{state.subjects.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}"
           new = "{logSubjectOptions.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}"
-          if old in text:
-            text = text.replace(old, new)
-          elif new not in text:
-            raise SystemExit('subject filter select pattern not found')
+          if old in text: text = text.replace(old, new)
+          elif new not in text: raise SystemExit('subject filter select pattern not found')
           screen.write_text(text)
-
           test = Path('scripts/record-subject-display.test.ts')
-          text = test.read_text().replace(
-            "import { resolveRecordSubject, summarizeRecordSubjects } from '../src/lib/recordSubjects';",
-            "import { listRecordSubjectFilters, resolveRecordSubject, summarizeRecordSubjects } from '../src/lib/recordSubjects';",
-          )
+          text = test.read_text().replace("import { resolveRecordSubject, summarizeRecordSubjects } from '../src/lib/recordSubjects';", "import { listRecordSubjectFilters, resolveRecordSubject, summarizeRecordSubjects } from '../src/lib/recordSubjects';")
           marker = "\nconst chartFixCss = readFileSync"
           addition = """
 
@@ -94,8 +83,7 @@ assert.match(recordsSource, /listRecordSubjectFilters\(state\.sessions, state\.s
 assert.match(recordsSource, /logSubjectOptions\.map\(\(subject\)/);
 """
           if 'const filterOptions = listRecordSubjectFilters' not in text:
-            if marker not in text:
-              raise SystemExit('record subject test marker not found')
+            if marker not in text: raise SystemExit('record subject test marker not found')
             text = text.replace(marker, addition + marker)
           test.write_text(text)
           PY
