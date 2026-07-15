@@ -11,7 +11,7 @@ for (const label of ['今日', '計画', '教材', '記録', '分析']) {
 
 assert.match(
   appSource,
-  /<nav className="bottom-nav"[\s\S]*?data-layout-contract="fixed-bottom-navigation"/,
+  /<nav\s+[\s\S]*?className="bottom-nav"[\s\S]*?data-layout-contract="fixed-bottom-navigation"/,
   '主要5タブのナビへ固定レイアウト契約を明示する',
 );
 assert.match(mainSource, /import '\.\/styles\/layoutContracts\.css';/, '固定レイアウト契約CSSを読み込む');
