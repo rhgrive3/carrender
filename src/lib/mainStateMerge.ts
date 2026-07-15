@@ -143,6 +143,34 @@ function manualProgressMaterialId(task: AppState['tasks'][number]): string | nul
   return policy?.type === 'countTowardMaterial' ? policy.materialId : null;
 }
 
+function detachUnchangedSessionsFromDeletedTasks(
+  output: Map<MainStateEntitySection, Map<string, unknown>>,
+  deletedKeys: string[],
+  appliedLocalKeys: string[],
+  appliedRemoteKeys: string[],
+) {
+  const deletedTaskIds = new Set(
+    deletedKeys
+      .filter((key) => key.startsWith('tasks:'))
+      .map((key) => key.slice('tasks:'.length)),
+  );
+  if (deletedTaskIds.size === 0) return;
+
+  const changedSessionKeys = new Set(
+    [...appliedLocalKeys, ...appliedRemoteKeys]
+      .filter((key) => key.startsWith('sessions:')),
+  );
+  const sessions = output.get('sessions');
+  if (!sessions) return;
+
+  for (const [sessionId, value] of sessions) {
+    const session = value as AppState['sessions'][number];
+    if (!session.taskId || !deletedTaskIds.has(session.taskId)) continue;
+    if (changedSessionKeys.has(`sessions:${sessionId}`)) continue;
+    sessions.set(sessionId, { ...session, taskId: null });
+  }
+}
+
 function referentialIntegrityConflicts(
   output: Map<MainStateEntitySection, Map<string, unknown>>,
   deletedKeys: string[],
@@ -268,6 +296,7 @@ export function mergeMainStates(
     }
     output.set(section, result);
   }
+  detachUnchangedSessionsFromDeletedTasks(output, deletedKeys, appliedLocalKeys, appliedRemoteKeys);
   conflicts.push(...referentialIntegrityConflicts(output, deletedKeys));
   if (conflicts.length > 0) return { merged: null, conflicts, appliedLocalKeys, appliedRemoteKeys, deletedKeys };
 
