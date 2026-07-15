@@ -64,7 +64,11 @@ export async function calculateStatUpdates(
       attemptsNewestFirst: [attempt, ...recent],
       responseContext: {
         exerciseType: attempt.exerciseType,
-        expectedAnswerLength: attempt.normalizedAnswer?.length ?? attempt.userAnswer?.length ?? 0,
+        // The attempt stores the learner's response, not the expected answer.
+        // Feeding its length into expectedAnswerLength made weakness vary with
+        // what the learner typed and let the latest answer rewrite historical
+        // response-time difficulty. Until expected content length is persisted,
+        // use the exercise-type baseline only.
       },
       inputMastery: masteryForStat(forSameTarget('input')),
       outputMastery: masteryForStat(forSameTarget('output')),
