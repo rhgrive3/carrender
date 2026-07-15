@@ -18,6 +18,7 @@ import { PlanHistoryLauncher } from './components/PlanHistoryLauncher';
 import { MainStateMergeBridge } from './components/MainStateMergeBridge';
 import { MainStateWriterLeaseBridge } from './components/MainStateWriterLeaseBridge';
 import { SchemaCompatibilityGate } from './components/SchemaCompatibilityGate';
+import { SyncStatusBanner } from './components/SyncStatusBanner';
 
 import { Target } from 'lucide-react';
 import { IconHome, IconPlan, IconBook, IconTimer, IconChart } from './components/navigation/NavIcons';
@@ -115,6 +116,7 @@ function Shell() {
 
   return (
     <div className="app-shell">
+      {!immersive && <SyncStatusBanner onOpenSettings={() => setSettingsOpen(true)} />}
       {tab === 'today' && <TodayScreen
         onOpenSettings={() => setSettingsOpen(true)}
         memorySetCount={memorySets.length}
