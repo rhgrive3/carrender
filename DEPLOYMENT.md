@@ -4,7 +4,7 @@ Cloudflare PagesのGit連携による自動production deployと、GitHub Actions
 
 ## 通常の自動デプロイ
 
-Cloudflare Pagesのproduction branchを`main`に設定し、Git連携の自動deployを有効にする。
+Cloudflare Pagesのproduction branchを`main`に設定し、Git連携の自動deployを有効にする。production Pages projectは`study-plan-v1`を使用する。
 
 通常のPages buildでは`MIGRATION_GATE_PASSED`は不要で、`npm run build`は警告を出したうえで継続する。アプリ起動時は`GET /api/schema`を確認し、本番D1が要求version未満の場合だけ起動を停止するため、互換性のない状態でデータを書き込まない。
 
@@ -23,7 +23,7 @@ GitHubの`production` Environmentへ次のSecretsを登録する。
 2. `npm run d1:migrate`で本番D1 migrationを適用
 3. `npm run d1:verify:remote`で`app_schema_version`を確認
 4. `MIGRATION_GATE_PASSED=5`をそのビルドだけへ渡してproduction build
-5. `wrangler pages deploy`で検証済み`dist`をデプロイ
+5. `wrangler pages deploy --project-name study-plan-v1`で検証済み`dist`をproduction projectへデプロイ
 
 migrationまたはversion確認に失敗した場合、GitHub Actions側のPages deploy stepは実行されない。Cloudflare Git deployが先に完了しても、runtime schema gateが互換性確認までアプリ起動を止める。
 

@@ -27,6 +27,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      PAGES_PROJECT_NAME: study-plan-v1
     steps:
       - name: Checkout verified revision
         uses: actions/checkout@v4
@@ -62,4 +63,4 @@ jobs:
         run: npm run build
 
       - name: Deploy verified build to Cloudflare Pages
-        run: npx wrangler pages deploy dist --project-name studycommander --branch main
+        run: npx wrangler pages deploy dist --project-name "$PAGES_PROJECT_NAME" --branch main
