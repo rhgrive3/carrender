@@ -13,4 +13,10 @@ assert.ok(
   'IME判定を閉操作より先に行う',
 );
 
-console.log('✅ sheet IME escape regressions passed');
+assert.match(sheetSource, /closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)/, '祖先側で非表示・非活性になった要素をフォーカス候補から除外する');
+assert.match(sheetSource, /getComputedStyle\(element\)/, 'CSSで非表示になった要素も判定する');
+assert.match(sheetSource, /getClientRects\(\)\.length > 0/, 'レイアウト上表示されている要素だけをフォーカス候補にする');
+assert.match(sheetSource, /\[contenteditable="true"\]/, '編集可能要素もフォーカストラップへ含める');
+assert.doesNotMatch(sheetSource, /filter\(\(element\) => !element\.hasAttribute\('hidden'\)\)/, '要素自身のhidden属性だけに依存する旧判定を再導入しない');
+
+console.log('✅ sheet keyboard accessibility regressions passed');
