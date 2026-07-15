@@ -12,8 +12,16 @@ import type {
   UserGoal,
 } from '../types';
 import { defaultSettings } from '../data/defaults';
+import type { HistoricalMonthSummary } from './historyRetention';
+import type {
+  PlanRevision,
+  PlanRevisionChange,
+  PlanRevisionMaterialChange,
+  PlanRevisionTaskPlacement,
+} from './planHistory';
 
-export const MAIN_STATE_CHUNK_FORMAT_VERSION = 1;
+export const LEGACY_MAIN_STATE_CHUNK_FORMAT_VERSION = 1;
+export const MAIN_STATE_CHUNK_FORMAT_VERSION = 2;
 export const MAX_MAIN_STATE_CHUNK_BYTES = 384 * 1024;
 
 export const APP_STATE_SECTION_NAMES = [
@@ -31,6 +39,9 @@ export const APP_STATE_SECTION_NAMES = [
 ] as const;
 
 export type AppStateSectionName = (typeof APP_STATE_SECTION_NAMES)[number];
+export type AppStateChunkFormatVersion =
+  | typeof LEGACY_MAIN_STATE_CHUNK_FORMAT_VERSION
+  | typeof MAIN_STATE_CHUNK_FORMAT_VERSION;
 
 export interface AppStateChunkManifestSection {
   name: AppStateSectionName;
@@ -41,7 +52,7 @@ export interface AppStateChunkManifestSection {
 }
 
 export interface AppStateChunkManifest {
-  formatVersion: typeof MAIN_STATE_CHUNK_FORMAT_VERSION;
+  formatVersion: AppStateChunkFormatVersion;
   sections: AppStateChunkManifestSection[];
   totalChunks: number;
   totalItems: number;
@@ -67,6 +78,23 @@ interface AppStateMetaSection {
   lastPlanReason: AppState['lastPlanReason'];
 }
 
+type SettingsWithHistory = AppSettings & {
+  historyData?: {
+    planRevisions: PlanRevision[];
+    monthlySummaries: HistoricalMonthSummary[];
+  };
+};
+
+type SettingsWithoutHistory = Omit<SettingsWithHistory, 'historyData'>;
+
+type SettingsChunkItem =
+  | { kind: 'settings'; value: SettingsWithoutHistory; hasHistoryData: boolean }
+  | { kind: 'planRevision'; order: number; value: Omit<PlanRevision, 'placements' | 'changes' | 'materialChanges'> }
+  | { kind: 'planRevisionPlacement'; revisionId: string; value: PlanRevisionTaskPlacement }
+  | { kind: 'planRevisionChange'; revisionId: string; value: PlanRevisionChange }
+  | { kind: 'planRevisionMaterialChange'; revisionId: string; value: PlanRevisionMaterialChange }
+  | { kind: 'monthlySummary'; value: HistoricalMonthSummary };
+
 const encoder = new TextEncoder();
 
 export function utf8Length(value: string): number {
@@ -83,9 +111,8 @@ function finiteNumber(value: unknown, fallback: number): number {
 }
 
 /**
- * クラウドへ保存する設定は現行schemaで定義した項目だけへ絞る。
- * 旧版・破損データ由来の巨大な未知プロパティがsettingsへ残っていても、
- * 学習データ本体の同期を止めたり別端末へ拡散させたりしない。
+ * クラウドへ保存する設定本体は現行schemaで定義した項目だけへ絞る。
+ * 計画履歴は別のsettings明細として分割し、巨大な未知プロパティだけを除外する。
  */
 export function canonicalizeCloudSettings(input: AppSettings): AppSettings {
   const defaults = defaultSettings();
@@ -139,6 +166,24 @@ export function canonicalizeCloudSettings(input: AppSettings): AppSettings {
   };
 }
 
+function splitSettings(state: AppState): SettingsChunkItem[] {
+  const source = state.settings as SettingsWithHistory;
+  const hasHistoryData = Object.prototype.hasOwnProperty.call(source, 'historyData');
+  const historyData = source.historyData ?? { planRevisions: [], monthlySummaries: [] };
+  const settings = canonicalizeCloudSettings(state.settings) as SettingsWithoutHistory;
+
+  const items: SettingsChunkItem[] = [{ kind: 'settings', value: settings, hasHistoryData }];
+  historyData.planRevisions.forEach((revision, order) => {
+    const { placements, changes, materialChanges, ...metadata } = revision;
+    items.push({ kind: 'planRevision', order, value: metadata });
+    for (const value of placements) items.push({ kind: 'planRevisionPlacement', revisionId: revision.id, value });
+    for (const value of changes) items.push({ kind: 'planRevisionChange', revisionId: revision.id, value });
+    for (const value of materialChanges) items.push({ kind: 'planRevisionMaterialChange', revisionId: revision.id, value });
+  });
+  for (const value of historyData.monthlySummaries) items.push({ kind: 'monthlySummary', value });
+  return items;
+}
+
 function sectionItems(state: AppState): Record<AppStateSectionName, unknown[]> {
   const meta: AppStateMetaSection = {
     version: state.version,
@@ -153,7 +198,7 @@ function sectionItems(state: AppState): Record<AppStateSectionName, unknown[]> {
   return {
     meta: [meta],
     goal: state.goal ? [state.goal] : [],
-    settings: [canonicalizeCloudSettings(state.settings)],
+    settings: splitSettings(state),
     subjects: state.subjects,
     materials: state.materials,
     tasks: state.tasks,
@@ -241,10 +286,15 @@ export async function encodeAppStateChunks(
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 export function validateAppStateChunkManifest(value: unknown): value is AppStateChunkManifest {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (!isRecord(value)) return false;
   const candidate = value as Partial<AppStateChunkManifest>;
-  if (candidate.formatVersion !== MAIN_STATE_CHUNK_FORMAT_VERSION
+  if ((candidate.formatVersion !== LEGACY_MAIN_STATE_CHUNK_FORMAT_VERSION
+      && candidate.formatVersion !== MAIN_STATE_CHUNK_FORMAT_VERSION)
     || !Array.isArray(candidate.sections)
     || !Number.isSafeInteger(candidate.totalChunks)
     || !Number.isSafeInteger(candidate.totalItems)
@@ -259,7 +309,7 @@ export function validateAppStateChunkManifest(value: unknown): value is AppState
   let totalBytes = 0;
   const seen = new Set<string>();
   for (const rawSection of candidate.sections) {
-    if (!rawSection || typeof rawSection !== 'object' || Array.isArray(rawSection)) return false;
+    if (!isRecord(rawSection)) return false;
     const section = rawSection as Partial<AppStateChunkManifestSection>;
     if (!APP_STATE_SECTION_NAMES.includes(section.name as AppStateSectionName)
       || seen.has(section.name as string)
@@ -281,6 +331,80 @@ export function validateAppStateChunkManifest(value: unknown): value is AppState
     && totalItems === candidate.totalItems
     && totalBytes === candidate.totalBytes
     && APP_STATE_SECTION_NAMES.every((name) => seen.has(name));
+}
+
+function decodeSplitSettings(items: unknown[]): AppSettings {
+  let settings: SettingsWithoutHistory | null = null;
+  let hasHistoryData = false;
+  const revisions = new Map<string, {
+    order: number;
+    value: Omit<PlanRevision, 'placements' | 'changes' | 'materialChanges'>;
+    placements: PlanRevisionTaskPlacement[];
+    changes: PlanRevisionChange[];
+    materialChanges: PlanRevisionMaterialChange[];
+  }>();
+  const pendingChildren: Array<Exclude<SettingsChunkItem, { kind: 'settings' | 'planRevision' | 'monthlySummary' }>> = [];
+  const monthlySummaries: HistoricalMonthSummary[] = [];
+
+  for (const rawItem of items) {
+    if (!isRecord(rawItem) || typeof rawItem.kind !== 'string') throw new Error('settings chunk itemが不正です');
+    const item = rawItem as unknown as SettingsChunkItem;
+    switch (item.kind) {
+      case 'settings':
+        if (settings || !isRecord(item.value)) throw new Error('settings本体が重複または不正です');
+        settings = item.value;
+        hasHistoryData = item.hasHistoryData === true;
+        break;
+      case 'planRevision': {
+        if (!Number.isSafeInteger(item.order) || item.order < 0 || !isRecord(item.value)) throw new Error('計画履歴metadataが不正です');
+        const id = item.value.id;
+        if (typeof id !== 'string' || !id || revisions.has(id)) throw new Error('計画履歴IDが重複または不正です');
+        revisions.set(id, { order: item.order, value: item.value, placements: [], changes: [], materialChanges: [] });
+        break;
+      }
+      case 'planRevisionPlacement':
+      case 'planRevisionChange':
+      case 'planRevisionMaterialChange':
+        if (typeof item.revisionId !== 'string' || !item.revisionId || !isRecord(item.value)) throw new Error('計画履歴明細が不正です');
+        pendingChildren.push(item);
+        break;
+      case 'monthlySummary':
+        if (!isRecord(item.value)) throw new Error('月次集計が不正です');
+        monthlySummaries.push(item.value);
+        break;
+      default:
+        throw new Error('未知のsettings chunk itemです');
+    }
+  }
+
+  if (!settings) throw new Error('settings本体がありません');
+  for (const item of pendingChildren) {
+    const revision = revisions.get(item.revisionId);
+    if (!revision) throw new Error('計画履歴明細の親がありません');
+    if (item.kind === 'planRevisionPlacement') revision.placements.push(item.value);
+    else if (item.kind === 'planRevisionChange') revision.changes.push(item.value);
+    else revision.materialChanges.push(item.value);
+  }
+
+  const orders = new Set<number>();
+  const planRevisions = [...revisions.values()]
+    .sort((left, right) => left.order - right.order)
+    .map((revision) => {
+      if (orders.has(revision.order)) throw new Error('計画履歴順序が重複しています');
+      orders.add(revision.order);
+      return {
+        ...revision.value,
+        placements: revision.placements,
+        changes: revision.changes,
+        materialChanges: revision.materialChanges,
+      } satisfies PlanRevision;
+    });
+
+  if (!hasHistoryData && planRevisions.length === 0 && monthlySummaries.length === 0) return settings as AppSettings;
+  return {
+    ...settings,
+    historyData: { planRevisions, monthlySummaries },
+  } as AppSettings;
 }
 
 export async function decodeAppStateChunks(
@@ -328,9 +452,14 @@ export async function decodeAppStateChunks(
   const metaItems = decoded.get('meta') ?? [];
   const goalItems = decoded.get('goal') ?? [];
   const settingsItems = decoded.get('settings') ?? [];
-  if (metaItems.length !== 1 || settingsItems.length !== 1 || goalItems.length > 1) {
+  if (metaItems.length !== 1 || goalItems.length > 1) {
     throw new Error('クラウド予定データのsingleton sectionが不正です');
   }
+  const settings = manifest.formatVersion === LEGACY_MAIN_STATE_CHUNK_FORMAT_VERSION
+    ? (settingsItems.length === 1 ? settingsItems[0] as AppSettings : null)
+    : decodeSplitSettings(settingsItems);
+  if (!settings) throw new Error('クラウド予定データのsettings sectionが不正です');
+
   const meta = metaItems[0] as AppStateMetaSection;
   return {
     version: meta.version,
@@ -338,7 +467,7 @@ export async function decodeAppStateChunks(
     isDemo: meta.isDemo,
     onboarded: meta.onboarded,
     goal: (goalItems[0] as UserGoal | undefined) ?? null,
-    settings: settingsItems[0] as AppSettings,
+    settings,
     subjects: (decoded.get('subjects') ?? []) as Subject[],
     materials: (decoded.get('materials') ?? []) as Material[],
     tasks: (decoded.get('tasks') ?? []) as StudyTask[],

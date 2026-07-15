@@ -1,6 +1,7 @@
 import type { AppState, ISODate } from '../types';
 import { addDays } from './date';
 import { compactPlanRevisions } from './planHistory';
+import type { PlanRevision } from './planHistory';
 
 export interface HistoricalMonthSummary {
   month: string;
@@ -11,6 +12,13 @@ export interface HistoricalMonthSummary {
   missedMinutes: number;
   subjectMinutes: { subjectId: string; minutes: number }[];
 }
+
+type SettingsWithHistory = AppState['settings'] & {
+  historyData?: {
+    planRevisions: PlanRevision[];
+    monthlySummaries: HistoricalMonthSummary[];
+  };
+};
 
 export const DETAIL_HISTORY_RETENTION_DAYS = 365;
 
@@ -48,8 +56,11 @@ function addSubjectMinutes(summary: HistoricalMonthSummary, subjectId: string, m
  */
 export function applyOneYearHistoryRetention(state: AppState, refDate: ISODate): AppState {
   const cutoff = addDays(refDate, -DETAIL_HISTORY_RETENTION_DAYS);
-  const historyData = state.settings.historyData ?? { planRevisions: [], monthlySummaries: [] };
-  const summaries = new Map(historyData.monthlySummaries.map((summary) => [summary.month, { ...summary, subjectMinutes: [...summary.subjectMinutes] }]));
+  const settings = state.settings as SettingsWithHistory;
+  const historyData = settings.historyData ?? { planRevisions: [], monthlySummaries: [] };
+  const summaries = new Map<string, HistoricalMonthSummary>(
+    historyData.monthlySummaries.map((summary) => [summary.month, { ...summary, subjectMinutes: [...summary.subjectMinutes] }]),
+  );
 
   const sessions = [] as AppState['sessions'];
   for (const session of state.sessions) {
@@ -113,6 +124,6 @@ export function applyOneYearHistoryRetention(state: AppState, refDate: ISODate):
     settings: {
       ...state.settings,
       historyData: { planRevisions, monthlySummaries },
-    },
+    } as SettingsWithHistory,
   };
 }
