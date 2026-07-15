@@ -125,12 +125,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setStatus('authenticated');
             setOfflineUnverified(true);
           } else {
+            setUser(null);
             setStatus('anonymous');
+            setOfflineUnverified(false);
           }
           return;
         }
         setUser(null);
         setStatus('anonymous');
+        setOfflineUnverified(false);
         writeHint(null);
       }
     })();
