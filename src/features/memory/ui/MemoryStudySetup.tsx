@@ -1,26 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Play } from 'lucide-react';
-import type { MemoryQuestionCount, MemorySessionConfig, MemoryStudyDirection } from '../domain/types';
+import type { MemoryQuestionCount, MemorySessionConfig } from '../domain/types';
 import { generateLearningTargets, resolveQuestionCount } from '../domain/targets';
-import { createStudySession } from '../application/session';
-import { Disclosure } from '../../../components/ui/bits';
+import { createSimpleStudySession } from '../application/simpleSession';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
 
-type CountChoice = 'weak10' | '20' | 'all' | 'auto';
-type StudyStyle = 'flashcard' | 'typed_output' | 'multiple_choice';
-
-function studyStyleLabel(style: StudyStyle): string {
-  if (style === 'typed_output') return '入力式';
-  if (style === 'multiple_choice') return 'Input選択式';
-  return '高速カード';
-}
+type CountChoice = 'weak10' | '20' | 'all';
+type DirectionChoice = 'output' | 'input';
 
 function questionCount(choice: CountChoice): MemoryQuestionCount {
-  if (choice === 'weak10') return { type: 'weak', count: 10 };
   if (choice === '20') return { type: 'count', count: 20 };
   if (choice === 'all') return { type: 'all' };
-  return { type: 'auto' };
+  return { type: 'weak', count: 10 };
 }
 
 export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] }) {
@@ -28,9 +20,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   const toast = useToast();
   const [selectedSetIds, setSelectedSetIds] = useState(() => [...new Set(initialSetIds)]);
   const [countChoice, setCountChoice] = useState<CountChoice>('weak10');
-  const [direction, setDirection] = useState<MemoryStudyDirection>('output');
-  const [style, setStyle] = useState<StudyStyle>('flashcard');
-  const [includeUnverifiedAi, setIncludeUnverifiedAi] = useState(false);
+  const [direction, setDirection] = useState<DirectionChoice>('output');
   const [eligibleCount, setEligibleCount] = useState(0);
   const [starting, setStarting] = useState(false);
 
@@ -46,16 +36,17 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         setMembers: bundle.setMembers,
         selectedSetIds,
         direction,
-        includeUnverifiedAi,
-      });
-      // Answer style changes only ordinary flashcards. Context/Composition
-      // exercises remain eligible because their format carries learning meaning.
+        includeUnverifiedAi: false,
+      }).filter((target) => !target.exerciseId && (target.mode === 'output' || target.mode === 'input'));
       if (!cancelled) setEligibleCount(targets.length);
     });
     return () => { cancelled = true; };
-  }, [direction, includeUnverifiedAi, repository, selectedSetIds]);
+  }, [direction, repository, selectedSetIds]);
 
-  const plannedCount = useMemo(() => resolveQuestionCount(eligibleCount, questionCount(countChoice)), [countChoice, eligibleCount]);
+  const plannedCount = useMemo(
+    () => resolveQuestionCount(eligibleCount, questionCount(countChoice)),
+    [countChoice, eligibleCount],
+  );
 
   const start = async () => {
     if (!repository || starting) return;
@@ -64,10 +55,10 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
       const config: MemorySessionConfig = {
         questionCount: questionCount(countChoice),
         direction,
-        includeUnverifiedAi,
-        preferredExerciseType: style,
+        includeUnverifiedAi: false,
+        preferredExerciseType: 'flashcard',
       };
-      const created = await createStudySession({ repository, selectedSetIds, config });
+      const created = await createSimpleStudySession({ repository, selectedSetIds, config });
       await refresh();
       navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) {
@@ -78,14 +69,15 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   };
 
   return (
-    <section className="memory-study-setup">
+    <section className="memory-study-setup memory-simple-setup">
       <div className="memory-page-header">
         <button type="button" className="icon-btn" aria-label="暗記ホームへ戻る" onClick={() => navigate({ name: 'home' })}><ArrowLeft size={21} /></button>
-        <div><h2>学習設定</h2><p>普段は初期設定のまますぐ始められます</p></div>
+        <div><h2>学習設定</h2><p>必要な項目だけ選んで、すぐ始める</p></div>
       </div>
+
       <div className="card memory-setup-card">
         <fieldset>
-          <legend>学習するセット</legend>
+          <legend>セット</legend>
           <div className="memory-set-chips">
             {sets.map((set) => {
               const checked = selectedSetIds.includes(set.id);
@@ -93,32 +85,24 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
             })}
           </div>
         </fieldset>
+
+        <fieldset>
+          <legend>出題方向</legend>
+          <div className="memory-simple-direction" role="radiogroup" aria-label="出題方向">
+            <button type="button" role="radio" aria-checked={direction === 'output'} className={direction === 'output' ? 'active' : ''} onClick={() => setDirection('output')}><b>日本語 → 英語</b><span>英語を自力で思い出す</span></button>
+            <button type="button" role="radio" aria-checked={direction === 'input'} className={direction === 'input' ? 'active' : ''} onClick={() => setDirection('input')}><b>英語 → 日本語</b><span>意味を確認する</span></button>
+          </div>
+        </fieldset>
+
         <fieldset>
           <legend>問題数</legend>
-          <div className="memory-option-grid four" role="radiogroup" aria-label="問題数">
-            {([['weak10', '苦手を10問'], ['20', '20問'], ['all', '全部'], ['auto', 'おまかせ']] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={countChoice === value} className={countChoice === value ? 'active' : ''} onClick={() => setCountChoice(value)}>{label}</button>)}
+          <div className="memory-option-grid three" role="radiogroup" aria-label="問題数">
+            {([['weak10', '苦手中心 10問'], ['20', '20問'], ['all', '全部']] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={countChoice === value} className={countChoice === value ? 'active' : ''} onClick={() => setCountChoice(value)}>{label}</button>)}
           </div>
         </fieldset>
-        <fieldset>
-          <legend>方向</legend>
-          <div className="memory-option-grid four" role="radiogroup" aria-label="出題方向">
-            {([['output', '日→英'], ['input', '英→日'], ['context', '文中で使う'], ['mix', 'ミックス']] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={direction === value} className={direction === value ? 'active' : ''} onClick={() => setDirection(value)}>{label}</button>)}
-          </div>
-        </fieldset>
-        <Disclosure title="詳細設定" summary={studyStyleLabel(style)}>
-          <fieldset>
-            <legend>回答方式</legend>
-            <div className="memory-option-grid three" role="radiogroup" aria-label="回答方式">
-              <button type="button" role="radio" aria-checked={style === 'flashcard'} className={style === 'flashcard' ? 'active' : ''} onClick={() => setStyle('flashcard')}>高速カード</button>
-              <button type="button" role="radio" aria-checked={style === 'typed_output'} className={style === 'typed_output' ? 'active' : ''} onClick={() => setStyle('typed_output')}>入力式</button>
-              <button type="button" role="radio" aria-checked={style === 'multiple_choice'} className={style === 'multiple_choice' ? 'active' : ''} onClick={() => setStyle('multiple_choice')}>Input選択式</button>
-            </div>
-            {style === 'multiple_choice' && <p className="muted mt-8">英→日では日本語の選択肢を表示します。他の方向は各問題本来の形式で出題します。</p>}
-          </fieldset>
-          <label className="memory-check-row"><input type="checkbox" checked={includeUnverifiedAi} onChange={(event) => setIncludeUnverifiedAi(event.target.checked)} /><span><b>AI未確認データも出題</b><small>初期状態では通常学習から除外されます</small></span></label>
-        </Disclosure>
-        <div className="memory-start-summary" aria-live="polite">対象 {eligibleCount}件から、異なるLearning Targetを{plannedCount}問選びます。再出題はこの数に含みません。</div>
-        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || plannedCount === 0} onClick={() => void start()}><Play size={20} fill="currentColor" />学習を始める</button>
+
+        <div className="memory-start-summary" aria-live="polite">{eligibleCount === 0 ? '出題できるカードがありません' : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}</div>
+        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || plannedCount === 0} onClick={() => void start()}><Play size={20} fill="currentColor" />{starting ? '準備中…' : '学習を始める'}</button>
       </div>
     </section>
   );

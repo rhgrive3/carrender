@@ -1,4 +1,3 @@
-import { MemoryAnalytics } from './MemoryAnalytics';
 import { MemoryEditor } from './MemoryEditor';
 import { MemoryHome } from './MemoryHome';
 import { MemoryImportExport } from './MemoryImportExport';
@@ -18,7 +17,7 @@ export function MemoryFeature() {
     case 'studySetup': return <MemoryStudySetup initialSetIds={view.setIds} />;
     case 'study': return <MemoryStudy sessionId={view.sessionId} />;
     case 'result': return <MemoryResult sessionId={view.sessionId} />;
-    case 'analytics': return <MemoryAnalytics setIds={view.setIds} />;
+    case 'analytics': return <MemoryHome />;
   }
 }
 

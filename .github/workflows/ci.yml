@@ -38,7 +38,16 @@ jobs:
         run: npm run typecheck
 
       - name: Unit and regression tests
-        run: npm test
+        shell: bash
+        run: set -o pipefail; npm test 2>&1 | tee verify-tests.log
+
+      - name: Upload verify failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-failure-log
+          path: verify-tests.log
+          if-no-files-found: ignore
 
       - name: Cloudflare API integration tests
         run: npm run test:integration:api
@@ -69,4 +78,13 @@ jobs:
         run: npm run test:integration:browser
 
       - name: Browser end-to-end tests
-        run: npm run test:e2e
+        shell: bash
+        run: set -o pipefail; npm run test:e2e 2>&1 | tee browser-e2e.log
+
+      - name: Upload browser failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-log
+          path: browser-e2e.log
+          if-no-files-found: ignore
