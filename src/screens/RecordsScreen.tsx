@@ -26,7 +26,7 @@ import { computeAnalytics } from '../lib/analytics';
 import { RecordSheet } from '../components/forms/RecordSheet';
 import { EmptyState } from '../components/ui/bits';
 import { MonthCalendar } from '../components/ui/MonthCalendar';
-import { resolveRecordSubject, summarizeRecordSubjects } from '../lib/recordSubjects';
+import { recordLogSubjectOptions, resolveRecordSubject, summarizeRecordSubjects } from '../lib/recordSubjects';
 import type { AppState, StudySession, Subject } from '../types';
 
 type Period = 'week' | 'month';
@@ -125,6 +125,10 @@ export function RecordsScreen() {
   const bySubject = useMemo(
     () => summarizeRecordSubjects(sessions, state.subjects),
     [sessions, state.subjects],
+  );
+  const logSubjectOptions = useMemo(
+    () => recordLogSubjectOptions(state.sessions, state.subjects),
+    [state.sessions, state.subjects],
   );
   const maxSubject = Math.max(1, ...bySubject.map(({ minutes }) => minutes));
   const filteredLogSessions = useMemo(() => {
@@ -282,7 +286,7 @@ export function RecordsScreen() {
               <span className="sr-only">学習ログを検索</span>
               <input value={logQuery} onChange={(event) => setLogQuery(event.target.value)} placeholder="教材・科目・メモを検索" />
             </label>
-            <label><span className="sr-only">科目で絞り込む</span><select value={logSubject} onChange={(event) => setLogSubject(event.target.value)}><option value="all">すべての科目</option>{state.subjects.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}</select></label>
+            <label><span className="sr-only">科目で絞り込む</span><select value={logSubject} onChange={(event) => setLogSubject(event.target.value)}><option value="all">すべての科目</option>{logSubjectOptions.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}</select></label>
             <label><span className="sr-only">日付で絞り込む</span><input type="date" value={logDate} max={t} onChange={(event) => setLogDate(event.target.value)} /></label>
           </div>
           {filteredLogSessions.length === 0 ? (
