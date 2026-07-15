@@ -1,0 +1,55 @@
+/*
+ * Android Chromium 3D-card compositor safeguards.
+ *
+ * The base card used to switch its own `animation` to `none` when the answer
+ * side was revealed. Android Chromium can rebuild the parent compositing layer
+ * at that exact moment and snap the child's transform instead of interpolating
+ * it. Keep the parent animation identity stable and explicitly promote the 3D
+ * layers so the flip has intermediate frames on Android as it does on iOS.
+ */
+.memory-simple-study .memory-study-card.revealed {
+  animation: memory-card-in 220ms ease both;
+}
+
+.memory-study-flip-shell {
+  -webkit-perspective: 1500px;
+  perspective: 1500px;
+  transform: translateZ(0);
+}
+
+.memory-study-card-inner {
+  -webkit-transform-style: preserve-3d;
+  transform-style: preserve-3d;
+  -webkit-transform: translateZ(0) rotateY(0deg);
+  transform: translateZ(0) rotateY(0deg);
+  transform-origin: 50% 50%;
+}
+
+.memory-study-card.revealed .memory-study-card-inner {
+  -webkit-transform: translateZ(0) rotateY(180deg);
+  transform: translateZ(0) rotateY(180deg);
+}
+
+.memory-study-card-face {
+  -webkit-transform-style: preserve-3d;
+  transform-style: preserve-3d;
+}
+
+.memory-study-card-front {
+  -webkit-transform: translateZ(0.1px) rotateY(0deg);
+  transform: translateZ(0.1px) rotateY(0deg);
+}
+
+.memory-study-card-back {
+  -webkit-transform: translateZ(0.1px) rotateY(180deg);
+  transform: translateZ(0.1px) rotateY(180deg);
+}
+
+/* Preserve the existing accessibility fallback instead of forcing 3D motion. */
+@media (prefers-reduced-motion: reduce) {
+  .memory-study-card-front,
+  .memory-study-card-back {
+    -webkit-transform: none !important;
+    transform: none !important;
+  }
+}
