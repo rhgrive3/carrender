@@ -1,5 +1,6 @@
 /** Regression tests for differential IndexedDB persistence baselines. */
 /// <reference types="node" />
+import { readFileSync } from 'node:fs';
 import type { AppState } from '../src/types';
 import { persistMainStateSnapshot, type StoredStateBaseline } from '../src/state/MainStatePersistence';
 
@@ -87,6 +88,32 @@ await succeedingWrite;
 check('先行失敗後も後続保存を実行する', queuedAttempts === 2, queuedAttempts);
 check('先行失敗後の差分基準は成功済み状態のまま', queuedPrevious[1] === initial, queuedPrevious);
 check('後続成功後に最新snapshotへ進める', queuedFailureBaseline.current === recoveredSnapshot, queuedFailureBaseline.current);
+
+console.log('\n--- Main state persistence: owner isolation ---');
+const ownerASnapshot = { version: 1, marker: 'owner-a' } as unknown as AppState;
+const ownerBSnapshot = { version: 1, marker: 'owner-b' } as unknown as AppState;
+const ownerABaseline: StoredStateBaseline = { current: null };
+const ownerBBaseline: StoredStateBaseline = { current: null };
+let releaseOwnerA: (() => void) | null = null;
+const ownerAGate = new Promise<void>((resolve) => { releaseOwnerA = resolve; });
+const ownerBPrevious: Array<AppState | null> = [];
+const ownerAWrite = persistMainStateSnapshot({
+  async saveState(): Promise<void> { await ownerAGate; },
+}, ownerASnapshot, ownerABaseline);
+const ownerBWrite = persistMainStateSnapshot({
+  async saveState(_state: AppState, previous: AppState | null): Promise<void> { ownerBPrevious.push(previous); },
+}, ownerBSnapshot, ownerBBaseline);
+await ownerBWrite;
+check('別ownerの保存は旧ownerの未完了キューを待たない', ownerBPrevious.length === 1, ownerBPrevious);
+check('別ownerの差分基準へ旧owner状態を混入しない', ownerBPrevious[0] === null && ownerBBaseline.current === ownerBSnapshot, ownerBPrevious);
+releaseOwnerA?.();
+await ownerAWrite;
+
+const persistenceSource = readFileSync('src/state/MainStatePersistence.tsx', 'utf8');
+check(
+  'owner変更ごとに新しいbaselineオブジェクトを割り当てる',
+  /const ownerBaseline: StoredStateBaseline = \{ current: null \};[\s\S]*persistenceBaselineRef\.current = ownerBaseline;/.test(persistenceSource),
+);
 
 console.log(failures === 0 ? '\n🎉 ALL PASS (main state persistence)' : `\n💥 ${failures} FAILURES (main state persistence)`);
 process.exit(failures === 0 ? 0 : 1);
