@@ -34,23 +34,31 @@ jobs:
         with:
           ref: ${{ env.DEPLOY_SHA }}
 
-      - name: Skip stale automatic deployment
-        if: github.event_name == 'workflow_run'
+      - name: Check automatic deployment freshness
+        id: freshness
         run: |
+          if [ "${{ github.event_name }}" != "workflow_run" ]; then
+            echo "deploy_allowed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git fetch --no-tags origin main
           CURRENT_MAIN_SHA="$(git rev-parse origin/main)"
-          if [ "$DEPLOY_SHA" != "$CURRENT_MAIN_SHA" ]; then
+          if [ "$DEPLOY_SHA" = "$CURRENT_MAIN_SHA" ]; then
+            echo "deploy_allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy_allowed=false" >> "$GITHUB_OUTPUT"
             echo "Skipping stale deployment: verified $DEPLOY_SHA, current main is $CURRENT_MAIN_SHA"
-            exit 78
           fi
 
       - name: Set up Node.js
+        if: steps.freshness.outputs.deploy_allowed == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
       - name: Require Cloudflare deployment credentials
+        if: steps.freshness.outputs.deploy_allowed == 'true'
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be configured in the production environment." >&2
@@ -58,19 +66,24 @@ jobs:
           fi
 
       - name: Install dependencies
+        if: steps.freshness.outputs.deploy_allowed == 'true'
         run: npm ci
 
       - name: Apply production D1 migrations
+        if: steps.freshness.outputs.deploy_allowed == 'true'
         run: npm run d1:migrate
 
       - name: Verify production D1 schema version
+        if: steps.freshness.outputs.deploy_allowed == 'true'
         run: npm run d1:verify:remote
 
       - name: Build only after migration gate
+        if: steps.freshness.outputs.deploy_allowed == 'true'
         env:
           CF_PAGES: '1'
           MIGRATION_GATE_PASSED: '5'
         run: npm run build
 
       - name: Deploy verified build to Cloudflare Pages
+        if: steps.freshness.outputs.deploy_allowed == 'true'
         run: npx wrangler pages deploy dist --project-name "$PAGES_PROJECT_NAME" --branch main
