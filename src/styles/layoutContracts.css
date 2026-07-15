@@ -1,20 +1,22 @@
 /*
  * UX layout contract: primary navigation
  *
- * 「今日 / 計画 / 教材 / 記録 / 分析」の5タブは、通常画面では必ず
- * ビューポート下端へ固定する。sticky / absolute / static へ変更しない。
- * iOS/iPadOSではホームインジケータ領域を操作面から除外する。
- * このファイルは他の画面CSSより後に読み込み、意図しない上書きを防ぐ。
+ * The primary navigation is portaled to document.body, outside every screen
+ * and scroll container, then fixed to the viewport edge.
  */
 .bottom-nav[data-layout-contract='fixed-bottom-navigation'] {
   position: fixed !important;
+  inset-inline: 0 !important;
   top: auto !important;
   right: auto !important;
   bottom: 0 !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  width: min(100vw, 760px) !important;
-  max-width: 760px !important;
+  left: auto !important;
+  transform: none !important;
+  width: min(100%, 760px) !important;
+  max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)) !important;
+  margin-inline: auto !important;
+  height: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px)) !important;
   padding-bottom: env(safe-area-inset-bottom, 0px) !important;
-  z-index: 50 !important;
+  box-sizing: border-box !important;
+  z-index: 1000 !important;
 }
