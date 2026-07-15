@@ -44,7 +44,9 @@ export function LoginScreen() {
 
   const switchMode = (next: Mode) => {
     setMode(next);
+    setPassword('');
     setPasswordConfirmation('');
+    setShowPassword(false);
     setLocalError(null);
     clearError();
   };
