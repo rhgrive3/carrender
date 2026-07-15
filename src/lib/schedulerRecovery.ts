@@ -7,7 +7,7 @@ import type {
   StudyTask,
 } from '../types';
 import { addDays, diffDays, hmToMinutes, weekdayOf } from './date';
-import { smoothMaterialSchedule } from './materialScheduleSmoothing';
+import { smoothMaterialScheduleSafely } from './safeMaterialScheduleSmoothing';
 import {
   dateInTimeZone,
   generatePlanV2 as generateBasePlanV2,
@@ -185,7 +185,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     if (isMovableOverdueTask(state, task, today)) overdueTasks.set(task.id, task);
   }
   if (overdueMaterials.size === 0 && overdueTasks.size === 0) {
-    return smoothMaterialSchedule(state, generateBasePlanV2(state, context), context);
+    return smoothMaterialScheduleSafely(state, generateBasePlanV2(state, context), context);
   }
 
   const reviewReleases = spreadOverdueReviewReleases(state, [...overdueTasks.values()], today, end);
@@ -235,7 +235,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       };
     }),
   };
-  const result = smoothMaterialSchedule(
+  const result = smoothMaterialScheduleSafely(
     adjustedState,
     generateBasePlanV2(adjustedState, context),
     context,
