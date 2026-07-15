@@ -7,6 +7,7 @@ import type {
   StudyTask,
 } from '../types';
 import { addDays, diffDays, hmToMinutes, weekdayOf } from './date';
+import { generateWithAutomaticSpreadCaps } from './automaticSpreadCaps';
 import {
   dateInTimeZone,
   generatePlanV2 as generateBasePlanV2,
@@ -183,7 +184,9 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   for (const task of state.tasks) {
     if (isMovableOverdueTask(state, task, today)) overdueTasks.set(task.id, task);
   }
-  if (overdueMaterials.size === 0 && overdueTasks.size === 0) return generateBasePlanV2(state, context);
+  if (overdueMaterials.size === 0 && overdueTasks.size === 0) {
+    return generateWithAutomaticSpreadCaps(state, context, generateBasePlanV2);
+  }
 
   const reviewReleases = spreadOverdueReviewReleases(state, [...overdueTasks.values()], today, end);
   const completedStrictReviewMaterialIds = new Set(
@@ -232,7 +235,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       };
     }),
   };
-  const result = generateBasePlanV2(adjustedState, context);
+  const result = generateWithAutomaticSpreadCaps(adjustedState, context, generateBasePlanV2);
 
   const materialWarnings = [...overdueMaterials.values()].map((material) => ({
     code: 'OVERDUE_RECOVERY',
