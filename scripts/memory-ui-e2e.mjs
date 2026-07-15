@@ -46,6 +46,13 @@ async function stopServer() {
   await Promise.race([new Promise((resolve) => server.once('exit', resolve)), new Promise((resolve) => setTimeout(resolve, 3_000))]);
 }
 
+async function waitForAnswerOrResult(answerCount) {
+  await Promise.race([
+    page.getByText(`回答 ${answerCount}回`, { exact: true }).waitFor(),
+    page.getByRole('heading', { name: '学習完了' }).waitFor(),
+  ]);
+}
+
 try {
   tempDirectory = await mkdtemp(join(tmpdir(), 'carrender-memory-ui-'));
   const persistence = join(tempDirectory, 'state');
@@ -121,11 +128,15 @@ try {
   await page.getByRole('button', { name: '答えを見る' }).click();
   check('自己評価は3択だけ', await page.locator('.memory-simple-assessment button').count() === 3);
   await page.getByRole('button', { name: 'まだ' }).click();
+  let answerCount = 1;
+  await waitForAnswerOrResult(answerCount);
 
   for (let guard = 0; guard < 8; guard += 1) {
     if (await page.getByRole('heading', { name: '学習完了' }).isVisible().catch(() => false)) break;
     await page.getByRole('button', { name: '答えを見る' }).click();
     await page.getByRole('button', { name: '覚えた' }).click();
+    answerCount += 1;
+    await waitForAnswerOrResult(answerCount);
   }
   await page.getByRole('heading', { name: '学習完了' }).waitFor();
   check('結果画面から苦手分析導線を削除', await page.getByRole('button', { name: /分析/ }).count() === 0);
