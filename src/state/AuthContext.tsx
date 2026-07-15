@@ -84,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const operationInFlight = useRef(false);
   const authStateVersion = useRef(0);
+  const reconciliationInFlight = useRef<Promise<void> | null>(null);
 
   const beginOperation = useCallback((): boolean => {
     if (operationInFlight.current) return false;
@@ -98,45 +99,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setBusy(false);
   }, []);
 
-  const reconcile = useCallback(async () => {
+  const reconcile = useCallback((): Promise<void> => {
+    const existing = reconciliationInFlight.current;
+    if (existing) return existing;
+
     const startedAtVersion = authStateVersion.current;
     const isCurrent = () => authStateVersion.current === startedAtVersion;
-
-    try {
-      const res = await apiMe();
-      const nextUser = await migratedUser(res.userId, res.username);
-      if (!isCurrent()) return;
-      setUser(nextUser);
-      setStatus('authenticated');
-      setOfflineUnverified(false);
-      writeHint(nextUser);
-    } catch (e) {
-      if (!isCurrent()) return;
-      const err = e as ApiError;
-      if (err.isNetworkError) {
-        const hint = readHint();
-        if (hint) {
-          setUser(hint);
-          setStatus('authenticated');
-          setOfflineUnverified(true);
-        } else {
-          setStatus('anonymous');
+    const task = (async () => {
+      try {
+        const res = await apiMe();
+        if (!isCurrent()) return;
+        const nextUser = await migratedUser(res.userId, res.username);
+        if (!isCurrent()) return;
+        setUser(nextUser);
+        setStatus('authenticated');
+        setOfflineUnverified(false);
+        writeHint(nextUser);
+      } catch (e) {
+        if (!isCurrent()) return;
+        const err = e as ApiError;
+        if (err.isNetworkError) {
+          const hint = readHint();
+          if (hint) {
+            setUser(hint);
+            setStatus('authenticated');
+            setOfflineUnverified(true);
+          } else {
+            setStatus('anonymous');
+          }
+          return;
         }
-        return;
+        setUser(null);
+        setStatus('anonymous');
+        writeHint(null);
       }
-      setUser(null);
-      setStatus('anonymous');
-      writeHint(null);
-    }
+    })();
+
+    reconciliationInFlight.current = task;
+    void task.finally(() => {
+      if (reconciliationInFlight.current === task) reconciliationInFlight.current = null;
+    });
+    return task;
+  }, []);
+
+  const waitForReconciliation = useCallback(async () => {
+    const pending = reconciliationInFlight.current;
+    if (pending) await pending;
   }, []);
 
   useEffect(() => {
-    reconcile();
+    void reconcile();
   }, [reconcile]);
 
   useEffect(() => {
     const onOnline = () => {
-      if (offlineUnverified) reconcile();
+      if (offlineUnverified) void reconcile();
     };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
@@ -146,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!beginOperation()) return false;
     setError(null);
     try {
+      await waitForReconciliation();
       const res = await apiLogin(username, password);
       const nextUser = await migratedUser(res.userId, res.username);
       setUser(nextUser);
@@ -159,12 +177,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       endOperation();
     }
-  }, [beginOperation, endOperation]);
+  }, [beginOperation, endOperation, waitForReconciliation]);
 
   const register = useCallback(async (username: string, password: string) => {
     if (!beginOperation()) return false;
     setError(null);
     try {
+      await waitForReconciliation();
       const res = await apiRegister(username, password);
       const nextUser = await migratedUser(res.userId, res.username);
       setUser(nextUser);
@@ -178,11 +197,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       endOperation();
     }
-  }, [beginOperation, endOperation]);
+  }, [beginOperation, endOperation, waitForReconciliation]);
 
   const logout = useCallback(async () => {
     if (!beginOperation()) return;
     try {
+      await waitForReconciliation();
       await apiLogout();
     } catch {
       // オフラインでもローカルの認証状態は破棄する
@@ -196,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // attempts that have not reached D1 yet; the next login resumes their sync.
       endOperation();
     }
-  }, [beginOperation, endOperation]);
+  }, [beginOperation, endOperation, waitForReconciliation]);
 
   const clearError = useCallback(() => setError(null), []);
 
