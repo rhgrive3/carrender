@@ -12,6 +12,22 @@ import {
   validateAppStateChunkManifest,
 } from '../src/lib/appStateChunks';
 
+type HistorySettingsView = {
+  historyData?: {
+    planRevisions: Array<{
+      id: string;
+      generationId: string;
+      createdAt: string;
+      reason: string;
+      fromDate: string;
+      placements: unknown[];
+      changes: unknown[];
+      materialChanges: unknown[];
+    }>;
+    monthlySummaries: unknown[];
+  };
+};
+
 let failures = 0;
 function check(name: string, condition: boolean, detail?: unknown): void {
   if (condition) console.log(`  ✅ ${name}`);
@@ -111,17 +127,19 @@ historyHeavy.settings = {
     }],
     monthlySummaries: [],
   },
-};
+} as AppState['settings'] & HistorySettingsView;
+const sourceHistoryData = (historyHeavy.settings as AppState['settings'] & HistorySettingsView).historyData;
 const monolithicSettingsBytes = utf8Length(JSON.stringify([historyHeavy.settings]));
 const encodedHistory = await encodeAppStateChunks(historyHeavy);
 const restoredHistory = await decodeAppStateChunks(encodedHistory.manifest, encodedHistory.chunks);
+const restoredHistoryData = (restoredHistory.settings as AppState['settings'] & HistorySettingsView).historyData;
 const settingsManifest = encodedHistory.manifest.sections.find((entry) => entry.name === 'settings');
 check('従来の単一settingsでは384KiBを超えるfixture', monolithicSettingsBytes > MAX_MAIN_STATE_CHUNK_BYTES, monolithicSettingsBytes);
 check('計画履歴を明細単位へ分解して複数chunkへ保存', (settingsManifest?.chunkCount ?? 0) > 1, settingsManifest);
 check('計画履歴を含む全chunkが384KiB以下', encodedHistory.chunks.every((chunk) => chunk.byteLength <= MAX_MAIN_STATE_CHUNK_BYTES));
-check('分割した計画履歴を欠落なく復元', isDeepStrictEqual(restoredHistory.settings.historyData, historyHeavy.settings.historyData), {
-  expected: historyHeavy.settings.historyData?.planRevisions[0]?.placements.length,
-  actual: restoredHistory.settings.historyData?.planRevisions[0]?.placements.length,
+check('分割した計画履歴を欠落なく復元', isDeepStrictEqual(restoredHistoryData, sourceHistoryData), {
+  expected: sourceHistoryData?.planRevisions[0]?.placements.length,
+  actual: restoredHistoryData?.planRevisions[0]?.placements.length,
 });
 
 console.log('--- AppState chunks: corruption detection ---');
