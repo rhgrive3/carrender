@@ -16,6 +16,18 @@ function restoreSyncMetadata(owner: string, repositoryMetadata: Awaited<ReturnTy
   }
 }
 
+type SettingsWithHistory = AppState['settings'] & {
+  historyData?: unknown;
+};
+
+/** 未知設定だけを除去し、計画履歴など現行の端末データは保持する。 */
+export function canonicalizeLocalSettings(input: AppState['settings']): AppState['settings'] {
+  const source = input as SettingsWithHistory;
+  const canonical = canonicalizeCloudSettings(input);
+  if (!Object.prototype.hasOwnProperty.call(source, 'historyData')) return canonical;
+  return { ...canonical, historyData: source.historyData } as AppState['settings'];
+}
+
 export interface StoredStateBaseline {
   current: AppState | null;
 }
@@ -59,9 +71,8 @@ export function MainStateBootstrap({ owner, children }: { owner: string; childre
         const localState = cachedOwner === null || cachedOwner === owner ? loadState() : null;
         if (localState) {
           // 旧版・破損データ由来の未知設定はlocalStorageの小さい上限を圧迫する。
-          // AppProviderを起動する前に現行schemaだけへ縮小し、古い巨大キャッシュを
-          // 同じキーで置き換える。教材・記録・計画データには触れない。
-          const canonicalSettings = canonicalizeCloudSettings(localState.settings);
+          // AppProviderを起動する前に未知設定だけを縮小し、計画履歴を含む現行データは保持する。
+          const canonicalSettings = canonicalizeLocalSettings(localState.settings);
           const canonicalLocalState = { ...localState, settings: canonicalSettings };
           if (JSON.stringify(canonicalSettings) !== JSON.stringify(localState.settings)) {
             saveStateNow(canonicalLocalState);
@@ -75,7 +86,7 @@ export function MainStateBootstrap({ owner, children }: { owner: string; childre
           if (!migration.ok) throw new Error('IndexedDBから復元した予定データが不正です');
           const canonicalStoredState = {
             ...migration.state,
-            settings: canonicalizeCloudSettings(migration.state.settings),
+            settings: canonicalizeLocalSettings(migration.state.settings),
           };
           saveStateNow(canonicalStoredState);
           setStateOwner(owner);
