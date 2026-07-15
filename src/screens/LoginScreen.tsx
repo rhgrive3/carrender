@@ -24,6 +24,7 @@ export function LoginScreen() {
   const [mode, setMode] = useState<Mode>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [online, setOnline] = useState(readOnlineStatus);
@@ -43,6 +44,7 @@ export function LoginScreen() {
 
   const switchMode = (next: Mode) => {
     setMode(next);
+    setPasswordConfirmation('');
     setLocalError(null);
     clearError();
   };
@@ -66,6 +68,11 @@ export function LoginScreen() {
     const passwordError = validatePassword(password);
     if (passwordError) {
       setLocalError(passwordError);
+      return;
+    }
+
+    if (mode === 'register' && password !== passwordConfirmation) {
+      setLocalError('確認用パスワードが一致しません');
       return;
     }
 
@@ -158,6 +165,22 @@ export function LoginScreen() {
               </div>
               <p className="field-hint">メールアドレスや認証コードは不要です</p>
             </div>
+
+            {mode === 'register' && (
+              <div className="field">
+                <label htmlFor="auth-password-confirmation">パスワード（確認）</label>
+                <input
+                  id="auth-password-confirmation"
+                  name="passwordConfirmation"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={passwordConfirmation}
+                  onChange={(e) => setPasswordConfirmation(e.target.value)}
+                  placeholder="同じパスワードをもう一度"
+                  required
+                />
+              </div>
+            )}
 
             <button type="submit" className="btn btn-primary btn-block mt-8" disabled={busy || offline}>
               {offline ? 'オフラインでは認証できません' : busy ? '処理中…' : mode === 'login' ? 'ログイン' : '新規登録して始める'}
