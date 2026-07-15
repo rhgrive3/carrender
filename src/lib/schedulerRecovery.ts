@@ -30,11 +30,15 @@ function taskDeadline(task: StudyTask): ISODate | null {
   return null;
 }
 
-function isMovableOverdueTask(task: StudyTask, today: ISODate): boolean {
+function isMovableOverdueTask(state: AppState, task: StudyTask, today: ISODate): boolean {
   if (task.status !== 'planned') return false;
   if (task.placementLock === 'date' || task.placementLock === 'time') return false;
   const policy = task.manualScheduling?.placementPolicy;
   if (policy === 'fixedDateFlexibleTime' || policy === 'fixedTime') return false;
+  if (task.type === 'review') {
+    const material = task.materialId ? state.materials.find((item) => item.id === task.materialId) : undefined;
+    if (!state.settings.reviewRule.enabled || !material?.reviewEnabled || material.paused || material.archived) return false;
+  }
   const deadline = taskDeadline(task);
   return Boolean(deadline && deadline < today);
 }
@@ -161,7 +165,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   }
   const overdueTasks = new Map<string, StudyTask>();
   for (const task of state.tasks) {
-    if (isMovableOverdueTask(task, today)) overdueTasks.set(task.id, task);
+    if (isMovableOverdueTask(state, task, today)) overdueTasks.set(task.id, task);
   }
   if (overdueMaterials.size === 0 && overdueTasks.size === 0) return generateBasePlanV2(state, context);
 
