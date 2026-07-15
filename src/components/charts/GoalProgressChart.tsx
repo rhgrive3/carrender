@@ -113,6 +113,9 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
       activeMaterials.forEach((material, index) => {
         const start = material.startDate || material.createdAt.slice(0, 10);
         const baselineRanges = legacyProgressBaselineRanges(material, state.sessions);
+        const actualRangesThroughDate = state.sessions
+          .filter((session) => session.materialId === material.id && session.date <= date)
+          .flatMap((session) => session.progressRangesAdded ?? []);
         const plannedByDate = plannedMaterialAmountThrough(
           stableTasks,
           material.id,
@@ -120,6 +123,7 @@ export function GoalProgressChart({ state, refDate }: GoalProgressChartProps) {
           date,
           baselineRanges,
           state.planHistory ?? [],
+          actualRangesThroughDate,
         );
         point[`m${index}Target`] = date < start ? 0 : clampPercent((plannedByDate / material.totalAmount) * 100);
 
