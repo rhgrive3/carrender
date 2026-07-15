@@ -8,6 +8,14 @@ const OWNER_KEY = 'studycommander_owner_v1';
 const BACKUP_KEY = 'studycommander_state_migration_backup';
 const TIMER_KEY = 'studycommander_timer_v1';
 const UPDATED_KEY = 'studycommander_state_updated_at_v1';
+
+/**
+ * localStorage is only a synchronous emergency cache. Keep well below the
+ * implementation-defined browser quota so normal app data never competes with
+ * auth/sync metadata and stale snapshots cannot survive a failed replacement.
+ */
+export const EMERGENCY_CACHE_MAX_CHARS = 1_800_000;
+let emergencyCacheSuppressed = false;
 /**
  * v6: v5に加え、旧データで教材期限が単一目標日を越えている場合は、
  * 教材期限を失わないよう目標日を最新の使用中教材期限まで延長する。
@@ -98,19 +106,53 @@ function publishStateSaveFailure(failure: StateSaveFailure | null): void {
   for (const listener of stateSaveFailureListeners) listener(failure);
 }
 
-function saveSerialized(state: AppState): void {
-  localStorage.setItem(KEY, JSON.stringify(state));
-  localStorage.setItem(UPDATED_KEY, new Date().toISOString());
+function isStorageQuotaError(error: unknown): boolean {
+  return error instanceof DOMException
+    && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+}
+
+function clearEmergencyCache(): void {
+  try {
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(UPDATED_KEY);
+  } catch {
+    // The cache is optional. IndexedDB and cloud persistence remain authoritative.
+  }
+}
+
+function suppressEmergencyCache(reason: string): void {
+  emergencyCacheSuppressed = true;
+  clearEmergencyCache();
   publishStateSaveFailure(null);
+  console.info(reason);
+}
+
+function saveSerialized(state: AppState): void {
+  if (emergencyCacheSuppressed) return;
+
+  const serialized = JSON.stringify(state);
+  if (serialized.length > EMERGENCY_CACHE_MAX_CHARS) {
+    suppressEmergencyCache('AppStateが緊急localStorageキャッシュの安全上限を超えたため、IndexedDB保存のみ継続します');
+    return;
+  }
+
+  try {
+    localStorage.setItem(KEY, serialized);
+    localStorage.setItem(UPDATED_KEY, new Date().toISOString());
+    publishStateSaveFailure(null);
+  } catch (error) {
+    if (isStorageQuotaError(error)) {
+      suppressEmergencyCache('ブラウザのlocalStorage上限へ達したため、緊急キャッシュを解除してIndexedDB保存のみ継続します');
+      return;
+    }
+    throw error;
+  }
 }
 
 function reportStateSaveFailure(error: unknown): void {
   console.error('保存に失敗しました', error);
-  const quota = error instanceof DOMException && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
   publishStateSaveFailure({
-    message: quota
-      ? '端末保存容量を超えました。ページを閉じる前にJSONを書き出してください'
-      : '端末への保存に失敗しました。ページを閉じる前に同期またはJSON書き出しを確認してください',
+    message: '端末への保存に失敗しました。ページを閉じる前に同期またはJSON書き出しを確認してください',
     at: new Date().toISOString(),
   });
 }
@@ -143,6 +185,8 @@ export function saveStateNow(state: AppState): void {
 export function clearOwnedState(): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = null;
+  emergencyCacheSuppressed = false;
+  publishStateSaveFailure(null);
   try {
     localStorage.removeItem(KEY);
     localStorage.removeItem(UPDATED_KEY);
