@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   missingRecordMaterialOption,
   missingRecordSubjectOption,
@@ -31,5 +32,12 @@ assert.deepEqual(
   '名称が残っていない場合も空欄にしない',
 );
 assert.equal(missingRecordMaterialOption([], null, ''), null, '教材なしは欠損参照として扱わない');
+
+const recordSheet = await readFile(new URL('../src/components/forms/RecordSheet.tsx', import.meta.url), 'utf8');
+assert.match(
+  recordSheet,
+  /\{\(material \|\| task \|\| session\?\.materialId\) && \([\s\S]*ariaLabel="完了量"/,
+  '削除済み教材を参照する過去記録でも完了量を編集できる',
+);
 
 console.log('✅ deleted record reference option regressions passed');

@@ -192,7 +192,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
         </div>
       )}
 
-      {(material || task) && (
+      {(material || task || session?.materialId) && (
         <div className="field">
           <label>
             どこまで進んだ?{material ? `(${material.unit}数)` : ''}
