@@ -139,10 +139,10 @@ assert.equal(capByMaterial.get('chem-1')?.maxUnitsPerDay, 6, '短期限教材は
 assert.equal(capByMaterial.get('physics-takai')?.maxUnitsPerDay, 2, '長期の70分教材は1日2単位までに抑える');
 
 const baseline = generatePlanV2(state, context);
-const capped = generatePlanV2(applied.state, context);
+const fullyCapped = generatePlanV2(applied.state, context);
 const chosen = generateWithAutomaticSpreadCaps(state, context, generatePlanV2);
 const baselineScore = computeMaterialSpreadScore(baseline);
-const cappedScore = computeMaterialSpreadScore(capped);
+const fullyCappedScore = computeMaterialSpreadScore(fullyCapped);
 const chosenScore = computeMaterialSpreadScore(chosen);
 
 const materialStats = (result: typeof baseline, materialId: string) => {
@@ -156,18 +156,22 @@ const materialStats = (result: typeof baseline, materialId: string) => {
   };
 };
 const baselineSuper = materialStats(baseline, 'super-writing');
-const cappedSuper = materialStats(capped, 'super-writing');
+const chosenSuper = materialStats(chosen, 'super-writing');
 
-assert.ok(capped.objectiveReport.strictDeadlineViolations <= baseline.objectiveReport.strictDeadlineViolations, '厳守期限違反を増やさない');
-assert.ok(capped.objectiveReport.unscheduledStrictMinutes <= baseline.objectiveReport.unscheduledStrictMinutes, '厳守未配置を増やさない');
-assert.ok(capped.objectiveReport.unscheduledMinutes <= baseline.objectiveReport.unscheduledMinutes, '全体未配置時間を増やさない');
-assert.ok(cappedSuper.days >= 3, `英作文6セクションを3日以上へ分散する: ${JSON.stringify(cappedSuper)}`);
-assert.ok(cappedSuper.maxDayMinutes <= 90, `英作文の1日最大を90分以下にする: ${JSON.stringify(cappedSuper)}`);
-assert.ok(cappedScore.sameDayExtraChunks < baselineScore.sameDayExtraChunks, `${JSON.stringify({ baselineScore, cappedScore })}`);
-assert.deepEqual(chosenScore, cappedScore, '上位保証が同等なら分散した候補を採用する');
-
-console.log('✅ automatic spread real-data comparison passed', JSON.stringify({
+console.log('automatic spread real-data comparison', JSON.stringify({
   baseline: { status: baseline.status, objective: baseline.objectiveReport, spread: baselineScore, superWriting: baselineSuper },
-  capped: { status: capped.status, objective: capped.objectiveReport, spread: cappedScore, superWriting: cappedSuper },
+  fullyCapped: { status: fullyCapped.status, objective: fullyCapped.objectiveReport, spread: fullyCappedScore },
+  chosen: { status: chosen.status, objective: chosen.objectiveReport, spread: chosenScore, superWriting: chosenSuper },
   caps: applied.caps,
 }));
+
+assert.ok(chosen.objectiveReport.strictDeadlineViolations <= baseline.objectiveReport.strictDeadlineViolations, '採用結果は厳守期限違反を増やさない');
+assert.ok(chosen.objectiveReport.unscheduledStrictMinutes <= baseline.objectiveReport.unscheduledStrictMinutes, '採用結果は厳守未配置を増やさない');
+assert.ok(chosen.objectiveReport.unscheduledMinutes <= baseline.objectiveReport.unscheduledMinutes, '採用結果は全体未配置時間を増やさない');
+assert.ok(chosen.objectiveReport.progressDebtMinutes <= baseline.objectiveReport.progressDebtMinutes, '採用結果は進捗負債を増やさない');
+assert.ok(chosenSuper.days >= 3, `英作文6セクションを3日以上へ分散する: ${JSON.stringify(chosenSuper)}`);
+assert.ok(chosenSuper.maxDayMinutes <= 90, `英作文の1日最大を90分以下にする: ${JSON.stringify(chosenSuper)}`);
+assert.ok(chosenScore.sameDayExtraChunks < baselineScore.sameDayExtraChunks, `${JSON.stringify({ baselineScore, chosenScore })}`);
+assert.ok(chosenScore.maxDailySharePpm <= baselineScore.maxDailySharePpm, '最悪の教材日集中率を悪化させない');
+
+console.log('✅ automatic spread real-data comparison passed');
