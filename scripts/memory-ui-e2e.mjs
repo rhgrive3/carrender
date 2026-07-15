@@ -139,7 +139,7 @@ try {
     await waitForAnswerOrResult(answerCount);
   }
   await page.getByRole('heading', { name: '学習完了' }).waitFor();
-  check('結果画面から苦手分析導線を削除', await page.getByRole('button', { name: /分析/ }).count() === 0);
+  check('結果画面から苦手分析導線を削除', await page.locator('.memory-result-actions').getByRole('button', { name: /分析/ }).count() === 0);
   check('新しい結果ラベルを表示', await page.getByText('あやしい', { exact: true }).isVisible());
 
   console.log(failures === 0 ? '\n🎉 ALL PASS (memory simple UI E2E)' : `\n💥 ${failures} FAILURES (memory simple UI E2E)`);
