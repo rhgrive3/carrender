@@ -80,7 +80,11 @@ export function MemoryHome() {
         <div><h2>暗記カード</h2><p>セットを選んで、10問ずつ覚える</p></div>
         <div className="memory-toolbar-actions">
           <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'import' })}><Download size={18} />取込・出力</button>
-          <button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'editor', setId: summaries[0]?.set.id })}><Plus size={18} />カード追加</button>
+          {summaries.length > 0 ? (
+            <button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'editor', setId: summaries[0].set.id })}><Plus size={18} />カード追加</button>
+          ) : (
+            <button type="button" className="btn btn-primary" onClick={() => setCreateSetOpen(true)}><Plus size={18} />セット追加</button>
+          )}
         </div>
       </div>
 
