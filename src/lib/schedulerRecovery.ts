@@ -124,7 +124,9 @@ function spreadOverdueReviewReleases(
 function originalTaskForOutput(overdueTasks: Map<string, StudyTask>, task: StudyTask): StudyTask | undefined {
   return overdueTasks.get(task.id)
     ?? (task.sourceId ? overdueTasks.get(task.sourceId) : undefined)
-    ?? [...overdueTasks.values()].find((original) => original.sourceId === task.sourceId);
+    ?? (task.sourceId
+      ? [...overdueTasks.values()].find((original) => original.sourceId === task.sourceId)
+      : undefined);
 }
 
 function restoreTaskDeadline(task: StudyTask, original: StudyTask): StudyTask {
