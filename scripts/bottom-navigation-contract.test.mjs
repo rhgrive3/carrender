@@ -24,6 +24,11 @@ assert.match(contractCss, /position:\s*fixed\s*!important;/, '下部ナビはvie
 assert.match(contractCss, /bottom:\s*0\s*!important;/, '下部ナビを画面下端へ固定する');
 assert.match(contractCss, /left:\s*50%\s*!important;/, '下部ナビを画面中央へ配置する');
 assert.match(contractCss, /transform:\s*translateX\(-50%\)\s*!important;/, '中央寄せを維持する');
+assert.match(
+  contractCss,
+  /padding-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)\s*!important;/,
+  'iOS/iPadOSのホームインジケータ領域をナビの操作面から除外する',
+);
 assert.doesNotMatch(contractCss, /position:\s*(?:sticky|absolute|static)/, '固定契約内で別positionへ変更しない');
 
 console.log('✅ permanent bottom navigation layout contract passed');
