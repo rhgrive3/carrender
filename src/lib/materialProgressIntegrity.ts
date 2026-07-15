@@ -51,8 +51,7 @@ function taskRange(task: StudyTask, total: number): UnitRange | null {
 
 function isCompletedMaterialWork(task: StudyTask, material: Material): boolean {
   if (task.status !== 'done' || task.type !== 'new' || task.materialId !== material.id) return false;
-  const sourceType = task.sourceType
-    ?? (task.generatedBy === 'manual' ? 'manual' : task.type === 'review' ? 'review' : 'material');
+  const sourceType = task.sourceType ?? (task.generatedBy === 'manual' ? 'manual' : 'material');
   return sourceType === 'material';
 }
 
