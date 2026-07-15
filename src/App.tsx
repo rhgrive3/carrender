@@ -78,7 +78,10 @@ function Shell() {
 
   const navigateShell = useCallback((nextTab: Tab, nextMaterialsPane: MaterialsPane = materialsPane) => {
     if (nextTab === tab && (nextTab !== 'materials' || nextMaterialsPane === materialsPane)) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // CSSのscroll-behaviorだけではJS APIのsmooth指定を無効化できない。
+      // 動きを減らす設定では即時移動し、再選択によるスクロールアニメーションを発生させない。
+      const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+      window.scrollTo({ top: 0, behavior });
       scrollPositions.current[nextTab] = 0;
       return;
     }
