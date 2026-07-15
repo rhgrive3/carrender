@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Timer } from 'lucide-react';
 import { Sheet } from '../ui/Sheet';
 import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
@@ -27,6 +27,12 @@ interface RecordSheetProps {
   session?: StudySession;
 }
 
+function sessionStartTime(session?: StudySession) {
+  return session
+    ? new Date(session.startedAt).toLocaleTimeString('en-GB', { timeZone: APP_TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false })
+    : minutesToHM(minutesInTimeZone(new Date()));
+}
+
 /**
  * 勉強記録シート。タイマー終了直後は最小限の入力(進んだ量・集中度)で保存できる。
  */
@@ -45,9 +51,33 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
   const [memo, setMemo] = useState(session?.memo ?? '');
   const [showMemo, setShowMemo] = useState(Boolean(session?.memo));
   const [recordDate, setRecordDate] = useState(session?.date ?? today());
-  const [startTime, setStartTime] = useState(() => session
-    ? new Date(session.startedAt).toLocaleTimeString('en-GB', { timeZone: APP_TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false })
-    : minutesToHM(minutesInTimeZone(new Date())));
+  const [startTime, setStartTime] = useState(() => sessionStartTime(session));
+  const initializedTargetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      initializedTargetRef.current = null;
+      return;
+    }
+    const targetKey = session
+      ? `session:${session.id}`
+      : preset
+        ? `preset:${preset.taskId ?? ''}:${preset.subjectId}:${preset.materialId ?? ''}:${preset.minutes}:${preset.rangeLabel}:${preset.source}`
+        : 'manual';
+    if (initializedTargetRef.current === targetKey) return;
+    initializedTargetRef.current = targetKey;
+
+    setSubjectId(session?.subjectId ?? preset?.subjectId ?? state.subjects[0]?.id ?? '');
+    setMaterialId(session?.materialId ?? preset?.materialId ?? '');
+    setMinutes(session?.minutes ?? preset?.minutes ?? 30);
+    setAmountDone(session?.amountDone ?? task?.amount ?? 0);
+    setCompleted(session ? (session.completedTask ?? Boolean(session.taskId && !session.replacementTaskIds?.length)) : true);
+    setFocus(session?.focus ?? null);
+    setMemo(session?.memo ?? '');
+    setShowMemo(Boolean(session?.memo));
+    setRecordDate(session?.date ?? today());
+    setStartTime(sessionStartTime(session));
+  }, [open, preset, session, state.subjects, task?.amount]);
 
   const materials = useMemo(
     () => state.materials.filter((m) => (!m.archived || m.id === session?.materialId) && m.subjectId === subjectId),
@@ -78,8 +108,6 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       rangeLabel: preset?.rangeLabel ?? '',
       completedTask: false,
     }).amountDone;
-    // 編集対象自身が加えた範囲は保存時に一度取り消されるため、現在の残量だけで
-    // maxを決めると同じ値すら再入力できない。旧形式も現在量までは失わない。
     return session?.materialId === material.id ? Math.max(remaining, session.amountDone) : remaining;
   }, [material, minutes, preset?.rangeLabel, preset?.source, preset?.taskId, session, state, subjectId, task?.amount]);
 
@@ -94,19 +122,19 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     }
     const preservesTask = !session || (session.subjectId === subjectId && session.materialId === selectedMaterialId);
     const input = {
-        taskId: preservesTask ? session?.taskId ?? preset?.taskId ?? null : null,
-        subjectId,
-        materialId: selectedMaterialId,
-        minutes: Math.max(1, minutes),
-        amountDone,
-        focus,
-        memo,
-        source: session?.source ?? preset?.source ?? 'manual',
-        rangeLabel: session?.rangeLabel ?? preset?.rangeLabel ?? material?.name ?? '',
-        completedTask: Boolean(preservesTask && (session?.taskId ?? preset?.taskId) && completed),
-        taskLocator: preset?.taskLocator,
-        date: preset && !session ? undefined : recordDate,
-        startTime: preset && !session ? undefined : startTime,
+      taskId: preservesTask ? session?.taskId ?? preset?.taskId ?? null : null,
+      subjectId,
+      materialId: selectedMaterialId,
+      minutes: Math.max(1, minutes),
+      amountDone,
+      focus,
+      memo,
+      source: session?.source ?? preset?.source ?? 'manual',
+      rangeLabel: session?.rangeLabel ?? preset?.rangeLabel ?? material?.name ?? '',
+      completedTask: Boolean(preservesTask && (session?.taskId ?? preset?.taskId) && completed),
+      taskLocator: preset?.taskLocator,
+      date: preset && !session ? undefined : recordDate,
+      startTime: preset && !session ? undefined : startTime,
     };
     const result = session
       ? execute({ type: 'UPDATE_SESSION', sessionId: session.id, input })
@@ -119,7 +147,6 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
 
   return (
     <Sheet open={open} onClose={onClose} title={session ? '学習記録を編集' : preset?.source === 'timer' ? 'おつかれさま!記録しよう' : '勉強を記録'}>
-      {/* タイマー経由でない場合のみ科目・教材・時間を聞く */}
       {(!preset || session) && (
         <>
           <div className="field">
@@ -134,9 +161,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
             >
               {missingSubject && <option value={missingSubject.id}>{missingSubject.label}</option>}
               {state.subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
+                <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
           </div>
@@ -146,9 +171,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
               <option value="">教材なし</option>
               {missingMaterial && <option value={missingMaterial.id}>{missingMaterial.label}</option>}
               {materials.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
+                <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
           </div>
