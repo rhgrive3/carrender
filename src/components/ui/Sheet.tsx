@@ -53,10 +53,15 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
       }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
+      const active = document.activeElement;
+      const focusIsOutside = !(active instanceof Node) || !root.contains(active);
+
+      // シート本体を初期フォーカスにしているため、最初のTab/Shift+Tabも
+      // ブラウザ既定動作へ任せず、必ず先頭・末尾の操作要素へ送る。
+      if (e.shiftKey && (active === first || active === root || focusIsOutside)) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
+      } else if (!e.shiftKey && (active === last || active === root || focusIsOutside)) {
         e.preventDefault();
         first.focus();
       }
