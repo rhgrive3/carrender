@@ -1,0 +1,9 @@
+/*
+ * 記録画面の科目別積み上げ棒は、JS側で小区分へ最低8%を与える。
+ * 科目数が多い日は宣言heightの合計が100%を超えるため、flex縮小で
+ * 棒の内側へ正規化する。min-heightを残すと縮小不能になり再び溢れる。
+ */
+.studyplus-actual-bar .studyplus-stack {
+  flex-shrink: 1;
+  min-height: 0;
+}
