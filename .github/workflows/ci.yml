@@ -38,7 +38,22 @@ jobs:
         run: npm run typecheck
 
       - name: Unit and regression tests
-        run: npm test
+        id: tests
+        continue-on-error: true
+        run: npm test > test.log 2>&1
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduler-test-log
+          path: test.log
+
+      - name: Report test failure
+        if: steps.tests.outcome == 'failure'
+        run: |
+          tail -200 test.log
+          exit 1
 
       - name: Cloudflare API integration tests
         run: npm run test:integration:api
