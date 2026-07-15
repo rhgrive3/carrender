@@ -16,6 +16,10 @@ assert.match(source, /id="auth-password"[\s\S]*disabled=\{busy\}/, '認証処理
 assert.match(source, /id="auth-password-confirmation"[\s\S]*disabled=\{busy\}/, '認証処理中は確認用パスワードを変更できない');
 assert.match(source, /className="password-toggle-btn"[\s\S]*disabled=\{busy\}/, '認証処理中はパスワード表示状態を変更できない');
 assert.match(source, /setPassword\(''\)[\s\S]*setPasswordConfirmation\(''\)[\s\S]*setShowPassword\(false\)/, 'モード切り替え時に認証情報と表示状態を破棄する');
+assert.match(source, /const clearDisplayedError = \(\) => \{[\s\S]*setLocalError\(null\)[\s\S]*clearError\(\)/, '入力を直し始めたらローカル・API双方の古いエラーを消す');
+assert.match(source, /id="auth-username"[\s\S]*onChange=\{\(e\) => \{[\s\S]*setUsername\(e\.target\.value\)[\s\S]*clearDisplayedError\(\)/, 'ユーザー名の修正時に古いエラーを消す');
+assert.match(source, /id="auth-password"[\s\S]*onChange=\{\(e\) => \{[\s\S]*setPassword\(e\.target\.value\)[\s\S]*clearDisplayedError\(\)/, 'パスワードの修正時に古いエラーを消す');
+assert.match(source, /id="auth-password-confirmation"[\s\S]*onChange=\{\(e\) => \{[\s\S]*setPasswordConfirmation\(e\.target\.value\)[\s\S]*clearDisplayedError\(\)/, '確認用パスワードの修正時に古いエラーを消す');
 assert.match(authContext, /const operationInFlight = useRef\(false\)/, '再描画前でも認証操作を排他できる同期ロックを持つ');
 assert.match(authContext, /if \(operationInFlight\.current\) return false;[\s\S]*operationInFlight\.current = true/, '同時に開始された二つ目の認証操作を拒否する');
 assert.match(authContext, /const authStateVersion = useRef\(0\)/, '認証状態を変更する操作の世代を追跡する');
