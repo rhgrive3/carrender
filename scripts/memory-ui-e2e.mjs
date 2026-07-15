@@ -90,8 +90,9 @@ try {
   await page.getByRole('button', { name: '教材', exact: true }).click();
   await page.getByRole('radio', { name: '暗記カード' }).click();
   await page.getByRole('button', { name: 'セットを作る' }).click();
-  await page.getByLabel('セット名').fill('LEAP 1〜300');
-  await page.getByRole('button', { name: 'セットを作る' }).click();
+  const createSetDialog = page.getByRole('dialog', { name: '暗記セットを追加' });
+  await createSetDialog.getByLabel('セット名').fill('LEAP 1〜300');
+  await createSetDialog.getByRole('button', { name: 'セットを作る' }).click();
   await page.getByText('LEAP 1〜300', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'カード追加' }).click();
   await page.locator('#memory-prompt-0').fill('〜を考慮に入れる');
@@ -118,7 +119,7 @@ try {
   await page.locator('.memory-study-overlay').waitFor();
   check('学習画面に入力欄を出さない', await page.locator('.memory-study-card input, .memory-study-card textarea').count() === 0);
   await page.getByRole('button', { name: '答えを見る' }).click();
-  check('自己評価は3択だけ', await page.getByRole('group', { name: '自己評価' }).count().catch(() => 0) === 0 && await page.locator('.memory-simple-assessment button').count() === 3);
+  check('自己評価は3択だけ', await page.locator('.memory-simple-assessment button').count() === 3);
   await page.getByRole('button', { name: 'まだ' }).click();
 
   for (let guard = 0; guard < 8; guard += 1) {
