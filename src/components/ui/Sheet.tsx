@@ -24,6 +24,9 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     sheetRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // 日本語IMEの変換候補を閉じるEscapeまでシートの閉操作として扱うと、
+        // 入力途中の内容を失うため、composition中のキーイベントは無視する。
+        if (e.isComposing || e.keyCode === 229) return;
         onClose();
         return;
       }
