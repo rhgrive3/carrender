@@ -112,7 +112,11 @@ export function actualMaterialAmountThrough(
   );
 }
 
-/** 教材タスクの範囲を和集合化し、古い重複タスクで目標量が膨らむのを防ぐ。 */
+/**
+ * 教材タスク・過去予定・その日までに実際に完了した範囲を和集合化する。
+ * 実績範囲を含めないと、手入力やフリー学習で終えた単位が残り予定からは消える一方、
+ * 目標線にも足されず、期限日でも75〜90%で止まるため必ず同じ集合へ戻す。
+ */
 export function plannedMaterialAmountThrough(
   tasks: StudyTask[],
   materialId: string,
@@ -120,6 +124,7 @@ export function plannedMaterialAmountThrough(
   date: string,
   baselineRanges: UnitRange[] = [],
   planHistory: PlanHistoryEntry[] = [],
+  actualProgressRanges: UnitRange[] = [],
 ): number {
   const relevant = tasks.filter((task) =>
     task.materialId === materialId
@@ -134,6 +139,7 @@ export function plannedMaterialAmountThrough(
     && entry.amount > 0);
   const ranges = mergeUnitRanges([
     ...baselineRanges,
+    ...actualProgressRanges,
     ...relevant.flatMap((task) => {
       const range = task.materialRange
         ?? (task.rangeStart !== null && task.rangeEnd !== null ? { start: task.rangeStart, end: task.rangeEnd } : undefined);
