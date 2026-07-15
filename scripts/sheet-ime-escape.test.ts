@@ -14,6 +14,7 @@ assert.ok(
 );
 
 assert.match(sheetSource, /closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)/, '祖先側で非表示・非活性になった要素をフォーカス候補から除外する');
+assert.match(sheetSource, /closest\('fieldset\[disabled\]'\)/, 'disabledなfieldset配下の操作不能要素をフォーカス候補から除外する');
 assert.match(sheetSource, /getComputedStyle\(element\)/, 'CSSで非表示になった要素も判定する');
 assert.match(sheetSource, /getClientRects\(\)\.length > 0/, 'レイアウト上表示されている要素だけをフォーカス候補にする');
 assert.match(sheetSource, /\[contenteditable="true"\]/, '編集可能要素もフォーカストラップへ含める');
