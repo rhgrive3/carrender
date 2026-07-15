@@ -102,8 +102,12 @@ assert.match(layoutContract, /position:\s*fixed\s*!important/);
 assert.match(layoutContract, /bottom:\s*0\s*!important/);
 
 const polish = read('src/styles/accessibility-polish.css');
+const landscapeBlock = cssBlock(polish, '@media (orientation: landscape)');
+const landscapeScreenBlock = cssBlock(landscapeBlock, '.screen');
 const timerBlock = cssBlock(polish, '.timer-overlay');
 const sheetBlock = cssBlock(polish, '.sheet-backdrop');
+assert.match(landscapeScreenBlock, /padding-left:\s*max\([^\n]*safe-area-inset-left/);
+assert.match(landscapeScreenBlock, /padding-right:\s*max\([^\n]*safe-area-inset-right/);
 assert.match(timerBlock, /safe-area-inset-left/);
 assert.match(timerBlock, /safe-area-inset-right/);
 assert.match(sheetBlock, /safe-area-inset-left/);

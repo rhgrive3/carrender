@@ -4,6 +4,18 @@
  * motion or Safe Area regressions in fixed/portal UI.
  */
 @layer overrides {
+  /*
+   * Small iPhones can be narrower than the tablet breakpoint even in
+   * landscape. Keep primary screen content out of the notch/home-indicator
+   * side regions instead of relying on the >= 768px tablet rule in global.css.
+   */
+  @media (orientation: landscape) {
+    .screen {
+      padding-right: max(16px, env(safe-area-inset-right, 0px));
+      padding-left: max(16px, env(safe-area-inset-left, 0px));
+    }
+  }
+
   .timer-overlay {
     padding-right: max(22px, env(safe-area-inset-right, 0px));
     padding-left: max(22px, env(safe-area-inset-left, 0px));
