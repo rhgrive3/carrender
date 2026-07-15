@@ -37,6 +37,22 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Scheduler recovery diagnostic
+        id: recovery
+        continue-on-error: true
+        run: npx vite-node scripts/scheduler-recovery.test.ts > recovery.log 2>&1
+
+      - name: Upload scheduler recovery log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduler-recovery-log
+          path: recovery.log
+
+      - name: Stop on scheduler recovery failure
+        if: steps.recovery.outcome == 'failure'
+        run: exit 1
+
       - name: Unit and regression tests
         run: npm test
 
