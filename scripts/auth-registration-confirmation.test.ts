@@ -8,6 +8,6 @@ assert.match(source, /mode === 'register' && password !== passwordConfirmation/,
 assert.match(source, /確認用パスワードが一致しません/, '不一致理由を利用者へ明示する');
 assert.match(source, /id="auth-password-confirmation"/, '確認用入力欄を新規登録画面へ表示する');
 assert.match(source, /autoComplete="new-password"/, 'パスワードマネージャーへ新規パスワード入力として伝える');
-assert.match(source, /setPasswordConfirmation\(''\)/, 'モード切り替え時に確認用入力を破棄する');
+assert.match(source, /setPassword\(''\)[\s\S]*setPasswordConfirmation\(''\)[\s\S]*setShowPassword\(false\)/, 'モード切り替え時に認証情報と表示状態を破棄する');
 
 console.log('✅ auth registration confirmation regressions passed');
