@@ -43,6 +43,7 @@ export function LoginScreen() {
   }, []);
 
   const switchMode = (next: Mode) => {
+    if (busy) return;
     setMode(next);
     setPassword('');
     setPasswordConfirmation('');
@@ -98,8 +99,8 @@ export function LoginScreen() {
           </p>
         </div>
 
-        <div className="auth-card">
-          <div className="auth-mode-switch">
+        <div className="auth-card" aria-busy={busy}>
+          <div className="auth-mode-switch" aria-disabled={busy}>
             <Segmented
               ariaLabel="ログイン・新規登録の切り替え"
               options={[
@@ -138,6 +139,7 @@ export function LoginScreen() {
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="3〜24文字"
                 maxLength={24}
+                disabled={busy}
                 required
               />
             </div>
@@ -153,6 +155,7 @@ export function LoginScreen() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="4文字以上"
+                  disabled={busy}
                   required
                 />
                 <button
@@ -161,6 +164,7 @@ export function LoginScreen() {
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示する'}
                   aria-pressed={showPassword}
+                  disabled={busy}
                 >
                   {showPassword ? <EyeOff size={19} strokeWidth={2} aria-hidden="true" /> : <Eye size={19} strokeWidth={2} aria-hidden="true" />}
                 </button>
@@ -179,6 +183,7 @@ export function LoginScreen() {
                   value={passwordConfirmation}
                   onChange={(e) => setPasswordConfirmation(e.target.value)}
                   placeholder="同じパスワードをもう一度"
+                  disabled={busy}
                   required
                 />
               </div>
