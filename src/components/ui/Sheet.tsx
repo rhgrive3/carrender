@@ -10,6 +10,16 @@ interface SheetProps {
   children: ReactNode;
 }
 
+function isVisibleFocusable(element: HTMLElement, root: HTMLElement) {
+  if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+  if (!root.contains(element)) return false;
+
+  const style = window.getComputedStyle(element);
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
+
+  return element.getClientRects().length > 0;
+}
+
 /** モバイル向けボトムシート */
 export function Sheet({ open, onClose, title, children }: SheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -31,12 +41,13 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         return;
       }
       if (e.key !== 'Tab' || !sheetRef.current) return;
-      const focusable = [...sheetRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
-      )].filter((element) => !element.hasAttribute('hidden'));
+      const root = sheetRef.current;
+      const focusable = [...root.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
+      )].filter((element) => isVisibleFocusable(element, root));
       if (focusable.length === 0) {
         e.preventDefault();
-        sheetRef.current.focus();
+        root.focus();
         return;
       }
       const first = focusable[0];
