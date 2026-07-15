@@ -5,6 +5,7 @@ import './lib/pwa';
 import App from './App';
 import '@fontsource-variable/noto-sans-jp';
 import './styles/global.css';
+import './styles/ux-audit.css';
 import { registerSW } from 'virtual:pwa-register';
 import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 
