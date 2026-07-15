@@ -37,6 +37,16 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Reproduce review-off recalculation
+        run: npx vite-node scripts/recovery-smoke-diagnostic.ts > recovery-smoke.log 2>&1
+
+      - name: Upload review-off diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-smoke-diagnostic
+          path: recovery-smoke.log
+
       - name: Unit and regression tests
         id: tests
         continue-on-error: true
