@@ -8,7 +8,7 @@
     />
     <title>StudyCommander 学習司令塔</title>
     <meta name="description" content="試験日から逆算して毎日の勉強計画を自動再設計する学習司令塔" />
-    <meta name="theme-color" content="#0b0f1a" />
+    <meta name="theme-color" content="#0c111d" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -25,7 +25,7 @@
         align-items: center;
         justify-content: center;
         gap: 16px;
-        background: #0b0f1a;
+        background: #0c111d;
         z-index: 9999;
         transition: opacity 0.4s ease;
       }
@@ -33,16 +33,16 @@
         width: 72px;
         height: 72px;
         border-radius: 20px;
-        background: linear-gradient(135deg, #4f7cff, #9a5cff);
+        background: linear-gradient(135deg, #7284f5, #8b7aec);
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 36px;
-        box-shadow: 0 8px 40px rgba(79, 124, 255, 0.45);
+        box-shadow: 0 8px 40px rgba(114, 132, 245, 0.4);
         animation: bootpulse 1.4s ease-in-out infinite;
       }
       #boot .boot-name {
-        color: #e8ecf8;
+        color: #f3f5fa;
         font-family: -apple-system, system-ui, sans-serif;
         font-weight: 700;
         font-size: 15px;
@@ -51,6 +51,10 @@
       @keyframes bootpulse {
         0%, 100% { transform: scale(1); }
         50% { transform: scale(1.07); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot { transition: none; }
+        #boot .boot-logo { animation: none; }
       }
     </style>
   </head>
