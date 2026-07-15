@@ -13,12 +13,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
     }, { status: 503 });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({ message: 'D1 schema compatibility check failed', error: message }));
     return json({
       compatible: false,
       requiredVersion: null,
       currentVersion: null,
       missingMigrations: [],
-      error: `D1 schema versionを確認できません: ${message}`,
+      error: 'D1 schema versionを確認できません。時間をおいて再試行してください',
       code: 'D1_SCHEMA_CHECK_FAILED',
     }, { status: 503 });
   }

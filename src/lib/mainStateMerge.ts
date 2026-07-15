@@ -173,9 +173,13 @@ function detachUnchangedSessionsFromDeletedTasks(
 
 function referentialIntegrityConflicts(
   output: Map<MainStateEntitySection, Map<string, unknown>>,
+  baseHashes: MainStateEntityHashSnapshot,
   deletedKeys: string[],
+  appliedLocalKeys: string[],
+  appliedRemoteKeys: string[],
 ): MainStateMergeConflict[] {
   const deleted = new Set(deletedKeys);
+  const changed = new Set([...appliedLocalKeys, ...appliedRemoteKeys]);
   const subjects = [...(output.get('subjects')?.values() ?? [])] as AppState['subjects'];
   const materials = [...(output.get('materials')?.values() ?? [])] as AppState['materials'];
   const tasks = [...(output.get('tasks')?.values() ?? [])] as AppState['tasks'];
@@ -195,8 +199,14 @@ function referentialIntegrityConflicts(
   for (const key of deleted) {
     if (key.startsWith('materials:')) {
       const materialId = key.slice('materials:'.length);
-      if (tasks.some((task) => task.materialId === materialId || manualProgressMaterialId(task) === materialId)
-        || sessions.some((session) => session.materialId === materialId)) {
+      const activeOrChangedTask = tasks.some((task) =>
+        (task.materialId === materialId || manualProgressMaterialId(task) === materialId)
+        && (task.status === 'planned' || task.status === 'doing' || changed.has(`tasks:${task.id}`)));
+      const changedSession = sessions.some((session) =>
+        session.materialId === materialId && changed.has(`sessions:${session.id}`));
+      // 教材削除で「記録は保持」を選んだ既存session/done taskの参照は履歴として有効。
+      // 一方、削除と同時に別端末で追加・編集された参照は勝手に孤立させない。
+      if (activeOrChangedTask || changedSession) {
         push({ section: 'materials', key: materialId, reason: 'deleteVsEdit' });
       }
     }
@@ -226,7 +236,7 @@ function referentialIntegrityConflicts(
     const progressMaterialId = manualProgressMaterialId(task);
     const progressMaterial = progressMaterialId ? materialById.get(progressMaterialId) : undefined;
     if (!subjectIds.has(task.subjectId)
-      || (task.materialId && !material)
+      || (task.materialId && !material && (task.status === 'planned' || task.status === 'doing'))
       || (material && material.subjectId !== task.subjectId)
       || (progressMaterialId && !progressMaterial)
       || (progressMaterial && progressMaterial.subjectId !== task.subjectId)) {
@@ -235,9 +245,11 @@ function referentialIntegrityConflicts(
   }
   for (const session of sessions) {
     const material = session.materialId ? materialById.get(session.materialId) : undefined;
+    const addedAfterBase = baseHashes.sessions?.[session.id] === undefined
+      && changed.has(`sessions:${session.id}`);
     if (!subjectIds.has(session.subjectId)
-      || (session.taskId && !taskIds.has(session.taskId))
-      || (session.materialId && !material)
+      || (addedAfterBase && session.taskId && !taskIds.has(session.taskId))
+      || (addedAfterBase && session.materialId && !material)
       || (material && material.subjectId !== session.subjectId)) {
       push({ section: 'sessions', key: session.id, reason: 'bothChanged' });
     }
@@ -297,7 +309,13 @@ export function mergeMainStates(
     output.set(section, result);
   }
   detachUnchangedSessionsFromDeletedTasks(output, deletedKeys, appliedLocalKeys, appliedRemoteKeys);
-  conflicts.push(...referentialIntegrityConflicts(output, deletedKeys));
+  conflicts.push(...referentialIntegrityConflicts(
+    output,
+    baseHashes,
+    deletedKeys,
+    appliedLocalKeys,
+    appliedRemoteKeys,
+  ));
   if (conflicts.length > 0) return { merged: null, conflicts, appliedLocalKeys, appliedRemoteKeys, deletedKeys };
 
   const goal = (output.get('goal')?.get('value') ?? null) as AppState['goal'];
