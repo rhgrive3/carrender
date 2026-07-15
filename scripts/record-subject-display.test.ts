@@ -18,9 +18,13 @@ assert.equal(active.deleted, false);
 
 const deleted = resolveRecordSubject(subjects, 'subject-deleted');
 assert.equal(deleted.id, 'subject-deleted');
-assert.equal(deleted.name, '削除済みの科目');
+assert.equal(deleted.name, '削除済みの科目 · ETED');
 assert.equal(deleted.deleted, true);
 assert.ok(deleted.color, '削除済み科目にも表示色がある');
+
+const otherDeleted = resolveRecordSubject(subjects, 'subject-deleted-2');
+assert.notEqual(otherDeleted.name, deleted.name, '複数の削除済み科目を同じ表示へ潰さない');
+assert.match(otherDeleted.name, /^削除済みの科目 · [A-Z0-9]{1,4}$/);
 
 const summary = summarizeRecordSubjects([
   { subjectId: 'subject-active', minutes: 30 },
@@ -39,6 +43,7 @@ assert.deepEqual(
 );
 assert.equal(summary.filter((item) => item.subject.deleted).length, 2);
 assert.equal(new Set(summary.map((item) => item.subject.id)).size, summary.length, '削除済み科目ごとに一意なキーを保つ');
+assert.equal(new Set(summary.map((item) => item.subject.name)).size, summary.length, '削除済み科目も表示名で区別できる');
 
 const chartFixCss = readFileSync(new URL('../src/styles/record-chart-fixes.css', import.meta.url), 'utf8');
 const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
