@@ -482,7 +482,7 @@ console.log('--- ログアウト時の保存タイマー ---');
   check('Storage APIが拒否されてもログアウト処理を例外で止めない', cleanupThrew === false);
 }
 
-console.log('--- 端末保存失敗の可視化 ---');
+console.log('--- 端末保存容量超過のフォールバック ---');
 {
   let reported: string | null = null;
   const unsubscribe = subscribeStateSaveFailure((failure) => { reported = failure?.message ?? null; });
@@ -495,7 +495,7 @@ console.log('--- 端末保存失敗の可視化 ---');
     length: 0,
   } as Storage;
   saveStateNow(state());
-  check('端末保存容量超過を黙殺せず利用者向け状態へ通知', reported?.includes('端末保存容量') === true, reported);
+  check('端末保存容量超過は警告を重複表示せずIndexedDBへフォールバック', reported === null, reported);
   unsubscribe();
 }
 

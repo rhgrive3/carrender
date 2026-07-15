@@ -268,6 +268,15 @@ export class AppStateIndexedDbRepository {
     return migration.state;
   }
 
+  async loadStateSavedAt(): Promise<string | null> {
+    await this.writeChain.catch(() => undefined);
+    const database = await this.database();
+    const transaction = database.transaction(MAIN_STATE_STORES.meta, 'readonly');
+    const meta = await requestResult(transaction.objectStore(MAIN_STATE_STORES.meta).get('state')) as StateMetaRecord | undefined;
+    await transactionComplete(transaction);
+    return meta?.savedAt ?? null;
+  }
+
   async loadSyncMetadata(): Promise<MainSyncMetadata | null> {
     await this.writeChain.catch(() => undefined);
     const database = await this.database();
