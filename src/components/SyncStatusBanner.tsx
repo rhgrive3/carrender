@@ -7,9 +7,9 @@ export function SyncStatusBanner({ onOpenSettings }: { onOpenSettings: () => voi
 
   const notice = localSaveError
     ? {
-        tone: 'error' as const,
-        title: '端末への保存を確認できません',
-        detail: 'データ管理からJSONを書き出し、端末の空き容量を確認してください。',
+        tone: 'warning' as const,
+        title: '緊急バックアップを更新できません',
+        detail: 'iPad本体の空き容量とは別の、ブラウザ内の保存上限です。IndexedDBとクラウド同期は継続します。',
         icon: ShieldAlert,
       }
     : syncStatus === 'conflict'
