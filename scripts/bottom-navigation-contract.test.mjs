@@ -22,8 +22,11 @@ assert.ok(
 
 assert.match(contractCss, /position:\s*fixed\s*!important;/, '下部ナビはviewport基準で固定する');
 assert.match(contractCss, /bottom:\s*0\s*!important;/, '下部ナビを画面下端へ固定する');
-assert.match(contractCss, /left:\s*50%\s*!important;/, '下部ナビを画面中央へ配置する');
-assert.match(contractCss, /transform:\s*translateX\(-50%\)\s*!important;/, '中央寄せを維持する');
+assert.match(contractCss, /left:\s*0\s*!important;/, '固定要素をビューポート左端基準にする');
+assert.match(contractCss, /right:\s*0\s*!important;/, '固定要素をビューポート右端基準にする');
+assert.match(contractCss, /margin-inline:\s*auto\s*!important;/, '下部ナビを画面中央へ配置する');
+assert.match(contractCss, /transform:\s*none\s*!important;/, '親の変形に依存しない固定レイアウトにする');
+assert.match(appSource, /<div className="app-shell">[\s\S]*?<\/div>[\s\S]*?<nav/, 'BottomNavigationをスクロール対象のapp-shell外へ配置する');
 assert.match(
   contractCss,
   /padding-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)\s*!important;/,

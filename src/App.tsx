@@ -116,27 +116,37 @@ function Shell() {
   }
 
   return (
-    <div className="app-shell">
-      {!immersive && <SyncStatusBanner onOpenSettings={() => setSettingsOpen(true)} />}
-      {tab === 'today' && <TodayScreen
-        onOpenSettings={() => setSettingsOpen(true)}
-        memorySetCount={memorySets.length}
-        hasActiveMemorySession={Boolean(activeMemorySession)}
-        memoryWeakCount={memoryTodaySummary.weakCount}
-        recentMemorySession={memoryTodaySummary.recent}
-        onOpenMemory={() => {
-          navigateMemory(activeMemorySession
-            ? { name: 'study', sessionId: activeMemorySession.id }
-            : { name: 'home' });
-          setMaterialsPane('memory');
-          setTab('materials');
-        }} />}
-      {tab === 'plan' && <PlanScreen />}
-      {tab === 'materials' && <MaterialsScreen pane={materialsPane} onPaneChange={setMaterialsPane} />}
-      {tab === 'records' && <RecordsScreen />}
-      {tab === 'analytics' && <AnalyticsScreen />}
+    <>
+      <div className="app-shell">
+        {!immersive && <SyncStatusBanner onOpenSettings={() => setSettingsOpen(true)} />}
+        {tab === 'today' && <TodayScreen
+          onOpenSettings={() => setSettingsOpen(true)}
+          memorySetCount={memorySets.length}
+          hasActiveMemorySession={Boolean(activeMemorySession)}
+          memoryWeakCount={memoryTodaySummary.weakCount}
+          recentMemorySession={memoryTodaySummary.recent}
+          onOpenMemory={() => {
+            navigateMemory(activeMemorySession
+              ? { name: 'study', sessionId: activeMemorySession.id }
+              : { name: 'home' });
+            setMaterialsPane('memory');
+            setTab('materials');
+          }} />}
+        {tab === 'plan' && <PlanScreen />}
+        {tab === 'materials' && <MaterialsScreen pane={materialsPane} onPaneChange={setMaterialsPane} />}
+        {tab === 'records' && <RecordsScreen />}
+        {tab === 'analytics' && <AnalyticsScreen />}
 
-      {/* UX契約: 通常画面の主要5タブは、スクロール位置に関係なく常に画面下へ固定する。 */}
+        {!immersive && <PlanHistoryLauncher />}
+        <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <TimerOverlay />
+      </div>
+
+      {/*
+       * UX契約: ナビはスクロール対象の app-shell の外に置く。
+       * iPadOS のスクロールコンテナや親の transform/overflow/contain が
+       * position: fixed の基準を変えないよう、ここをビューポート直下に保つ。
+       */}
       {!immersive && (
         <nav
           className="bottom-nav"
@@ -159,11 +169,7 @@ function Shell() {
           ))}
         </nav>
       )}
-
-      {!immersive && <PlanHistoryLauncher />}
-      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <TimerOverlay />
-    </div>
+    </>
   );
 }
 
