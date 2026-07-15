@@ -12,6 +12,7 @@ interface SheetProps {
 
 function isVisibleFocusable(element: HTMLElement, root: HTMLElement) {
   if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+  if (element.closest('fieldset[disabled]')) return false;
   if (!root.contains(element)) return false;
 
   const style = window.getComputedStyle(element);
