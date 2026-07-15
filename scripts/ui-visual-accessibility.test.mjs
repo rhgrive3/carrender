@@ -129,8 +129,11 @@ const main = read('src/main.tsx');
 const polishImport = main.indexOf("import './styles/accessibility-polish.css';");
 const featureFixImport = main.indexOf("import './styles/record-chart-fixes.css';");
 assert.ok(polishImport > featureFixImport, '共通アクセシビリティ補正は画面別CSSより後に読み込む');
-assert.match(main, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches[\s\S]*boot\.remove\(\)[\s\S]*return/);
-assert.doesNotMatch(main, /requestAnimationFrame\([\s\S]*setTimeout\([\s\S]*boot\.remove\(\)[\s\S]*\}\s*,\s*250\s*\);\s*\}\);\s*$/m);
+const reducedMotionBootCheck = main.indexOf("if (window.matchMedia('(prefers-reduced-motion: reduce)').matches)");
+const animatedBootDelay = main.indexOf('setTimeout', reducedMotionBootCheck);
+assert.ok(reducedMotionBootCheck !== -1, '起動スプラッシュもreduced motion設定を確認する');
+assert.ok(animatedBootDelay > reducedMotionBootCheck, '起動スプラッシュの即時解除判定をアニメーション待機より先に行う');
+assert.match(main.slice(reducedMotionBootCheck, animatedBootDelay), /boot\.remove\(\);[\s\S]*return;/);
 
 const indexHtml = read('index.html');
 const viteConfig = read('vite.config.ts');
