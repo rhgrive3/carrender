@@ -24,6 +24,8 @@ assert.match(authContext, /const reconciliationInFlight = useRef<Promise<void> \
 assert.match(authContext, /const reconcile = useCallback[\s\S]*if \(existing\) return existing;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*const nextUser = await migratedUser/, '重複再確認を統合し、古い応答では所有者移行を開始しない');
 assert.match(authContext, /const waitForReconciliation = useCallback[\s\S]*if \(pending\) await pending/, '認証操作は進行中の所有者移行完了を待つ');
 assert.match(authContext, /catch \(e\) \{[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*const err = e as ApiError/, '古い再確認エラーでもログアウト後の状態を上書きしない');
+assert.match(authContext, /if \(err\.isNetworkError\)[\s\S]*if \(hint\)[\s\S]*setOfflineUnverified\(true\)[\s\S]*else \{[\s\S]*setUser\(null\)[\s\S]*setStatus\('anonymous'\)[\s\S]*setOfflineUnverified\(false\)/, 'オフラインヒントがない通信失敗では古い認証状態を完全に破棄する');
+assert.match(authContext, /setUser\(null\)[\s\S]*setStatus\('anonymous'\)[\s\S]*setOfflineUnverified\(false\)[\s\S]*writeHint\(null\)/, 'セッション無効時は利用者・状態・未確認フラグ・保存ヒントを一貫して破棄する');
 assert.match(authContext, /const login = useCallback[\s\S]*if \(!beginOperation\(\)\) return false;[\s\S]*await waitForReconciliation\(\);[\s\S]*apiLogin/, 'ログインは再確認と所有者移行が終わってから送信する');
 assert.match(authContext, /const register = useCallback[\s\S]*if \(!beginOperation\(\)\) return false;[\s\S]*await waitForReconciliation\(\);[\s\S]*apiRegister/, '登録は再確認と所有者移行が終わってから送信する');
 assert.match(authContext, /const logout = useCallback[\s\S]*if \(!beginOperation\(\)\) return;[\s\S]*await waitForReconciliation\(\);[\s\S]*apiLogout/, 'ログアウトも再確認と所有者移行の完了後に実行する');
