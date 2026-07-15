@@ -77,6 +77,8 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         responseMs: performance.now() - questionStarted.current,
         presentedExerciseType: 'flashcard',
       });
+      setRevealed(false);
+      questionStarted.current = performance.now();
       setSession(result.session);
       await refresh();
       void requestSync(result.session.status === 'completed');
@@ -95,6 +97,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       const restored = await undoMemoryAnswer(repository, session);
       if (!restored) toast('取り消せる回答はありません');
       else {
+        setRevealed(false);
         setSession(restored.session);
         await refresh();
         toast('最後の回答を取り消しました');
@@ -123,11 +126,11 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       </header>
       <div className="memory-study-mode">{target.mode === 'output' ? '日本語 → 英語' : '英語 → 日本語'}</div>
       <main className="memory-study-stage">
-        <article className={`memory-study-card memory-simple-study-card ${revealed ? 'revealed' : ''}`} aria-live="polite" onClick={() => { if (!revealed) setRevealed(true); }}>
+        <article className={`memory-study-card memory-simple-study-card ${revealed ? 'revealed' : ''}`} aria-live="polite" onClick={() => { if (!revealed && !busy) setRevealed(true); }}>
           <span className="memory-simple-card-kicker">{revealed ? '答え' : '思い出す'}</span>
           <h1>{prompt}</h1>
           {!revealed ? (
-            <button type="button" className="memory-reveal-button" onClick={(event) => { event.stopPropagation(); setRevealed(true); }}><Eye size={20} />答えを見る</button>
+            <button type="button" className="memory-reveal-button" disabled={busy} onClick={(event) => { event.stopPropagation(); setRevealed(true); }}><Eye size={20} />答えを見る</button>
           ) : (
             <div className="memory-answer-reveal">
               <h2>{answer || '答えが登録されていません'}</h2>
