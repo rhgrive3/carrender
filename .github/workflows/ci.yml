@@ -15,6 +15,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  typecheck-debug:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Show type errors
+        shell: bash
+        run: |
+          set -o pipefail
+          git clone -q --depth 1 --branch "${{ github.head_ref }}" "https://github.com/${{ github.repository }}.git" repo
+          cd repo
+          npm ci --silent
+          npm run typecheck 2>&1 | grep -E 'error TS|^> '
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
