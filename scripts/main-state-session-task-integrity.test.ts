@@ -22,9 +22,19 @@ function state(): AppState {
 {
   const base = state();
   const local = { ...base, tasks: [] };
+  const remote = base;
+  const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
+  assert.ok(result.merged, '記録済みタスクの削除だけなら同期できる');
+  assert.equal(result.merged.tasks.length, 0);
+  assert.equal(result.merged.sessions[0]?.taskId, null, '履歴を残したまま削除タスクへの参照を外す');
+}
+
+{
+  const base = state();
+  const local = { ...base, tasks: [] };
   const remote = { ...base, sessions: [{ ...session, memo: '別端末で記録を編集' }] };
   const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
-  assert.equal(result.merged, null, '削除済みタスクを参照する記録を自動統合しない');
+  assert.equal(result.merged, null, '削除済みタスクを参照する編集済み記録を自動統合しない');
   assert.ok(result.conflicts.some((conflict) => conflict.section === 'tasks' && conflict.key === task.id));
 }
 
