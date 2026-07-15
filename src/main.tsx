@@ -10,6 +10,7 @@ import './styles/layoutContracts.css';
 import './styles/memory-simple.css';
 import './styles/memory-card-ux.css';
 import './styles/memory-compact-fixes.css';
+import './styles/record-chart-fixes.css';
 import { registerSW } from 'virtual:pwa-register';
 import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 import { preserveUnreadableState } from './lib/preserveUnreadableState';
