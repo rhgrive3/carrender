@@ -10,6 +10,11 @@ export interface RecordSubjectDisplay {
 const DELETED_SUBJECT_NAME = '削除済みの科目';
 const DELETED_SUBJECT_COLOR = 'var(--text-muted)';
 
+function deletedSubjectLabel(subjectId: string): string {
+  const compactId = subjectId.replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase();
+  return compactId ? `${DELETED_SUBJECT_NAME} · ${compactId}` : DELETED_SUBJECT_NAME;
+}
+
 /** 過去の学習記録が参照する科目を、削除済みの場合も表示可能な形へ正規化する。 */
 export function resolveRecordSubject(subjects: Subject[], subjectId: string): RecordSubjectDisplay {
   const subject = subjects.find((item) => item.id === subjectId);
@@ -23,7 +28,7 @@ export function resolveRecordSubject(subjects: Subject[], subjectId: string): Re
   }
   return {
     id: subjectId,
-    name: DELETED_SUBJECT_NAME,
+    name: deletedSubjectLabel(subjectId),
     color: DELETED_SUBJECT_COLOR,
     deleted: true,
   };
