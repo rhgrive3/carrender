@@ -1,0 +1,32 @@
+/* 暗記画面の簡潔表示契約 */
+
+/* 操作は見れば分かるため、スワイプ説明は画面へ出さない。機能自体は維持する。 */
+.memory-card-swipe-hint {
+  display: none;
+}
+
+/* global.css の .card + .card が結果グリッド内の2枚目以降を押し下げないよう解除する。 */
+.memory-simple-result-grid {
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
+.memory-simple-result-grid > .card,
+.memory-simple-result-grid > .card + .card {
+  min-height: 104px;
+  height: 100%;
+  margin-top: 0;
+  padding: 14px 16px;
+  justify-content: center;
+}
+
+.memory-simple-result-grid > .card small {
+  line-height: 1.3;
+}
+
+@media (min-width: 721px) {
+  .memory-simple-result-grid {
+    max-width: 880px;
+    margin-inline: auto;
+  }
+}
