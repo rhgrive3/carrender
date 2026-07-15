@@ -7,7 +7,9 @@ import '@fontsource-variable/noto-sans-jp';
 import './styles/global.css';
 import { registerSW } from 'virtual:pwa-register';
 import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
+import { preserveUnreadableState } from './lib/preserveUnreadableState';
 
+preserveUnreadableState();
 registerSW({ immediate: true });
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
