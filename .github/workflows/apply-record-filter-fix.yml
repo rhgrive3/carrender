@@ -1,0 +1,110 @@
+name: Apply record filter fix
+
+on:
+  push:
+    branches:
+      - fix/record-deleted-subject-filter
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/record-deleted-subject-filter
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply focused fix and tests
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          lib = Path('src/lib/recordSubjects.ts')
+          text = lib.read_text()
+          marker = "\n/** セッションを科目別に集計し、削除済み科目も失わず返す。 */\n"
+          addition = """
+/** 学習ログの科目フィルター候補。現行科目に加え、記録が残る削除済み科目も返す。 */
+export function listRecordSubjectFilters(
+  sessions: Pick<StudySession, 'subjectId'>[],
+  subjects: Subject[],
+): RecordSubjectDisplay[] {
+  const active = subjects.map((subject) => resolveRecordSubject(subjects, subject.id));
+  const activeIds = new Set(subjects.map((subject) => subject.id));
+  const deletedIds = [...new Set(sessions.map((session) => session.subjectId))]
+    .filter((subjectId) => !activeIds.has(subjectId));
+  const deleted = deletedIds
+    .map((subjectId) => resolveRecordSubject(subjects, subjectId))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ja') || a.id.localeCompare(b.id));
+  return [...active, ...deleted];
+}
+"""
+          if 'export function listRecordSubjectFilters' not in text:
+              text = text.replace(marker, '\n' + addition + marker)
+          lib.write_text(text)
+
+          screen = Path('src/screens/RecordsScreen.tsx')
+          text = screen.read_text()
+          text = text.replace(
+              "import { resolveRecordSubject, summarizeRecordSubjects } from '../lib/recordSubjects';",
+              "import { listRecordSubjectFilters, resolveRecordSubject, summarizeRecordSubjects } from '../lib/recordSubjects';",
+          )
+          anchor = "  const filteredLogSessions = useMemo(() => {\n"
+          insertion = "  const logSubjectOptions = useMemo(\n    () => listRecordSubjectFilters(state.sessions, state.subjects),\n    [state.sessions, state.subjects],\n  );\n"
+          if 'const logSubjectOptions = useMemo' not in text:
+              text = text.replace(anchor, insertion + anchor)
+          old = "{state.subjects.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}"
+          new = "{logSubjectOptions.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}"
+          if old not in text:
+              raise SystemExit('subject filter select pattern not found')
+          text = text.replace(old, new)
+          screen.write_text(text)
+
+          test = Path('scripts/record-subject-display.test.ts')
+          text = test.read_text()
+          text = text.replace(
+              "import { resolveRecordSubject, summarizeRecordSubjects } from '../src/lib/recordSubjects';",
+              "import { listRecordSubjectFilters, resolveRecordSubject, summarizeRecordSubjects } from '../src/lib/recordSubjects';",
+          )
+          marker = "\nconst chartFixCss = readFileSync"
+          addition = """
+
+const filterOptions = listRecordSubjectFilters([
+  { subjectId: 'subject-active' },
+  { subjectId: 'subject-deleted' },
+  { subjectId: 'subject-deleted-2' },
+  { subjectId: 'subject-deleted' },
+], subjects);
+assert.deepEqual(
+  filterOptions.map((subject) => subject.id),
+  ['subject-active', 'subject-deleted-2', 'subject-deleted'],
+  '現行科目に加え、記録が残る削除済み科目を重複なくフィルター候補へ出す',
+);
+assert.equal(filterOptions[0].name, '数学');
+assert.ok(filterOptions.slice(1).every((subject) => subject.deleted));
+
+const recordsSource = readFileSync(new URL('../src/screens/RecordsScreen.tsx', import.meta.url), 'utf8');
+assert.match(recordsSource, /listRecordSubjectFilters\(state\.sessions, state\.subjects\)/, '全記録から削除済み科目のフィルター候補を作る');
+assert.match(recordsSource, /logSubjectOptions\.map\(\(subject\)/, '学習ログの科目選択へ削除済み科目も表示する');
+"""
+          if 'const filterOptions = listRecordSubjectFilters' not in text:
+              text = text.replace(marker, addition + marker)
+          test.write_text(text)
+          PY
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:regressions
+      - name: Remove helper workflow and commit
+        run: |
+          rm .github/workflows/apply-record-filter-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/lib/recordSubjects.ts src/screens/RecordsScreen.tsx scripts/record-subject-display.test.ts .github/workflows/apply-record-filter-fix.yml
+          git commit -m "fix: filter records by deleted subjects"
+          git push origin HEAD:fix/record-deleted-subject-filter
