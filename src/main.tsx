@@ -8,6 +8,7 @@ import './styles/global.css';
 import './styles/ux-audit.css';
 import './styles/layoutContracts.css';
 import './styles/memory-simple.css';
+import './styles/memory-card-ux.css';
 import { registerSW } from 'virtual:pwa-register';
 import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 import { preserveUnreadableState } from './lib/preserveUnreadableState';

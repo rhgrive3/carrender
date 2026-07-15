@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Eye, RotateCcw, X } from 'lucide-react';
+import { Eye, EyeOff, RotateCcw, X } from 'lucide-react';
 import type { MemorySession, MemorySetBundle } from '../domain/types';
 import { currentLearningTarget, sessionQueueProgress } from '../domain/sessionQueue';
 import { answerMemoryQuestion, queueFromSession, sessionContentIsRestorable, undoMemoryAnswer } from '../application/session';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
+
+const SWIPE_THRESHOLD_PX = 48;
 
 export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const { repository, navigate, refresh, requestSync } = useMemory();
@@ -15,6 +17,8 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string>();
   const questionStarted = useRef(performance.now());
+  const pointerStartX = useRef<number | null>(null);
+  const ignoreNextClick = useRef(false);
 
   useEffect(() => {
     if (!repository) return;
@@ -107,6 +111,29 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     }
   };
 
+  const setCardSide = (next: boolean) => {
+    if (!busy) setRevealed(next);
+  };
+
+  const handleFaceClick = (next: boolean) => {
+    if (ignoreNextClick.current) {
+      ignoreNextClick.current = false;
+      return;
+    }
+    setCardSide(next);
+  };
+
+  const handlePointerUp = (clientX: number) => {
+    const start = pointerStartX.current;
+    pointerStartX.current = null;
+    if (start === null || busy) return;
+    const delta = clientX - start;
+    if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return;
+    ignoreNextClick.current = true;
+    setRevealed(delta < 0);
+    window.setTimeout(() => { ignoreNextClick.current = false; }, 0);
+  };
+
   if (loadError) {
     return <div className="memory-study-overlay"><div className="card memory-study-load-error" role="alert"><h2>セッションを開けませんでした</h2><p>{loadError}</p><button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'home' })}>暗記ホームへ戻る</button></div></div>;
   }
@@ -115,34 +142,78 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   }
 
   const prompt = target.mode === 'input' ? item.label : sense.promptJa;
-  const answer = target.mode === 'input' ? sense.promptJa : answers.map((value) => value.displayForm).join('／');
+  const displayedAnswers = target.mode === 'input'
+    ? [sense.promptJa]
+    : answers.map((value) => value.displayForm).filter(Boolean);
+  const directionLabel = target.mode === 'output' ? '日本語 → 英語' : '英語 → 日本語';
+  const promptLanguage = target.mode === 'output' ? '日本語' : '英語';
+  const answerLanguage = target.mode === 'output' ? '英語' : '日本語';
 
   return (
     <div className="memory-study-overlay memory-simple-study" role="dialog" aria-modal="true" aria-label="暗記学習">
       <header className="memory-study-header">
         <button type="button" className="memory-study-icon" aria-label="学習を閉じて途中保存" onClick={() => navigate({ name: 'home' })}><X size={23} /></button>
-        <div className="memory-study-progress"><b>{progress.graduated} / {progress.total}</b><span>回答 {progress.answerCount}回</span></div>
+        <div className="memory-study-progress" aria-live="polite"><b>{progress.graduated} / {progress.total}</b><span>回答 {progress.answerCount}回</span></div>
         <button type="button" className="memory-study-icon" aria-label="最後の回答を取り消す" disabled={!queue.undo || busy} onClick={() => void undo()}><RotateCcw size={21} /></button>
       </header>
-      <div className="memory-study-mode">{target.mode === 'output' ? '日本語 → 英語' : '英語 → 日本語'}</div>
+      <div className="memory-study-mode">{directionLabel}</div>
       <main className="memory-study-stage">
-        <article className={`memory-study-card memory-simple-study-card ${revealed ? 'revealed' : ''}`} aria-live="polite" onClick={() => { if (!revealed && !busy) setRevealed(true); }}>
-          <span className="memory-simple-card-kicker">{revealed ? '答え' : '思い出す'}</span>
-          <h1>{prompt}</h1>
-          {!revealed ? (
-            <button type="button" className="memory-reveal-button" disabled={busy} onClick={(event) => { event.stopPropagation(); setRevealed(true); }}><Eye size={20} />答えを見る</button>
-          ) : (
-            <div className="memory-answer-reveal">
-              <h2>{answer || '答えが登録されていません'}</h2>
-              {example && <div className="memory-example"><span>{example.english}</span>{example.japanese && <small>{example.japanese}</small>}</div>}
+        <div
+          className="memory-study-flip-shell"
+          onPointerDown={(event) => { if (event.isPrimary) pointerStartX.current = event.clientX; }}
+          onPointerUp={(event) => { if (event.isPrimary) handlePointerUp(event.clientX); }}
+          onPointerCancel={() => { pointerStartX.current = null; }}
+        >
+          <article
+            key={target.id}
+            className={`memory-study-card memory-simple-study-card ${revealed ? 'revealed' : ''}`}
+            data-card-side={revealed ? 'answer' : 'question'}
+          >
+            <div className="memory-study-card-inner">
+              <button
+                type="button"
+                className="memory-study-card-face memory-study-card-front"
+                aria-label="答えを見る"
+                aria-hidden={revealed}
+                tabIndex={revealed ? -1 : 0}
+                disabled={busy}
+                onClick={() => handleFaceClick(true)}
+              >
+                <span className="memory-card-side-label">問題 <small>{promptLanguage}</small></span>
+                <h1>{prompt}</h1>
+                <span className="memory-card-toggle-hint"><Eye size={18} />タップして答えを見る</span>
+                <span className="memory-card-swipe-hint">左へスワイプでもめくれます</span>
+              </button>
+
+              <button
+                type="button"
+                className="memory-study-card-face memory-study-card-back"
+                aria-label="問題に戻る"
+                aria-hidden={!revealed}
+                tabIndex={revealed ? 0 : -1}
+                disabled={busy}
+                onClick={() => handleFaceClick(false)}
+              >
+                <span className="memory-card-side-label">答え <small>{answerLanguage}</small></span>
+                <div className="memory-card-back-prompt">{prompt}</div>
+                <div className="memory-answer-reveal">
+                  <div className="memory-card-answer-list">
+                    {(displayedAnswers.length > 0 ? displayedAnswers : ['答えが登録されていません']).map((value, index) => <h2 key={`${value}-${index}`}>{value}</h2>)}
+                  </div>
+                  {example && <div className="memory-example"><span>{example.english}</span>{example.japanese && <small>{example.japanese}</small>}</div>}
+                </div>
+                <span className="memory-card-toggle-hint"><EyeOff size={18} />タップして問題に戻る</span>
+                <span className="memory-card-swipe-hint">右へスワイプでも戻せます</span>
+              </button>
             </div>
-          )}
-        </article>
+          </article>
+        </div>
+
         {revealed && (
           <div className="memory-simple-assessment" aria-label="自己評価">
-            <button type="button" className="memory-again" disabled={busy} onClick={() => void commit('incorrect')}><ChevronLeft size={20} />まだ</button>
-            <button type="button" className="memory-partial" disabled={busy} onClick={() => void commit('partial')}>あやしい</button>
-            <button type="button" className="memory-good" disabled={busy} onClick={() => void commit('correct')}>覚えた</button>
+            <button type="button" className="memory-again" aria-label="まだ" disabled={busy} onClick={() => void commit('incorrect')}><span>まだ</span><small>もう一度</small></button>
+            <button type="button" className="memory-partial" aria-label="あやしい" disabled={busy} onClick={() => void commit('partial')}><span>あやしい</span><small>あとで確認</small></button>
+            <button type="button" className="memory-good" aria-label="覚えた" disabled={busy} onClick={() => void commit('correct')}><span>覚えた</span><small>次へ</small></button>
           </div>
         )}
       </main>
