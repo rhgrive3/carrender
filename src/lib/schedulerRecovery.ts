@@ -43,6 +43,19 @@ function isMovableOverdueTask(state: AppState, task: StudyTask, today: ISODate):
   return Boolean(deadline && deadline < today);
 }
 
+/**
+ * 進行中の厳守教材に属する復習は、親教材の期限保証を壊さない範囲で回復する。
+ * 教材が完了済み、または親期限自体が既に過ぎている場合は回復窓全体を使える。
+ */
+function recoveryDeadlineForTask(state: AppState, task: StudyTask, today: ISODate, end: ISODate): ISODate {
+  if (task.type !== 'review' || !task.materialId) return end;
+  const material = state.materials.find((item) => item.id === task.materialId);
+  if (!material || material.deadlinePolicy !== 'strict') return end;
+  const remaining = material.doneAmount < material.totalAmount;
+  if (!remaining || material.targetDate < today) return end;
+  return material.targetDate < end ? material.targetDate : end;
+}
+
 function fixedEventsOn(state: AppState, date: ISODate) {
   const weekday = weekdayOf(date);
   return state.fixedEvents.filter((event) => {
@@ -111,8 +124,11 @@ function spreadOverdueReviewReleases(
     .filter((task) => task.type === 'review')
     .sort((a, b) => (taskDeadline(a) ?? '').localeCompare(taskDeadline(b) ?? '') || a.id.localeCompare(b.id));
   for (const task of reviews) {
+    const deadline = recoveryDeadlineForTask(state, task, today, end);
+    const eligibleDays = days.filter((day) => day.date <= deadline);
+    if (eligibleDays.length === 0) continue;
     const minutes = Math.max(1, task.estimatedMinutes);
-    const chosen = [...days].sort((a, b) => {
+    const chosen = [...eligibleDays].sort((a, b) => {
       const aProjected = ((load.get(a.date) ?? 0) + minutes) / Math.max(1, a.capacity);
       const bProjected = ((load.get(b.date) ?? 0) + minutes) / Math.max(1, b.capacity);
       return aProjected - bProjected
@@ -170,6 +186,17 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   if (overdueMaterials.size === 0 && overdueTasks.size === 0) return generateBasePlanV2(state, context);
 
   const reviewReleases = spreadOverdueReviewReleases(state, [...overdueTasks.values()], today, end);
+  const completedStrictReviewMaterialIds = new Set(
+    [...overdueTasks.values()]
+      .filter((task) => task.type === 'review' && task.materialId)
+      .map((task) => task.materialId!)
+      .filter((materialId) => {
+        const material = state.materials.find((item) => item.id === materialId);
+        return Boolean(material
+          && material.deadlinePolicy === 'strict'
+          && material.doneAmount >= material.totalAmount);
+      }),
+  );
   const adjustedState: AppState = {
     ...state,
     // 目標日が既に過ぎている時だけ、内部計算用の目標日も回復窓まで延ばす。
@@ -177,24 +204,30 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     goal: state.goal && state.goal.examDate < end ? { ...state.goal, examDate: end } : state.goal,
     materials: state.materials.map((material) => {
       const original = overdueMaterials.get(material.id);
-      if (!original) return material;
-      return {
-        ...material,
-        targetDate: end,
-        preferredFinishDate: undefined,
-        deadlinePolicy: original.deadlinePolicy === 'strict' ? 'normal' : original.deadlinePolicy,
-      };
+      if (original) {
+        return {
+          ...material,
+          targetDate: end,
+          preferredFinishDate: undefined,
+          deadlinePolicy: original.deadlinePolicy === 'strict' ? 'normal' : original.deadlinePolicy,
+        };
+      }
+      // 完了済み教材には新規学習の期限保証対象が残っていないため、復習だけを
+      // 回復するときは親教材のstrict判定を一時的に外してよい。
+      if (completedStrictReviewMaterialIds.has(material.id)) return { ...material, deadlinePolicy: 'normal' };
+      return material;
     }),
     tasks: state.tasks.map((task) => {
       const original = overdueTasks.get(task.id);
       if (!original) return task;
+      const recoveryDeadline = recoveryDeadlineForTask(state, task, today, end);
       const manualScheduling = task.manualScheduling?.placementPolicy === 'flexibleBeforeDeadline'
-        ? { ...task.manualScheduling, deadline: end }
+        ? { ...task.manualScheduling, deadline: recoveryDeadline }
         : task.manualScheduling;
       return {
         ...task,
         scheduledDate: reviewReleases.get(task.id) ?? task.scheduledDate,
-        dueDate: task.dueDate && task.dueDate < today ? end : task.dueDate,
+        dueDate: task.dueDate && task.dueDate < today ? recoveryDeadline : task.dueDate,
         manualScheduling,
       };
     }),
@@ -206,11 +239,14 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     targetId: material.id,
     message: `${material.name}は期限を${diffDays(material.targetDate, today)}日超過しています。未完了分を${today}〜${end}へ回復計画として再配置しました`,
   }));
-  const taskWarnings = [...overdueTasks.values()].map((task) => ({
-    code: 'OVERDUE_RECOVERY',
-    targetId: task.id,
-    message: `「${task.title}」は期限を${diffDays(taskDeadline(task)!, today)}日超過しています。未完了分を${today}〜${end}へ回復計画として再配置しました`,
-  }));
+  const taskWarnings = [...overdueTasks.values()].map((task) => {
+    const recoveryDeadline = recoveryDeadlineForTask(state, task, today, end);
+    return {
+      code: 'OVERDUE_RECOVERY',
+      targetId: task.id,
+      message: `「${task.title}」は期限を${diffDays(taskDeadline(task)!, today)}日超過しています。未完了分を${today}〜${recoveryDeadline}へ回復計画として再配置しました`,
+    };
+  });
   const overdueStrict = [...overdueMaterials.values()].filter((material) => material.deadlinePolicy === 'strict').length
     + [...overdueTasks.values()].filter((task) => task.manualScheduling?.placementPolicy === 'flexibleBeforeDeadline').length;
   const overdueNormalMinutes = result.deadlineReports.reduce((sum, report) => {
