@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Play } from 'lucide-react';
 import type { MemoryQuestionCount, MemorySessionConfig } from '../domain/types';
 import { generateLearningTargets, resolveQuestionCount } from '../domain/targets';
-import { createStudySession } from '../application/session';
+import { createSimpleStudySession } from '../application/simpleSession';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
 
@@ -58,7 +58,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         includeUnverifiedAi: false,
         preferredExerciseType: 'flashcard',
       };
-      const created = await createStudySession({ repository, selectedSetIds, config });
+      const created = await createSimpleStudySession({ repository, selectedSetIds, config });
       await refresh();
       navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) {
@@ -71,9 +71,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   return (
     <section className="memory-study-setup memory-simple-setup">
       <div className="memory-page-header">
-        <button type="button" className="icon-btn" aria-label="暗記ホームへ戻る" onClick={() => navigate({ name: 'home' })}>
-          <ArrowLeft size={21} />
-        </button>
+        <button type="button" className="icon-btn" aria-label="暗記ホームへ戻る" onClick={() => navigate({ name: 'home' })}><ArrowLeft size={21} /></button>
         <div><h2>学習設定</h2><p>必要な項目だけ選んで、すぐ始める</p></div>
       </div>
 
@@ -83,18 +81,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
           <div className="memory-set-chips">
             {sets.map((set) => {
               const checked = selectedSetIds.includes(set.id);
-              return (
-                <label key={set.id} className={checked ? 'active' : ''}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(event) => setSelectedSetIds((current) => event.target.checked
-                      ? [...new Set([...current, set.id])]
-                      : current.filter((id) => id !== set.id))}
-                  />
-                  {set.name}
-                </label>
-              );
+              return <label key={set.id} className={checked ? 'active' : ''}><input type="checkbox" checked={checked} onChange={(event) => setSelectedSetIds((current) => event.target.checked ? [...new Set([...current, set.id])] : current.filter((id) => id !== set.id))} />{set.name}</label>;
             })}
           </div>
         </fieldset>
@@ -102,32 +89,20 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         <fieldset>
           <legend>出題方向</legend>
           <div className="memory-simple-direction" role="radiogroup" aria-label="出題方向">
-            <button type="button" role="radio" aria-checked={direction === 'output'} className={direction === 'output' ? 'active' : ''} onClick={() => setDirection('output')}>
-              <b>日本語 → 英語</b><span>英語を自力で思い出す</span>
-            </button>
-            <button type="button" role="radio" aria-checked={direction === 'input'} className={direction === 'input' ? 'active' : ''} onClick={() => setDirection('input')}>
-              <b>英語 → 日本語</b><span>意味を確認する</span>
-            </button>
+            <button type="button" role="radio" aria-checked={direction === 'output'} className={direction === 'output' ? 'active' : ''} onClick={() => setDirection('output')}><b>日本語 → 英語</b><span>英語を自力で思い出す</span></button>
+            <button type="button" role="radio" aria-checked={direction === 'input'} className={direction === 'input' ? 'active' : ''} onClick={() => setDirection('input')}><b>英語 → 日本語</b><span>意味を確認する</span></button>
           </div>
         </fieldset>
 
         <fieldset>
           <legend>問題数</legend>
           <div className="memory-option-grid three" role="radiogroup" aria-label="問題数">
-            {([['weak10', '苦手中心 10問'], ['20', '20問'], ['all', '全部']] as const).map(([value, label]) => (
-              <button key={value} type="button" role="radio" aria-checked={countChoice === value} className={countChoice === value ? 'active' : ''} onClick={() => setCountChoice(value)}>
-                {label}
-              </button>
-            ))}
+            {([['weak10', '苦手中心 10問'], ['20', '20問'], ['all', '全部']] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={countChoice === value} className={countChoice === value ? 'active' : ''} onClick={() => setCountChoice(value)}>{label}</button>)}
           </div>
         </fieldset>
 
-        <div className="memory-start-summary" aria-live="polite">
-          {eligibleCount === 0 ? '出題できるカードがありません' : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}
-        </div>
-        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || plannedCount === 0} onClick={() => void start()}>
-          <Play size={20} fill="currentColor" />{starting ? '準備中…' : '学習を始める'}
-        </button>
+        <div className="memory-start-summary" aria-live="polite">{eligibleCount === 0 ? '出題できるカードがありません' : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}</div>
+        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || plannedCount === 0} onClick={() => void start()}><Play size={20} fill="currentColor" />{starting ? '準備中…' : '学習を始める'}</button>
       </div>
     </section>
   );
