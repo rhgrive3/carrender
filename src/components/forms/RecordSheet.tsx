@@ -6,6 +6,7 @@ import { resolveSessionProgress, useApp } from '../../state/AppContext';
 import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
 import { APP_TIME_ZONE, minutesInTimeZone, minutesToHM, today } from '../../lib/date';
+import { missingRecordMaterialOption, missingRecordSubjectOption } from '../../lib/recordReferences';
 import type { StudySession } from '../../types';
 
 export interface RecordPreset {
@@ -51,6 +52,14 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
   const materials = useMemo(
     () => state.materials.filter((m) => (!m.archived || m.id === session?.materialId) && m.subjectId === subjectId),
     [session?.materialId, state.materials, subjectId],
+  );
+  const missingSubject = useMemo(
+    () => missingRecordSubjectOption(state.subjects, subjectId),
+    [state.subjects, subjectId],
+  );
+  const missingMaterial = useMemo(
+    () => missingRecordMaterialOption(materials, materialId || null, session?.rangeLabel ?? ''),
+    [materialId, materials, session?.rangeLabel],
   );
   const selectedMaterialId = preset && !session ? preset.materialId : (materialId || null);
   const material = state.materials.find((m) => m.id === selectedMaterialId);
@@ -123,6 +132,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
                 setMaterialId('');
               }}
             >
+              {missingSubject && <option value={missingSubject.id}>{missingSubject.label}</option>}
               {state.subjects.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -134,6 +144,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
             <label htmlFor="rec-material">教材(任意)</label>
             <select id="rec-material" value={materialId} onChange={(e) => setMaterialId(e.target.value)}>
               <option value="">教材なし</option>
+              {missingMaterial && <option value={missingMaterial.id}>{missingMaterial.label}</option>}
               {materials.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
