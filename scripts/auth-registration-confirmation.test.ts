@@ -18,6 +18,10 @@ assert.match(source, /className="password-toggle-btn"[\s\S]*disabled=\{busy\}/, 
 assert.match(source, /setPassword\(''\)[\s\S]*setPasswordConfirmation\(''\)[\s\S]*setShowPassword\(false\)/, 'モード切り替え時に認証情報と表示状態を破棄する');
 assert.match(authContext, /const operationInFlight = useRef\(false\)/, '再描画前でも認証操作を排他できる同期ロックを持つ');
 assert.match(authContext, /if \(operationInFlight\.current\) return false;[\s\S]*operationInFlight\.current = true/, '同時に開始された二つ目の認証操作を拒否する');
+assert.match(authContext, /const authStateVersion = useRef\(0\)/, '認証状態を変更する操作の世代を追跡する');
+assert.match(authContext, /operationInFlight\.current = true;[\s\S]*authStateVersion\.current \+= 1/, '認証操作開始時に進行中の再確認結果を無効化する');
+assert.match(authContext, /const reconcile = useCallback[\s\S]*const startedAtVersion = authStateVersion\.current[\s\S]*if \(!isCurrent\(\)\) return;/, '古いセッション再確認結果を状態へ反映しない');
+assert.match(authContext, /catch \(e\) \{[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*const err = e as ApiError/, '古い再確認エラーでもログアウト後の状態を上書きしない');
 assert.match(authContext, /const login = useCallback[\s\S]*if \(!beginOperation\(\)\) return false/, 'ログインAPI呼び出し前に排他を取得する');
 assert.match(authContext, /const register = useCallback[\s\S]*if \(!beginOperation\(\)\) return false/, '登録API呼び出し前に排他を取得する');
 assert.match(authContext, /const logout = useCallback[\s\S]*if \(!beginOperation\(\)\) return;/, 'ログアウトも認証操作と重複させない');
