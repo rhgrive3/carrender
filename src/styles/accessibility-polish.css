@@ -1,0 +1,44 @@
+/*
+ * Cross-screen accessibility and iOS layout safeguards.
+ * Keep these overrides last so feature-specific styles cannot reintroduce
+ * motion or Safe Area regressions in fixed/portal UI.
+ */
+@layer overrides {
+  .timer-overlay {
+    padding-right: max(22px, env(safe-area-inset-right, 0px));
+    padding-left: max(22px, env(safe-area-inset-left, 0px));
+  }
+
+  .sheet-backdrop {
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+
+  @media (min-width: 768px), (orientation: landscape) {
+    .sheet-backdrop {
+      padding-right: max(24px, env(safe-area-inset-right, 0px));
+      padding-left: max(24px, env(safe-area-inset-left, 0px));
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto !important;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .bottom-nav button[aria-current='page'] {
+      outline: 2px solid Highlight;
+      outline-offset: -3px;
+    }
+
+    .progress-track,
+    .card,
+    .sheet,
+    .status-banner,
+    .list-surface {
+      border-color: CanvasText;
+    }
+  }
+}
