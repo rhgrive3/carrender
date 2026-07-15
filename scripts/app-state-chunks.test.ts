@@ -6,8 +6,10 @@ import { emptyState } from '../src/state/AppContext';
 import {
   decodeAppStateChunks,
   encodeAppStateChunks,
+  LEGACY_MAIN_STATE_CHUNK_FORMAT_VERSION,
   MAIN_STATE_CHUNK_FORMAT_VERSION,
   MAX_MAIN_STATE_CHUNK_BYTES,
+  sha256Hex,
   utf8Length,
   validateAppStateChunkManifest,
 } from '../src/lib/appStateChunks';
@@ -69,6 +71,50 @@ check('manifestを厳密検証できる', validateAppStateChunkManifest(encodedS
 check('全sectionを欠落なく往復する', isDeepStrictEqual(restoredSmall, small), restoredSmall);
 check('空sectionは0 chunkとして表現する', encodedSmall.manifest.sections.find((entry) => entry.name === 'tasks')?.chunkCount === 0);
 check('全chunkが指定上限以下', encodedSmall.chunks.every((chunk) => chunk.byteLength <= 1024 && utf8Length(chunk.json) === chunk.byteLength));
+
+console.log('--- AppState chunks: legacy format compatibility ---');
+const legacy = baseState();
+legacy.settings = {
+  ...legacy.settings,
+  historyData: {
+    planRevisions: [{
+      id: 'legacy-revision', generationId: 'legacy-generation', createdAt: '2026-07-14T00:00:00.000Z',
+      reason: '旧形式の計画', fromDate: '2026-07-14', placements: [], changes: [], materialChanges: [],
+    }],
+    monthlySummaries: [],
+  },
+};
+const encodedLegacyBase = await encodeAppStateChunks(legacy, 1024);
+const legacySettingsJson = JSON.stringify([legacy.settings]);
+const legacySettingsChunk = {
+  section: 'settings' as const,
+  index: 0,
+  json: legacySettingsJson,
+  hash: await sha256Hex(legacySettingsJson),
+  byteLength: utf8Length(legacySettingsJson),
+};
+const legacyChunks = [
+  ...encodedLegacyBase.chunks.filter((chunk) => chunk.section !== 'settings'),
+  legacySettingsChunk,
+];
+const legacySections = encodedLegacyBase.manifest.sections.map((section) => section.name === 'settings'
+  ? {
+      ...section,
+      chunkCount: 1,
+      itemCount: 1,
+      byteLength: legacySettingsChunk.byteLength,
+      hashes: [legacySettingsChunk.hash],
+    }
+  : section);
+const legacyManifest = {
+  formatVersion: LEGACY_MAIN_STATE_CHUNK_FORMAT_VERSION,
+  sections: legacySections,
+  totalChunks: legacyChunks.length,
+  totalItems: legacySections.reduce((sum, section) => sum + section.itemCount, 0),
+  totalBytes: legacyChunks.reduce((sum, chunk) => sum + chunk.byteLength, 0),
+};
+const restoredLegacy = await decodeAppStateChunks(legacyManifest, legacyChunks);
+check('旧format v1の計画履歴を読み込める', restoredLegacy.settings.historyData?.planRevisions[0]?.id === 'legacy-revision');
 
 console.log('--- AppState chunks: payload beyond legacy 5 MiB ---');
 const large = baseState();

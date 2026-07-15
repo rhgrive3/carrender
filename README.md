@@ -87,7 +87,7 @@ npm run dev        # http://localhost:5173/ (フロントエンドのみ、/api 
 npm run build      # dist/ を生成(型チェック込み)
 npm run preview    # ビルド結果をプレビュー
 npx vite-node scripts/smoke.ts   # スケジューラー/復習/分析ロジックのスモークテスト
-npm run typecheck:functions      # Pages Functions (functions/) の型チェック
+npx tsc -p tsconfig.functions.json --noEmit  # Pages Functions (functions/) の型チェック
 ```
 
 `/api/*` を含めてフルスタックでローカル確認したい場合は下記の「Cloudflare Pages + D1 で個人利用環境を構築する」を参照してください(`npm run pages:dev` でWrangler経由のローカル実行ができます)。
@@ -156,7 +156,7 @@ npm run pages:dev   # ビルド後、wrangler pages dev で /api を含めてロ
 - 設定(⚙️)から **JSONエクスポート/インポート**(バックアップ用)と**初期化**が可能
 - 初回オンボーディングでは「自分のデータを作る」か「デモデータで試す」を選択可能(デモは設定画面に明示されます)
 - AppState schema v6では、新規学習記録の再構築用由来情報と再計算前の未達成予定を`planHistory`へ保存します。旧記録は推測で進捗を加減算せず、現在の教材進捗を保持します。また、旧データに目標日より後の使用中教材がある場合は、教材期限を失わないよう単一目標日を最新期限まで移行します
-- メインのAppStateは現在、端末では1つのlocalStorage JSON、クラウドでは1つのD1 JSON blobとして保存します。API上限は5MiBで、長期利用時の容量・全体再直列化コストは既知の設計上限です。暗記データは別系統のIndexedDB/D1差分同期です
+- メインのAppStateは、端末ではアカウント別IndexedDBへエンティティ単位でトランザクション保存し、localStorageにはiOSの`pagehide`に備えた同期的な緊急バックアップを保持します。クラウドでは最大384KiBのchunkへ分割した不変世代としてD1へ保存し、全chunkの検証後だけheadを切り替えます。旧5MiBの単一JSON形式も読み込み・移行できます。暗記データは別系統のIndexedDB/D1差分同期です
 
 ## 技術構成
 

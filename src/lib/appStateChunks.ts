@@ -78,14 +78,13 @@ interface AppStateMetaSection {
   lastPlanReason: AppState['lastPlanReason'];
 }
 
-type SettingsWithHistory = AppSettings & {
-  historyData?: {
-    planRevisions: PlanRevision[];
-    monthlySummaries: HistoricalMonthSummary[];
-  };
-};
+type SettingsWithUnknownHistory = Omit<AppSettings, 'historyData'> & { historyData?: unknown };
+type SettingsWithoutHistory = Omit<AppSettings, 'historyData'>;
 
-type SettingsWithoutHistory = Omit<SettingsWithHistory, 'historyData'>;
+export interface CanonicalHistoryData {
+  planRevisions: PlanRevision[];
+  monthlySummaries: HistoricalMonthSummary[];
+}
 
 type SettingsChunkItem =
   | { kind: 'settings'; value: SettingsWithoutHistory; hasHistoryData: boolean }
@@ -108,6 +107,181 @@ export async function sha256Hex(value: string): Promise<string> {
 
 function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+const MAX_HISTORY_STRING_LENGTH = 10_000;
+
+function historyString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_HISTORY_STRING_LENGTH
+    ? value
+    : null;
+}
+
+function nullableHistoryString(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return historyString(value) ?? undefined;
+}
+
+function nonNegativeNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function canonicalPlanRevisionPlacement(value: unknown): PlanRevisionTaskPlacement | null {
+  if (!isRecord(value)) return null;
+  const key = historyString(value.key);
+  const taskId = historyString(value.taskId);
+  const title = historyString(value.title);
+  const materialId = nullableHistoryString(value.materialId);
+  const estimatedMinutes = nonNegativeNumber(value.estimatedMinutes);
+  const scheduledDate = historyString(value.scheduledDate);
+  const scheduledStart = nullableHistoryString(value.scheduledStart);
+  const scheduledEnd = nullableHistoryString(value.scheduledEnd);
+  if (!key || !taskId || !title || materialId === undefined || estimatedMinutes === null
+    || !scheduledDate || scheduledStart === undefined || scheduledEnd === undefined) return null;
+
+  const placementStatus = value.placementStatus === 'scheduled'
+    || value.placementStatus === 'unscheduled'
+    || value.placementStatus === 'conflict'
+    ? value.placementStatus
+    : undefined;
+  const placementLock = value.placementLock === 'none'
+    || value.placementLock === 'date'
+    || value.placementLock === 'time'
+    ? value.placementLock
+    : undefined;
+  const manualOrder = Number.isSafeInteger(value.manualOrder) ? value.manualOrder as number : undefined;
+  return {
+    key,
+    taskId,
+    title,
+    materialId,
+    estimatedMinutes,
+    scheduledDate,
+    scheduledStart,
+    scheduledEnd,
+    ...(placementStatus ? { placementStatus } : {}),
+    ...(placementLock ? { placementLock } : {}),
+    ...(manualOrder !== undefined ? { manualOrder } : {}),
+  };
+}
+
+function canonicalPlanRevisionChange(value: unknown): PlanRevisionChange | null {
+  if (!isRecord(value)) return null;
+  const key = historyString(value.key);
+  const taskId = historyString(value.taskId);
+  const title = historyString(value.title);
+  const materialId = nullableHistoryString(value.materialId);
+  const kind = value.kind === 'added' || value.kind === 'removed' || value.kind === 'moved' || value.kind === 'updated'
+    ? value.kind
+    : null;
+  const before = value.before === undefined ? undefined : canonicalPlanRevisionPlacement(value.before);
+  const after = value.after === undefined ? undefined : canonicalPlanRevisionPlacement(value.after);
+  if (!key || !taskId || !title || materialId === undefined || !kind
+    || before === null || after === null) return null;
+  return {
+    key,
+    taskId,
+    title,
+    materialId,
+    kind,
+    ...(before ? { before } : {}),
+    ...(after ? { after } : {}),
+  };
+}
+
+function canonicalPlanRevisionMaterialChange(value: unknown): PlanRevisionMaterialChange | null {
+  if (!isRecord(value)) return null;
+  const materialId = historyString(value.materialId);
+  const changedTasks = nonNegativeNumber(value.changedTasks);
+  const movedTasks = nonNegativeNumber(value.movedTasks);
+  const beforeMinutes = nonNegativeNumber(value.beforeMinutes);
+  const afterMinutes = nonNegativeNumber(value.afterMinutes);
+  if (!materialId || changedTasks === null || movedTasks === null || beforeMinutes === null || afterMinutes === null) return null;
+  return { materialId, changedTasks, movedTasks, beforeMinutes, afterMinutes };
+}
+
+function canonicalPlanRevision(value: unknown): PlanRevision | null {
+  if (!isRecord(value)
+    || !Array.isArray(value.placements)
+    || !Array.isArray(value.changes)
+    || !Array.isArray(value.materialChanges)) return null;
+  const id = historyString(value.id);
+  const generationId = historyString(value.generationId);
+  const createdAt = historyString(value.createdAt);
+  const reason = historyString(value.reason);
+  const fromDate = historyString(value.fromDate);
+  if (!id || !generationId || !createdAt || !reason || !fromDate) return null;
+  return {
+    id,
+    generationId,
+    createdAt,
+    reason,
+    fromDate,
+    placements: value.placements.map(canonicalPlanRevisionPlacement).filter((item): item is PlanRevisionTaskPlacement => Boolean(item)),
+    changes: value.changes.map(canonicalPlanRevisionChange).filter((item): item is PlanRevisionChange => Boolean(item)),
+    materialChanges: value.materialChanges
+      .map(canonicalPlanRevisionMaterialChange)
+      .filter((item): item is PlanRevisionMaterialChange => Boolean(item)),
+  };
+}
+
+function canonicalHistoricalMonthSummary(value: unknown): HistoricalMonthSummary | null {
+  if (!isRecord(value) || !Array.isArray(value.subjectMinutes)) return null;
+  const month = typeof value.month === 'string' && /^\d{4}-\d{2}$/.test(value.month) ? value.month : null;
+  const studyMinutes = nonNegativeNumber(value.studyMinutes);
+  const sessionCount = nonNegativeNumber(value.sessionCount);
+  const completedTaskCount = nonNegativeNumber(value.completedTaskCount);
+  const plannedMinutes = nonNegativeNumber(value.plannedMinutes);
+  const missedMinutes = nonNegativeNumber(value.missedMinutes);
+  if (!month || studyMinutes === null || sessionCount === null || completedTaskCount === null
+    || plannedMinutes === null || missedMinutes === null) return null;
+  const subjectMinutes = new Map<string, { subjectId: string; minutes: number }>();
+  for (const rawItem of value.subjectMinutes) {
+    if (!isRecord(rawItem)) continue;
+    const subjectId = historyString(rawItem.subjectId);
+    const minutes = nonNegativeNumber(rawItem.minutes);
+    if (!subjectId || minutes === null) continue;
+    subjectMinutes.set(subjectId, { subjectId, minutes });
+  }
+  return {
+    month,
+    studyMinutes,
+    sessionCount,
+    completedTaskCount,
+    plannedMinutes,
+    missedMinutes,
+    subjectMinutes: [...subjectMinutes.values()],
+  };
+}
+
+/**
+ * 旧版・破損settingsから利用可能な計画履歴だけを救出する。
+ * 未知プロパティを除去し、重複ID/月は後勝ちで一意化するため、再適用しても結果は変わらない。
+ */
+export function canonicalizeHistoryData(value: unknown): CanonicalHistoryData {
+  if (!isRecord(value)) return { planRevisions: [], monthlySummaries: [] };
+  const revisions = new Map<string, PlanRevision>();
+  if (Array.isArray(value.planRevisions)) {
+    for (const rawRevision of value.planRevisions) {
+      const revision = canonicalPlanRevision(rawRevision);
+      if (revision) revisions.set(revision.id, revision);
+    }
+  }
+  const summaries = new Map<string, HistoricalMonthSummary>();
+  if (Array.isArray(value.monthlySummaries)) {
+    for (const rawSummary of value.monthlySummaries) {
+      const summary = canonicalHistoricalMonthSummary(rawSummary);
+      if (summary) summaries.set(summary.month, summary);
+    }
+  }
+  return {
+    planRevisions: [...revisions.values()],
+    monthlySummaries: [...summaries.values()],
+  };
 }
 
 /**
@@ -166,10 +340,22 @@ export function canonicalizeCloudSettings(input: AppSettings): AppSettings {
   };
 }
 
+/** 現行設定本体と、存在する場合だけ検証済みの計画履歴を組み直す。 */
+export function canonicalizeSettingsWithHistory(input: unknown): AppSettings | null {
+  if (!isRecord(input)) return null;
+  const source = input as SettingsWithUnknownHistory;
+  const settings = canonicalizeCloudSettings(input as unknown as AppSettings);
+  if (!Object.prototype.hasOwnProperty.call(source, 'historyData')) return settings;
+  return {
+    ...settings,
+    historyData: canonicalizeHistoryData(source.historyData),
+  } as AppSettings;
+}
+
 function splitSettings(state: AppState): SettingsChunkItem[] {
-  const source = state.settings as SettingsWithHistory;
+  const source = state.settings as SettingsWithUnknownHistory;
   const hasHistoryData = Object.prototype.hasOwnProperty.call(source, 'historyData');
-  const historyData = source.historyData ?? { planRevisions: [], monthlySummaries: [] };
+  const historyData = canonicalizeHistoryData(source.historyData);
   const settings = canonicalizeCloudSettings(state.settings) as SettingsWithoutHistory;
 
   const items: SettingsChunkItem[] = [{ kind: 'settings', value: settings, hasHistoryData }];
@@ -286,10 +472,6 @@ export async function encodeAppStateChunks(
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 export function validateAppStateChunkManifest(value: unknown): value is AppStateChunkManifest {
   if (!isRecord(value)) return false;
   const candidate = value as Partial<AppStateChunkManifest>;
@@ -401,9 +583,10 @@ function decodeSplitSettings(items: unknown[]): AppSettings {
     });
 
   if (!hasHistoryData && planRevisions.length === 0 && monthlySummaries.length === 0) return settings as AppSettings;
+  const historyData = canonicalizeHistoryData({ planRevisions, monthlySummaries });
   return {
     ...settings,
-    historyData: { planRevisions, monthlySummaries },
+    historyData,
   } as AppSettings;
 }
 
@@ -456,7 +639,7 @@ export async function decodeAppStateChunks(
     throw new Error('クラウド予定データのsingleton sectionが不正です');
   }
   const settings = manifest.formatVersion === LEGACY_MAIN_STATE_CHUNK_FORMAT_VERSION
-    ? (settingsItems.length === 1 ? settingsItems[0] as AppSettings : null)
+    ? (settingsItems.length === 1 ? canonicalizeSettingsWithHistory(settingsItems[0]) : null)
     : decodeSplitSettings(settingsItems);
   if (!settings) throw new Error('クラウド予定データのsettings sectionが不正です');
 

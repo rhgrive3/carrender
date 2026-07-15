@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AppState } from '../types';
 import { AppStateIndexedDbRepository } from '../lib/appStateIndexedDb';
-import { canonicalizeCloudSettings } from '../lib/appStateChunks';
+import { canonicalizeCloudSettings, canonicalizeSettingsWithHistory } from '../lib/appStateChunks';
 import { getMainSyncMetadata, markMainSyncClean, markMainSyncDirty } from '../lib/mainSync';
 import { getStateOwner, loadState, migrateState, saveStateNow, setStateOwner } from '../lib/storage';
 import { useApp } from './AppContext';
@@ -16,16 +16,9 @@ function restoreSyncMetadata(owner: string, repositoryMetadata: Awaited<ReturnTy
   }
 }
 
-type SettingsWithHistory = AppState['settings'] & {
-  historyData?: unknown;
-};
-
 /** 未知設定だけを除去し、計画履歴など現行の端末データは保持する。 */
 export function canonicalizeLocalSettings(input: AppState['settings']): AppState['settings'] {
-  const source = input as SettingsWithHistory;
-  const canonical = canonicalizeCloudSettings(input);
-  if (!Object.prototype.hasOwnProperty.call(source, 'historyData')) return canonical;
-  return { ...canonical, historyData: source.historyData } as AppState['settings'];
+  return canonicalizeSettingsWithHistory(input) ?? canonicalizeCloudSettings(input);
 }
 
 export interface StoredStateBaseline {

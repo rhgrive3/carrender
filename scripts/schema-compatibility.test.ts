@@ -4,6 +4,7 @@ import {
   readD1SchemaCompatibility,
   REQUIRED_D1_SCHEMA_VERSION,
 } from '../functions/_shared/schemaVersion';
+import { onRequestGet as getSchemaStatus } from '../functions/api/schema';
 import { checkSchemaCompatibility } from '../src/lib/schemaCompatibility';
 
 function fakeEnv(input: { row?: { version: number } | null; error?: Error }): Env {
@@ -86,6 +87,18 @@ function fakeEnv(input: { row?: { version: number } | null; error?: Error }): En
   const fetcher = async () => { throw new TypeError('offline'); };
   const result = await checkSchemaCompatibility(fetcher as typeof fetch);
   assert.equal(result.status, 'unavailable', 'ネットワーク不通はPWAのオフライン起動を妨げない');
+}
+
+{
+  const response = await getSchemaStatus({
+    env: fakeEnv({ error: new Error('D1_INTERNAL: account=private-account internal_detail=not-for-client') }),
+  } as Parameters<typeof getSchemaStatus>[0]);
+  const body = await response.json() as { error?: string; code?: string };
+  assert.equal(response.status, 503);
+  assert.equal(body.code, 'D1_SCHEMA_CHECK_FAILED');
+  assert.equal(body.error, 'D1 schema versionを確認できません。時間をおいて再試行してください');
+  assert.doesNotMatch(JSON.stringify(body), /private-account|not-for-client|D1_INTERNAL/,
+    'D1の内部エラーや識別情報を利用者向け応答へ含めない');
 }
 
 console.log('✅ schema compatibility regressions passed');

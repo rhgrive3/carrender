@@ -633,7 +633,7 @@ body {
 }
 
 .btn-sm {
-  min-height: 40px;
+  min-height: 44px;
   font-size: 13.5px;
   padding: 0 14px;
   border-radius: 11px;
@@ -1559,8 +1559,8 @@ select {
 }
 
 .period-nav button {
-  min-width: 42px;
-  height: 36px;
+  min-width: 44px;
+  height: 44px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--bg-elev2);
@@ -1598,7 +1598,7 @@ select {
 
 .day-column-header {
   width: 100%;
-  min-height: 34px;
+  min-height: 44px;
   border: none;
   background: none;
   color: var(--text);
@@ -1738,14 +1738,14 @@ select {
 }
 
 .task-line-actions .btn {
-  min-height: 30px;
+  min-height: 44px;
   padding: 0 8px;
 }
 
 /* リスト行内の小さなアイコン操作ボタン */
 .line-icon-btn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: 9px;
   border: 1px solid var(--border);
   background: var(--bg-elev2);

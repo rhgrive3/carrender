@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { canonicalizeCloudSettings } from '../src/lib/appStateChunks';
+import { canonicalizeCloudSettings, decodeAppStateChunks, encodeAppStateChunks } from '../src/lib/appStateChunks';
 import { defaultSettings } from '../src/data/defaults';
 import { canonicalizeLocalSettings } from '../src/state/MainStatePersistence';
+import { emptyState } from '../src/state/AppContext';
 
 const defaults = defaultSettings();
 const historyData = {
@@ -47,6 +48,52 @@ assert.deepEqual(
   (localCanonical as typeof defaults & { historyData: typeof historyData }).historyData,
   historyData,
   '端末復元の正規化で計画履歴を削除しない',
+);
+
+const validSummary = {
+  month: '2026-06',
+  studyMinutes: 120,
+  sessionCount: 3,
+  completedTaskCount: 2,
+  plannedMinutes: 150,
+  missedMinutes: 30,
+  subjectMinutes: [{ subjectId: 'subject-1', minutes: 120 }],
+};
+const malformedHistorySettings = {
+  ...defaults,
+  historyData: {
+    planRevisions: [
+      { ...historyData.planRevisions[0], legacyPayload: 'x'.repeat(500_000) },
+      null,
+      { ...historyData.planRevisions[0], id: 'broken-revision', placements: 'not-an-array' },
+    ],
+    monthlySummaries: [validSummary, { month: null, subjectMinutes: 'not-an-array' }],
+  },
+};
+const repairedSettings = canonicalizeLocalSettings(malformedHistorySettings as never);
+assert.deepEqual(
+  repairedSettings.historyData?.planRevisions,
+  historyData.planRevisions,
+  '壊れた計画履歴だけを除外し、復元できる履歴と既知フィールドを保持する',
+);
+assert.deepEqual(
+  repairedSettings.historyData?.monthlySummaries,
+  [validSummary],
+  '壊れた月次集計だけを除外し、正常な集計を保持する',
+);
+assert.deepEqual(
+  canonicalizeLocalSettings(repairedSettings),
+  repairedSettings,
+  '破損履歴の修復は複数回適用しても結果が変わらない',
+);
+
+const repairedState = { ...emptyState(), settings: repairedSettings };
+const encoded = await encodeAppStateChunks(repairedState);
+const decoded = await decodeAppStateChunks(encoded.manifest, encoded.chunks);
+assert.deepEqual(
+  decoded.settings.historyData,
+  repairedSettings.historyData,
+  '修復後の履歴は384KiB分割同期を往復しても欠落しない',
 );
 
 const persistenceSource = readFileSync(new URL('../src/state/MainStatePersistence.tsx', import.meta.url), 'utf8');

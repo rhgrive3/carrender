@@ -165,6 +165,20 @@ function withMonthlySummary(input: AppState, studyMinutes: number, sessionCount:
 
 {
   const base = state();
+  const local = { ...base, materials: base.materials.filter((item) => item.id !== 'material-a') };
+  const remote = {
+    ...base,
+    materials: base.materials.map((item) => item.id === 'material-b' ? { ...item, name: '別教材のクラウド編集' } : item),
+  };
+  const result = mergeMainStates(snapshotMainStateEntityHashes(base), local, remote);
+  assert.ok(result.merged, '記録を保持した教材削除と無関係な端末編集は自動統合できる');
+  assert.ok(!result.merged?.materials.some((item) => item.id === 'material-a'));
+  assert.equal(result.merged?.sessions[0]?.materialId, 'material-a', '削除済み教材の過去記録参照は保持する');
+  assert.equal(result.merged?.materials.find((item) => item.id === 'material-b')?.name, '別教材のクラウド編集');
+}
+
+{
+  const base = state();
   const local = {
     ...base,
     materials: base.materials.filter((item) => item.id !== 'material-a'),
