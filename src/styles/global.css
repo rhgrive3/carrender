@@ -45,6 +45,7 @@
   --nav-height: 62px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --nav-total-height: calc(var(--nav-height) + var(--safe-bottom));
 
   --font: 'Noto Sans JP Variable', -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', 'Segoe UI', sans-serif;
 }
@@ -128,7 +129,7 @@ body {
   width: 100%;
   max-width: 820px;
   margin: 0 auto;
-  padding: calc(var(--safe-top) + 14px) 16px calc(var(--nav-height) + var(--safe-bottom) + 28px);
+  padding: calc(var(--safe-top) + 14px) 16px calc(var(--nav-total-height) + 28px);
   animation: screen-in 0.25s ease both;
 }
 
@@ -168,25 +169,24 @@ body {
 
 .bottom-nav {
   position: fixed;
-  left: 50%;
+  inset-inline: 0;
   bottom: 0;
-  transform: translateX(-50%);
-  width: min(100vw, 760px);
-  max-width: 760px;
-  height: calc(var(--nav-height) + var(--safe-bottom));
-  padding-bottom: var(--safe-bottom);
+  width: min(100%, 760px);
+  max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  margin-inline: auto;
+  height: var(--nav-total-height);
+  padding: 0 max(0px, env(safe-area-inset-right, 0px)) var(--safe-bottom) max(0px, env(safe-area-inset-left, 0px));
   background: var(--bg-glass);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   border-top: 1px solid var(--border);
-  display: flex;
-  z-index: 50;
+  box-sizing: border-box;
+  isolation: isolate;
+  z-index: 1000;
 }
 
 @media (min-width: 768px) {
   .bottom-nav {
-    bottom: 0;
-    width: min(100vw, 760px);
     border: 1px solid var(--border);
     border-bottom: none;
     border-radius: 18px 18px 0 0;
