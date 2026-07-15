@@ -140,9 +140,28 @@ function context(id: string): SchedulerContext {
   };
 }
 
+function diagnostic(result: ReturnType<typeof generatePlanV2>) {
+  return {
+    status: result.status,
+    tasks: result.scheduledTasks.map((task) => ({
+      id: task.id,
+      sourceId: task.sourceId,
+      materialId: task.materialId,
+      date: task.scheduledDate,
+      dueDate: task.dueDate,
+      deadline: task.manualScheduling?.deadline,
+      minutes: task.estimatedMinutes,
+    })),
+    unscheduled: result.unscheduledWork,
+    reports: result.deadlineReports,
+    errors: result.validationErrors,
+  };
+}
+
 {
   const overdue = material('overdue-material');
   const result = generatePlanV2(state({ materials: [overdue] }), context('expired-goal-material'));
+  console.log('expired-goal-material', JSON.stringify(diagnostic(result)));
   assert.notEqual(result.status, 'invalidInput', '試験日と教材期限が過ぎても回復計画を入力エラーにしない');
   assert.ok(
     result.scheduledTasks.some((task) => task.materialId === overdue.id && task.scheduledDate >= TODAY),
@@ -170,6 +189,7 @@ function context(id: string): SchedulerContext {
     materials: [doneMaterial],
     tasks: reviews,
   }), context('overdue-review-ramp'));
+  console.log('overdue-review-ramp', JSON.stringify(diagnostic(result)));
   const placed = result.scheduledTasks.filter((task) => reviews.some((review) => review.id === task.id));
   assert.equal(placed.length, 3, '期限切れ復習を未配置のまま捨てない');
   assert.equal(new Set(placed.map((task) => task.scheduledDate)).size, 3, '期限切れ復習を初日に集中させず日別容量へ分散する');
@@ -180,6 +200,7 @@ function context(id: string): SchedulerContext {
 {
   const task = flexibleTask('manual-overdue');
   const result = generatePlanV2(state({ materials: [], tasks: [task] }), context('overdue-manual'));
+  console.log('overdue-manual', JSON.stringify(diagnostic(result)));
   const placed = result.scheduledTasks.find((item) => item.id === task.id || item.sourceId === task.id);
   assert.ok(placed && placed.scheduledDate >= TODAY, '期限切れの柔軟手動タスクも今日以降へ回復する');
   assert.equal(placed?.manualScheduling?.deadline, '2026-07-10', '回復配置後も利用者が設定した元期限を保持する');
