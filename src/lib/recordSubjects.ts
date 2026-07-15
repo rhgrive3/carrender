@@ -62,3 +62,24 @@ export function summarizeRecordSubjects(
     }))
     .sort((a, b) => b.minutes - a.minutes || a.subject.id.localeCompare(b.subject.id));
 }
+
+/**
+ * 学習ログの科目フィルター候補を作る。
+ * 現存する科目は従来の並びで残し、過去記録だけが参照する削除済み科目を後ろへ補う。
+ */
+export function recordLogSubjectOptions(
+  sessions: Pick<StudySession, 'subjectId'>[],
+  subjects: Subject[],
+): RecordSubjectDisplay[] {
+  const seen = new Set<string>();
+  const options: RecordSubjectDisplay[] = [];
+  const add = (subjectId: string) => {
+    if (seen.has(subjectId)) return;
+    seen.add(subjectId);
+    options.push(resolveRecordSubject(subjects, subjectId));
+  };
+
+  for (const subject of subjects) add(subject.id);
+  for (const session of sessions) add(session.subjectId);
+  return options;
+}
