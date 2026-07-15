@@ -115,6 +115,10 @@ assert.match(sheetBlock, /safe-area-inset-right/);
 assert.match(polish, /prefers-reduced-motion:\s*reduce[\s\S]*scroll-behavior:\s*auto/);
 assert.match(polish, /forced-colors:\s*active/);
 
+const app = read('src/App.tsx');
+assert.match(app, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\s*\?\s*'auto'\s*:\s*'smooth'/);
+assert.doesNotMatch(app, /scrollTo\(\{\s*top:\s*0,\s*behavior:\s*'smooth'\s*\}\)/);
+
 const toast = read('src/components/ui/Toast.css');
 const toastRegion = cssBlock(toast, '.app-toast-region');
 assert.match(toastRegion, /left:\s*max\([^\n]*safe-area-inset-left/);
