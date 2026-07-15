@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AppProvider, useApp } from './state/AppContext';
 import { AuthProvider, useAuth } from './state/AuthContext';
 import { MainStateBootstrap, MainStatePersistence } from './state/MainStatePersistence';
@@ -137,7 +138,12 @@ function Shell() {
       {tab === 'analytics' && <AnalyticsScreen />}
 
       {/* UX契約: 通常画面の主要5タブは、スクロール位置に関係なく常に画面下へ固定する。 */}
-      {!immersive && (
+
+      {!immersive && <PlanHistoryLauncher />}
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <TimerOverlay />
+
+      {!immersive && typeof document !== 'undefined' && createPortal(
         <nav
           className="bottom-nav"
           data-layout-contract="fixed-bottom-navigation"
@@ -157,12 +163,9 @@ function Shell() {
               {item.label}
             </button>
           ))}
-        </nav>
+        </nav>,
+        document.body,
       )}
-
-      {!immersive && <PlanHistoryLauncher />}
-      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <TimerOverlay />
     </div>
   );
 }
