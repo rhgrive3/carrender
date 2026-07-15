@@ -126,13 +126,17 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
             </div>
 
             <div className="memory-simple-examples">
-              {sense.examples.map((example, exampleIndex) => (
-                <div className="memory-simple-example-row" key={example.id ?? `example-${exampleIndex}`}>
-                  <div className="field"><label>例文（任意）</label><input value={example.english} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, english: event.target.value } : value) }))} /></div>
-                  <div className="field"><label>和訳（任意）</label><input value={example.japanese ?? ''} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, japanese: event.target.value } : value) }))} /></div>
-                  <button type="button" className="icon-btn" aria-label="例文を削除" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.filter((_, index) => index !== exampleIndex) }))}><Trash2 size={17} /></button>
-                </div>
-              ))}
+              {sense.examples.map((example, exampleIndex) => {
+                const englishId = `memory-example-en-${senseIndex}-${exampleIndex}`;
+                const japaneseId = `memory-example-ja-${senseIndex}-${exampleIndex}`;
+                return (
+                  <div className="memory-simple-example-row" key={example.id ?? `example-${exampleIndex}`}>
+                    <div className="field"><label htmlFor={englishId}>例文（任意）</label><input id={englishId} value={example.english} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, english: event.target.value } : value) }))} /></div>
+                    <div className="field"><label htmlFor={japaneseId}>和訳（任意）</label><input id={japaneseId} value={example.japanese ?? ''} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, japanese: event.target.value } : value) }))} /></div>
+                    <button type="button" className="icon-btn" aria-label="例文を削除" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.filter((_, index) => index !== exampleIndex) }))}><Trash2 size={17} /></button>
+                  </div>
+                );
+              })}
               {sense.examples.length === 0 && <button type="button" className="btn btn-ghost memory-add-row" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: [{ english: '' }] }))}><Plus size={17} />例文を追加</button>}
             </div>
           </fieldset>
