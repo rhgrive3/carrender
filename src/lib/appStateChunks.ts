@@ -11,6 +11,7 @@ import type {
   Subject,
   UserGoal,
 } from '../types';
+import { defaultSettings } from '../data/defaults';
 
 export const MAIN_STATE_CHUNK_FORMAT_VERSION = 1;
 export const MAX_MAIN_STATE_CHUNK_BYTES = 384 * 1024;
@@ -77,6 +78,67 @@ export async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * クラウドへ保存する設定は現行schemaで定義した項目だけへ絞る。
+ * 旧版・破損データ由来の巨大な未知プロパティがsettingsへ残っていても、
+ * 学習データ本体の同期を止めたり別端末へ拡散させたりしない。
+ */
+export function canonicalizeCloudSettings(input: AppSettings): AppSettings {
+  const defaults = defaultSettings();
+  const settings = input && typeof input === 'object' ? input : defaults;
+  const reviewRule = settings.reviewRule && typeof settings.reviewRule === 'object'
+    ? settings.reviewRule
+    : defaults.reviewRule;
+  const timer = settings.timer && typeof settings.timer === 'object'
+    ? settings.timer
+    : defaults.timer;
+  const pomodoro = timer.pomodoro && typeof timer.pomodoro === 'object'
+    ? timer.pomodoro
+    : defaults.timer.pomodoro;
+  const intervals = Array.isArray(reviewRule.intervals)
+    && reviewRule.intervals.every((value) => typeof value === 'number' && Number.isFinite(value))
+    ? [...reviewRule.intervals]
+    : [...defaults.reviewRule.intervals];
+
+  return {
+    theme: settings.theme === 'auto' || settings.theme === 'dark' || settings.theme === 'light'
+      ? settings.theme
+      : defaults.theme,
+    maxDailyMinutes: finiteNumber(settings.maxDailyMinutes, defaults.maxDailyMinutes),
+    sessionMinMinutes: finiteNumber(settings.sessionMinMinutes, defaults.sessionMinMinutes),
+    sessionMaxMinutes: finiteNumber(settings.sessionMaxMinutes, defaults.sessionMaxMinutes),
+    reviewRule: {
+      enabled: typeof reviewRule.enabled === 'boolean' ? reviewRule.enabled : defaults.reviewRule.enabled,
+      intervals,
+    },
+    weeklyTargetMinutes: finiteNumber(settings.weeklyTargetMinutes, defaults.weeklyTargetMinutes),
+    timer: {
+      defaultMode: timer.defaultMode === 'stopwatch' || timer.defaultMode === 'pomodoro'
+        ? timer.defaultMode
+        : defaults.timer.defaultMode,
+      pomodoro: {
+        workMinutes: finiteNumber(pomodoro.workMinutes, defaults.timer.pomodoro.workMinutes),
+        breakMinutes: finiteNumber(pomodoro.breakMinutes, defaults.timer.pomodoro.breakMinutes),
+        longBreakMinutes: finiteNumber(pomodoro.longBreakMinutes, defaults.timer.pomodoro.longBreakMinutes),
+        cyclesUntilLongBreak: finiteNumber(pomodoro.cyclesUntilLongBreak, defaults.timer.pomodoro.cyclesUntilLongBreak),
+      },
+      sound: typeof timer.sound === 'boolean' ? timer.sound : defaults.timer.sound,
+      vibration: typeof timer.vibration === 'boolean' ? timer.vibration : defaults.timer.vibration,
+      notification: typeof timer.notification === 'boolean' ? timer.notification : defaults.timer.notification,
+      keepScreenOn: typeof timer.keepScreenOn === 'boolean' ? timer.keepScreenOn : defaults.timer.keepScreenOn,
+    },
+    taskGenerationHorizonDays: finiteNumber(
+      settings.taskGenerationHorizonDays,
+      defaults.taskGenerationHorizonDays ?? 42,
+    ),
+    estimateAlpha: finiteNumber(settings.estimateAlpha, defaults.estimateAlpha ?? 0.2),
+  };
+}
+
 function sectionItems(state: AppState): Record<AppStateSectionName, unknown[]> {
   const meta: AppStateMetaSection = {
     version: state.version,
@@ -91,7 +153,7 @@ function sectionItems(state: AppState): Record<AppStateSectionName, unknown[]> {
   return {
     meta: [meta],
     goal: state.goal ? [state.goal] : [],
-    settings: [state.settings],
+    settings: [canonicalizeCloudSettings(state.settings)],
     subjects: state.subjects,
     materials: state.materials,
     tasks: state.tasks,
