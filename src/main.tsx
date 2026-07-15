@@ -15,6 +15,7 @@ import './styles/memory-compact-fixes.css';
 import './styles/record-chart-fixes.css';
 import { registerSW } from 'virtual:pwa-register';
 import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
+import { DayRolloverBoundary } from './components/DayRolloverBoundary';
 import { preserveUnreadableState } from './lib/preserveUnreadableState';
 
 preserveUnreadableState();
@@ -23,7 +24,9 @@ registerSW({ immediate: true });
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AppErrorBoundary>
-      <App />
+      <DayRolloverBoundary>
+        {(dayKey) => <App key={dayKey} />}
+      </DayRolloverBoundary>
     </AppErrorBoundary>
   </React.StrictMode>,
 );
