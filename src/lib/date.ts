@@ -9,6 +9,13 @@ function partsOf(date: ISODate): { y: number; m: number; d: number } {
   return { y, m, d };
 }
 
+function isValidCalendarDate(date: ISODate): boolean {
+  const { y, m, d } = partsOf(date);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d) || m < 1 || m > 12 || d < 1) return false;
+  const candidate = new Date(Date.UTC(y, m - 1, d));
+  return candidate.getUTCFullYear() === y && candidate.getUTCMonth() === m - 1 && candidate.getUTCDate() === d;
+}
+
 function utcMs(date: ISODate): number {
   const { y, m, d } = partsOf(date);
   return Date.UTC(y, m - 1, d);
@@ -54,6 +61,7 @@ export function minutesInTimeZone(date: Date, timeZone = APP_TIME_ZONE): number 
 
 /** 指定タイムゾーンのローカル日付・時刻を、保存用UTC ISO文字列へ変換する。 */
 export function localDateTimeToISOString(date: ISODate, time: string, timeZone = APP_TIME_ZONE): string {
+  if (!isValidCalendarDate(date)) throw new Error('INVALID_LOCAL_DATE');
   const { y, m, d } = partsOf(date);
   const [hour, minute] = time.split(':').map(Number);
   if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
@@ -81,7 +89,6 @@ export function localDateTimeToISOString(date: ISODate, time: string, timeZone =
   }
   return new Date(candidate).toISOString();
 }
-
 
 export function addDays(date: ISODate, days: number): ISODate {
   return isoFromUTCDate(new Date(utcMs(date) + days * DAY_MS));
