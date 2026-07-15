@@ -129,26 +129,27 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
   const stateRef = useRef(state);
   stateRef.current = state;
   const repositoryRef = useRef<AppStateIndexedDbRepository | null>(null);
-  const lastStoredState = useRef<AppState | null>(null);
+  const persistenceBaselineRef = useRef<StoredStateBaseline>({ current: null });
   const [readyOwner, setReadyOwner] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const repository = new AppStateIndexedDbRepository(owner);
+    const ownerBaseline: StoredStateBaseline = { current: null };
     repositoryRef.current = repository;
-    lastStoredState.current = null;
+    persistenceBaselineRef.current = ownerBaseline;
     setReadyOwner(null);
     setError(null);
 
     void repository.loadState().then(async (stored) => {
       if (cancelled) return;
-      lastStoredState.current = stored;
+      ownerBaseline.current = stored;
       const current = stateRef.current;
-      if (stored) await persistMainStateSnapshot(repository, current, lastStoredState);
+      if (stored) await persistMainStateSnapshot(repository, current, ownerBaseline);
       else {
         await repository.migrateLegacyState(current);
-        lastStoredState.current = current;
+        ownerBaseline.current = current;
       }
       if (!cancelled) setReadyOwner(owner);
     }).catch((caught) => {
@@ -166,8 +167,9 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
 
   useEffect(() => {
     const repository = repositoryRef.current;
+    const baseline = persistenceBaselineRef.current;
     if (!repository || readyOwner !== owner) return;
-    void persistMainStateSnapshot(repository, state, lastStoredState).then(
+    void persistMainStateSnapshot(repository, state, baseline).then(
       () => setError(null),
       (caught) => {
         console.error('予定データのIndexedDB保存に失敗しました', caught);
@@ -190,8 +192,9 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
   useEffect(() => {
     const persist = () => {
       const repository = repositoryRef.current;
+      const baseline = persistenceBaselineRef.current;
       if (!repository || readyOwner !== owner) return;
-      void persistMainStateSnapshot(repository, stateRef.current, lastStoredState).catch((caught) => {
+      void persistMainStateSnapshot(repository, stateRef.current, baseline).catch((caught) => {
         console.error('pagehide時のIndexedDB保存に失敗しました', caught);
       });
       const metadata = getMainSyncMetadata(owner);
