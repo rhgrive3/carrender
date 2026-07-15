@@ -1,9 +1,11 @@
 .app-toast-region {
   position: fixed;
-  left: 50%;
+  right: max(12px, env(safe-area-inset-right, 0px));
   bottom: calc(var(--nav-height) + var(--safe-bottom) + 14px);
-  width: min(calc(100vw - 24px), 520px);
-  transform: translateX(-50%);
+  left: max(12px, env(safe-area-inset-left, 0px));
+  width: auto;
+  max-width: 520px;
+  margin-inline: auto;
   z-index: 140;
   pointer-events: none;
 }
@@ -134,8 +136,9 @@
 
 @media (max-width: 520px) {
   .app-toast-region {
+    right: max(10px, env(safe-area-inset-right, 0px));
     bottom: calc(var(--nav-height) + var(--safe-bottom) + 10px);
-    width: calc(100vw - 20px);
+    left: max(10px, env(safe-area-inset-left, 0px));
   }
 }
 
