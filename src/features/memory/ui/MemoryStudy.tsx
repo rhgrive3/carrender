@@ -61,7 +61,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     setRevealed(false);
     questionStarted.current = performance.now();
-  }, [target?.id]);
+  }, [session?.answerCount, target?.id]);
 
   const commit = async (assessment: 'correct' | 'partial' | 'incorrect') => {
     if (!repository || !session || !target || busy) return;
