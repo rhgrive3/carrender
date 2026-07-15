@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AppState } from '../types';
 import { AppStateIndexedDbRepository } from '../lib/appStateIndexedDb';
+import { canonicalizeCloudSettings } from '../lib/appStateChunks';
 import { getMainSyncMetadata, markMainSyncClean, markMainSyncDirty } from '../lib/mainSync';
 import { getStateOwner, loadState, migrateState, saveStateNow, setStateOwner } from '../lib/storage';
 import { useApp } from './AppContext';
@@ -57,14 +58,26 @@ export function MainStateBootstrap({ owner, children }: { owner: string; childre
         const cachedOwner = getStateOwner();
         const localState = cachedOwner === null || cachedOwner === owner ? loadState() : null;
         if (localState) {
-          if (storedState) await repository.saveState(localState, storedState);
-          else await repository.migrateLegacyState(localState);
+          // 旧版・破損データ由来の未知設定はlocalStorageの小さい上限を圧迫する。
+          // AppProviderを起動する前に現行schemaだけへ縮小し、古い巨大キャッシュを
+          // 同じキーで置き換える。教材・記録・計画データには触れない。
+          const canonicalSettings = canonicalizeCloudSettings(localState.settings);
+          const canonicalLocalState = { ...localState, settings: canonicalSettings };
+          if (JSON.stringify(canonicalSettings) !== JSON.stringify(localState.settings)) {
+            saveStateNow(canonicalLocalState);
+          }
+          if (storedState) await repository.saveState(canonicalLocalState, storedState);
+          else await repository.migrateLegacyState(canonicalLocalState);
           if (cancelled) return;
           setStateOwner(owner);
         } else if (storedState) {
           const migration = migrateState(storedState);
           if (!migration.ok) throw new Error('IndexedDBから復元した予定データが不正です');
-          saveStateNow(migration.state);
+          const canonicalStoredState = {
+            ...migration.state,
+            settings: canonicalizeCloudSettings(migration.state.settings),
+          };
+          saveStateNow(canonicalStoredState);
           setStateOwner(owner);
         }
       } catch (caught) {
