@@ -25,6 +25,7 @@ assert.doesNotMatch(study, /gradeAnswer|multiple_choice|guided_composition|free_
 assert.match(study, /まだ/u);
 assert.match(study, /あやしい/u);
 assert.match(study, /覚えた/u);
+assert.match(study, /\[session\?\.answerCount, target\?\.id\]/u, '同じカードの即時再出題でも表面へ戻す');
 assert.doesNotMatch(result, /苦手分析|Learning Target|Composition/u, '結果画面から分析導線と専門用語を削除する');
 assert.match(simpleSession, /!target\.exerciseId/u, '旧問題データを出題対象から除外する');
 assert.match(simpleSession, /includeUnverifiedAi: false/u, '未確認AIデータを通常学習へ混ぜない');
