@@ -348,7 +348,7 @@ function decodeSplitSettings(items: unknown[]): AppSettings {
 
   for (const rawItem of items) {
     if (!isRecord(rawItem) || typeof rawItem.kind !== 'string') throw new Error('settings chunk itemが不正です');
-    const item = rawItem as SettingsChunkItem;
+    const item = rawItem as unknown as SettingsChunkItem;
     switch (item.kind) {
       case 'settings':
         if (settings || !isRecord(item.value)) throw new Error('settings本体が重複または不正です');
