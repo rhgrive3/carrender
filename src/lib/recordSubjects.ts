@@ -10,9 +10,18 @@ export interface RecordSubjectDisplay {
 const DELETED_SUBJECT_NAME = '削除済みの科目';
 const DELETED_SUBJECT_COLOR = 'var(--text-muted)';
 
+function stableSubjectFingerprint(subjectId: string): string {
+  let hash = 0x811c9dc5;
+  for (const char of subjectId) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).toUpperCase().padStart(7, '0');
+}
+
 function deletedSubjectLabel(subjectId: string): string {
-  const compactId = subjectId.replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase();
-  return compactId ? `${DELETED_SUBJECT_NAME} · ${compactId}` : DELETED_SUBJECT_NAME;
+  if (!subjectId) return DELETED_SUBJECT_NAME;
+  return `${DELETED_SUBJECT_NAME} · ${stableSubjectFingerprint(subjectId)}`;
 }
 
 /** 過去の学習記録が参照する科目を、削除済みの場合も表示可能な形へ正規化する。 */
