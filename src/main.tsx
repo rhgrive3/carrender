@@ -32,13 +32,18 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 );
 
-// 起動スプラッシュをフェードアウト
+// 起動スプラッシュをフェードアウトする。動きを減らす設定では待機・フェードを挟まず即時解除する。
 requestAnimationFrame(() => {
   const boot = document.getElementById('boot');
-  if (boot) {
-    setTimeout(() => {
-      boot.style.opacity = '0';
-      setTimeout(() => boot.remove(), 450);
-    }, 250);
+  if (!boot) return;
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    boot.remove();
+    return;
   }
+
+  setTimeout(() => {
+    boot.style.opacity = '0';
+    setTimeout(() => boot.remove(), 450);
+  }, 250);
 });
