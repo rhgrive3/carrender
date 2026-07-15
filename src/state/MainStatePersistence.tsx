@@ -25,15 +25,28 @@ export interface StoredStateBaseline {
   current: AppState | null;
 }
 
-/** Advance the differential baseline only after IndexedDB committed the snapshot. */
-export async function persistMainStateSnapshot(
+const persistenceQueues = new WeakMap<StoredStateBaseline, Promise<void>>();
+
+/**
+ * Serialize IndexedDB writes that share a differential baseline. React can
+ * publish several state snapshots before the previous write commits; without
+ * this queue, an older write may finish last and overwrite a newer snapshot.
+ */
+export function persistMainStateSnapshot(
   repository: Pick<AppStateIndexedDbRepository, 'saveState'>,
   snapshot: AppState,
   baseline: StoredStateBaseline,
 ): Promise<void> {
-  const previous = baseline.current;
-  await repository.saveState(snapshot, previous);
-  baseline.current = snapshot;
+  const previousWrite = persistenceQueues.get(baseline) ?? Promise.resolve();
+  const nextWrite = previousWrite
+    .catch(() => undefined)
+    .then(async () => {
+      const previous = baseline.current;
+      await repository.saveState(snapshot, previous);
+      baseline.current = snapshot;
+    });
+  persistenceQueues.set(baseline, nextWrite);
+  return nextWrite;
 }
 
 /**

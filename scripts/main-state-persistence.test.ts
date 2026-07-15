@@ -41,5 +41,52 @@ await persistMainStateSnapshot(repository, recoveredSnapshot, baseline);
 check('再試行は最後に成功したsnapshotとの差分として保存する', previousValues[1] === initial, previousValues);
 check('成功後だけ差分基準を進める', baseline.current === recoveredSnapshot, baseline.current);
 
+console.log('\n--- Main state persistence: concurrent write ordering ---');
+const firstSnapshot = { version: 1, marker: 'first' } as unknown as AppState;
+const secondSnapshot = { version: 1, marker: 'second' } as unknown as AppState;
+const concurrentBaseline: StoredStateBaseline = { current: initial };
+const starts: string[] = [];
+const concurrentPrevious: Array<AppState | null> = [];
+let releaseFirst: (() => void) | null = null;
+const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+const concurrentRepository = {
+  async saveState(state: AppState, previous: AppState | null): Promise<void> {
+    const marker = (state as unknown as { marker: string }).marker;
+    starts.push(marker);
+    concurrentPrevious.push(previous);
+    if (marker === 'first') await firstGate;
+  },
+};
+
+const firstWrite = persistMainStateSnapshot(concurrentRepository, firstSnapshot, concurrentBaseline);
+const secondWrite = persistMainStateSnapshot(concurrentRepository, secondSnapshot, concurrentBaseline);
+await Promise.resolve();
+await Promise.resolve();
+check('先行保存の完了前に後続保存を開始しない', starts.length === 1 && starts[0] === 'first', starts);
+releaseFirst?.();
+await Promise.all([firstWrite, secondWrite]);
+check('保存を呼出順に実行する', starts.join(',') === 'first,second', starts);
+check('後続保存は直前に成功したsnapshotとの差分を使う', concurrentPrevious[1] === firstSnapshot, concurrentPrevious);
+check('最終baselineを最新snapshotへ進める', concurrentBaseline.current === secondSnapshot, concurrentBaseline.current);
+
+console.log('\n--- Main state persistence: queued retry after failure ---');
+const queuedFailureBaseline: StoredStateBaseline = { current: initial };
+const queuedPrevious: Array<AppState | null> = [];
+let queuedAttempts = 0;
+const queuedFailureRepository = {
+  async saveState(_state: AppState, previous: AppState | null): Promise<void> {
+    queuedPrevious.push(previous);
+    queuedAttempts += 1;
+    if (queuedAttempts === 1) throw new Error('first queued write fails');
+  },
+};
+const rejectedWrite = persistMainStateSnapshot(queuedFailureRepository, failedSnapshot, queuedFailureBaseline);
+const succeedingWrite = persistMainStateSnapshot(queuedFailureRepository, recoveredSnapshot, queuedFailureBaseline);
+await rejectedWrite.catch(() => undefined);
+await succeedingWrite;
+check('先行失敗後も後続保存を実行する', queuedAttempts === 2, queuedAttempts);
+check('先行失敗後の差分基準は成功済み状態のまま', queuedPrevious[1] === initial, queuedPrevious);
+check('後続成功後に最新snapshotへ進める', queuedFailureBaseline.current === recoveredSnapshot, queuedFailureBaseline.current);
+
 console.log(failures === 0 ? '\n🎉 ALL PASS (main state persistence)' : `\n💥 ${failures} FAILURES (main state persistence)`);
 process.exit(failures === 0 ? 0 : 1);
