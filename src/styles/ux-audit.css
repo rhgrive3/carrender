@@ -1,0 +1,16 @@
+/* UX audit: keep compact status controls usable on touch devices without changing the desktop layout. */
+.memory-sync-line > .memory-inline-button:last-child {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: -10px -8px -10px 0;
+  padding: 10px 8px;
+}
+
+.memory-sync-line > .memory-inline-button:last-child:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent), transparent 35%);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
