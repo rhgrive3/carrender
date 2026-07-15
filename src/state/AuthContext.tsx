@@ -83,10 +83,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const operationInFlight = useRef(false);
+  const authStateVersion = useRef(0);
 
   const beginOperation = useCallback((): boolean => {
     if (operationInFlight.current) return false;
     operationInFlight.current = true;
+    authStateVersion.current += 1;
     setBusy(true);
     return true;
   }, []);
@@ -97,14 +99,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reconcile = useCallback(async () => {
+    const startedAtVersion = authStateVersion.current;
+    const isCurrent = () => authStateVersion.current === startedAtVersion;
+
     try {
       const res = await apiMe();
       const nextUser = await migratedUser(res.userId, res.username);
+      if (!isCurrent()) return;
       setUser(nextUser);
       setStatus('authenticated');
       setOfflineUnverified(false);
       writeHint(nextUser);
     } catch (e) {
+      if (!isCurrent()) return;
       const err = e as ApiError;
       if (err.isNetworkError) {
         const hint = readHint();
