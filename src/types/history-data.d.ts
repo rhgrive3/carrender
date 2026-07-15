@@ -1,3 +1,4 @@
+import './index';
 import type { HistoricalMonthSummary } from '../lib/historyRetention';
 import type { PlanRevision } from '../lib/planHistory';
 
