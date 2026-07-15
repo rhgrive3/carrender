@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { resolveRecordSubject, summarizeRecordSubjects } from '../src/lib/recordSubjects';
+import { recordLogSubjectOptions, resolveRecordSubject, summarizeRecordSubjects } from '../src/lib/recordSubjects';
 import type { Subject } from '../src/types';
 
 const subjects: Subject[] = [{
@@ -56,6 +56,24 @@ assert.deepEqual(
 assert.equal(summary.filter((item) => item.subject.deleted).length, 4);
 assert.equal(new Set(summary.map((item) => item.subject.id)).size, summary.length, '削除済み科目ごとに一意なキーを保つ');
 assert.equal(new Set(summary.map((item) => item.subject.name)).size, summary.length, '削除済み科目も表示名で区別できる');
+
+const logOptions = recordLogSubjectOptions([
+  { subjectId: 'subject-deleted' },
+  { subjectId: 'subject-active' },
+  { subjectId: 'subject-deleted' },
+  { subjectId: 'subject-deleted-2' },
+], subjects);
+assert.deepEqual(
+  logOptions.map((subject) => subject.id),
+  ['subject-active', 'subject-deleted', 'subject-deleted-2'],
+  '学習ログの候補は現存科目を維持し、記録のある削除済み科目を重複なく加える',
+);
+assert.equal(logOptions[1].name, deleted.name, '削除済み科目の表示名は既存の安定識別ラベルを再利用する');
+assert.equal(logOptions[1].deleted, true);
+
+const recordsScreen = readFileSync(new URL('../src/screens/RecordsScreen.tsx', import.meta.url), 'utf8');
+assert.match(recordsScreen, /recordLogSubjectOptions\(state\.sessions, state\.subjects\)/, '学習ログの科目フィルターへ削除済み科目を渡す');
+assert.match(recordsScreen, /logSubjectOptions\.map\(\(subject\)/, '重複を除いた候補だけをフィルターに描画する');
 
 const chartFixCss = readFileSync(new URL('../src/styles/record-chart-fixes.css', import.meta.url), 'utf8');
 const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
