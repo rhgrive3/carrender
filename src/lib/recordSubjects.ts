@@ -48,27 +48,3 @@ export function summarizeRecordSubjects(
     }))
     .sort((a, b) => b.minutes - a.minutes || a.subject.id.localeCompare(b.subject.id));
 }
-
-/**
- * 積み上げ棒の各区分を視認可能にしつつ、合計が必ず100%になるよう配分する。
- * 小区分へ一律の最小値を足す方式は、科目数が多い日に棒が枠外へ溢れるため使わない。
- */
-export function normalizeRecordStackPercentages(minutes: number[], minimumPercent = 4): number[] {
-  const positive = minutes.map((value) => Math.max(0, value));
-  const total = positive.reduce((sum, value) => sum + value, 0);
-  if (total <= 0 || positive.length === 0) return positive.map(() => 0);
-
-  const minimum = Math.min(Math.max(0, minimumPercent), 100 / positive.length);
-  const raw = positive.map((value) => (value / total) * 100);
-  const smallIndexes = raw.map((value, index) => (value < minimum ? index : -1)).filter((index) => index >= 0);
-  if (smallIndexes.length === 0) return raw;
-
-  const smallSet = new Set(smallIndexes);
-  const reserved = minimum * smallIndexes.length;
-  const largeTotal = raw.reduce((sum, value, index) => sum + (smallSet.has(index) ? 0 : value), 0);
-
-  return raw.map((value, index) => {
-    if (smallSet.has(index)) return minimum;
-    return largeTotal > 0 ? (value / largeTotal) * (100 - reserved) : 0;
-  });
-}
