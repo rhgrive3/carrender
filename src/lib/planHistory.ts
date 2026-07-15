@@ -1,4 +1,5 @@
 import type { AppState, ISODate, StudyTask } from '../types';
+import type { HistoricalMonthSummary } from './historyRetention';
 
 export interface PlanRevisionTaskPlacement {
   key: string;
@@ -42,6 +43,13 @@ export interface PlanRevision {
   changes: PlanRevisionChange[];
   materialChanges: PlanRevisionMaterialChange[];
 }
+
+type SettingsWithHistory = AppState['settings'] & {
+  historyData?: {
+    planRevisions: PlanRevision[];
+    monthlySummaries: HistoricalMonthSummary[];
+  };
+};
 
 const PLAN_REVISION_RETENTION_DAYS = 365;
 const PLAN_REVISION_DENSE_DAYS = 14;
@@ -179,7 +187,8 @@ export function capturePlanRevision(input: {
 }
 
 export function appendPlanRevision(state: AppState, revision: PlanRevision, now = new Date(revision.createdAt)): AppState {
-  const historyData = state.settings.historyData ?? { planRevisions: [], monthlySummaries: [] };
+  const settings = state.settings as SettingsWithHistory;
+  const historyData = settings.historyData ?? { planRevisions: [], monthlySummaries: [] };
   return {
     ...state,
     settings: {
@@ -188,14 +197,15 @@ export function appendPlanRevision(state: AppState, revision: PlanRevision, now 
         ...historyData,
         planRevisions: compactPlanRevisions([...historyData.planRevisions, revision], now),
       },
-    },
+    } as SettingsWithHistory,
   };
 }
 
 export function restorePlanRevisionLayout(state: AppState, revisionId: string): { state: AppState; restoredTaskCount: number } {
-  const revision = (state.settings.historyData?.planRevisions ?? []).find((item) => item.id === revisionId);
+  const settings = state.settings as SettingsWithHistory;
+  const revision = (settings.historyData?.planRevisions ?? []).find((item) => item.id === revisionId);
   if (!revision) return { state, restoredTaskCount: 0 };
-  const byKey = new Map(revision.placements.map((item) => [item.key, item]));
+  const byKey = new Map<string, PlanRevisionTaskPlacement>(revision.placements.map((item) => [item.key, item]));
   let restoredTaskCount = 0;
   const restoredAt = new Date().toISOString();
   const tasks = state.tasks.map((task) => {
