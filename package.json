@@ -15,7 +15,7 @@
     "test:integration:browser": "node scripts/memory-browser.mjs && node scripts/app-state-browser.mjs",
     "test:integration:api": "node scripts/memory-api.mjs && node scripts/main-state-api.mjs && node scripts/auth-rate-limit-api.mjs",
     "test:integration": "npm run test:integration:browser && npm run test:integration:api",
-    "test:e2e": "npm run build && node scripts/memory-ui-e2e.mjs",
+    "test:e2e": "npm run build && node scripts/memory-ui-e2e-runner.mjs",
     "test": "npm run test:unit && npm run test:smoke && npm run test:regressions && npm run test:scheduler && npm run test:shadow",
     "prebuild": "node scripts/verify-pages-build-gate.mjs",
     "build": "npm run typecheck && vite build && node scripts/bundle-budget.mjs",
