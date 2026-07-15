@@ -94,7 +94,10 @@ function isGloballyBetter(
     left.sumMaxDayMinutes - right.sumMaxDayMinutes,
     right.totalActiveDays - left.totalActiveDays,
   ];
-  return comparisons.find((difference) => difference !== 0) < 0;
+  for (const difference of comparisons) {
+    if (difference !== 0) return difference < 0;
+  }
+  return false;
 }
 
 function withFrozenMaterials(
