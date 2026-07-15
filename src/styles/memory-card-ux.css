@@ -1,0 +1,351 @@
+/*
+ * 暗記カードUX契約
+ * - 学習カードは表裏を何度でも切り替えられる
+ * - タップと左右スワイプの両方でめくれる
+ * - セット一覧カードは同じ行で同じ高さを保つ
+ */
+
+.memory-simple-set-cards {
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
+/* global.css の .card + .card が grid の2枚目だけを押し下げないよう明示的に解除する。 */
+.memory-simple-set-cards > .memory-simple-set-card,
+.memory-simple-set-cards > .card + .card {
+  height: 100%;
+  margin-top: 0;
+}
+
+.memory-simple-set-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.memory-simple-set-card > div:first-child {
+  min-height: 50px;
+}
+
+.memory-simple-set-card .memory-simple-metrics {
+  min-height: 94px;
+}
+
+.memory-simple-set-card .memory-simple-set-actions {
+  margin-top: auto;
+  align-items: stretch;
+}
+
+.memory-simple-study {
+  background:
+    radial-gradient(100% 70% at 50% 5%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 68%),
+    var(--bg);
+}
+
+.memory-simple-study .memory-study-stage {
+  padding-top: 12px;
+}
+
+.memory-study-flip-shell {
+  position: relative;
+  width: min(calc(100vw - 32px), 820px);
+  min-height: clamp(320px, 52dvh, 520px);
+  perspective: 1500px;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.memory-simple-study .memory-study-card {
+  width: 100%;
+  min-height: inherit;
+  padding: 0;
+  border: 0;
+  border-radius: 28px;
+  background: transparent;
+  box-shadow: none;
+  display: block;
+  animation: memory-card-in 220ms ease both;
+  overflow: visible;
+}
+
+.memory-simple-study .memory-study-card.revealed {
+  animation: none;
+}
+
+.memory-study-card-inner {
+  position: relative;
+  width: 100%;
+  min-height: inherit;
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition: transform 520ms cubic-bezier(0.2, 0.72, 0.18, 1);
+}
+
+.memory-study-card.revealed .memory-study-card-inner {
+  transform: rotateY(180deg);
+}
+
+.memory-study-card-face {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: inherit;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 82%, transparent);
+  border-radius: 28px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--bg-elev1) 97%, #fff), var(--bg-elev1));
+  color: var(--text);
+  box-shadow:
+    0 18px 46px color-mix(in srgb, #17203c 16%, transparent),
+    0 3px 10px color-mix(in srgb, #17203c 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 72%, transparent);
+  padding: clamp(26px, 5vw, 54px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(16px, 2.4vh, 26px);
+  overflow: auto;
+  text-align: center;
+  font: inherit;
+  cursor: pointer;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transition: box-shadow 150ms ease, filter 150ms ease;
+}
+
+.memory-study-card-face::after {
+  content: '';
+  position: absolute;
+  top: 22px;
+  right: 0;
+  bottom: 22px;
+  width: 5px;
+  border-radius: 5px 0 0 5px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--text) 10%, transparent), transparent);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.memory-study-card-face:active {
+  filter: brightness(0.985);
+  box-shadow:
+    0 10px 28px color-mix(in srgb, #17203c 14%, transparent),
+    0 2px 7px color-mix(in srgb, #17203c 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 72%, transparent);
+}
+
+.memory-study-card-front {
+  pointer-events: auto;
+}
+
+.memory-study-card-back {
+  transform: rotateY(180deg);
+  pointer-events: none;
+  background:
+    radial-gradient(100% 90% at 50% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+    linear-gradient(145deg, color-mix(in srgb, var(--bg-elev1) 98%, #fff), var(--bg-elev1));
+}
+
+.memory-study-card.revealed .memory-study-card-front {
+  pointer-events: none;
+}
+
+.memory-study-card.revealed .memory-study-card-back {
+  pointer-events: auto;
+}
+
+.memory-card-side-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+}
+
+.memory-card-side-label small {
+  color: currentColor;
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.74;
+}
+
+.memory-simple-study-card h1 {
+  max-width: 92%;
+  font-size: clamp(30px, 5vw, 48px);
+  line-height: 1.42;
+  letter-spacing: -0.025em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.memory-card-back-prompt {
+  max-width: 90%;
+  color: var(--text-sub);
+  font-size: clamp(15px, 2vw, 18px);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.memory-card-answer-list {
+  width: min(100%, 680px);
+  display: grid;
+  gap: 8px;
+}
+
+.memory-card-answer-list h2 {
+  font-size: clamp(28px, 5vw, 46px) !important;
+  line-height: 1.35 !important;
+  letter-spacing: -0.02em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.memory-card-answer-list h2 + h2 {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  color: var(--text-sub);
+  font-size: clamp(18px, 3vw, 27px) !important;
+}
+
+.memory-simple-study-card .memory-example {
+  width: min(100%, 620px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-elev2) 78%, transparent);
+  padding: 13px 16px;
+  gap: 5px;
+  line-height: 1.55;
+}
+
+.memory-card-toggle-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.memory-card-swipe-hint {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.memory-simple-assessment {
+  margin-top: 14px;
+  animation: memory-assessment-in 180ms ease both;
+}
+
+@keyframes memory-assessment-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+
+.memory-simple-assessment button {
+  border: 0;
+  color: #fff;
+  -webkit-text-fill-color: currentColor;
+  box-shadow: 0 8px 20px color-mix(in srgb, #17203c 16%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
+}
+
+.memory-simple-assessment button span {
+  font-size: 16px;
+  font-weight: 850;
+}
+
+.memory-simple-assessment button small {
+  color: currentColor;
+  font-size: 10px;
+  font-weight: 650;
+  opacity: 0.82;
+}
+
+.memory-simple-assessment button:active {
+  transform: translateY(1px) scale(0.985);
+  filter: brightness(0.96);
+  box-shadow: 0 4px 10px color-mix(in srgb, #17203c 14%, transparent);
+}
+
+.memory-simple-assessment .memory-again {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--danger) 82%, #ff8a9a), var(--danger));
+}
+
+.memory-simple-assessment .memory-partial {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--warn) 82%, #ffd080), var(--warn));
+}
+
+.memory-simple-assessment .memory-good {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--ok) 82%, #79ddb9), var(--ok));
+}
+
+@media (max-width: 720px) {
+  .memory-study-flip-shell {
+    min-height: clamp(300px, 50dvh, 470px);
+  }
+
+  .memory-study-card-face {
+    padding: 24px 20px;
+    border-radius: 23px;
+  }
+
+  .memory-simple-study-card h1 {
+    max-width: 100%;
+  }
+}
+
+@media (max-height: 680px) {
+  .memory-study-flip-shell {
+    min-height: 300px;
+  }
+
+  .memory-study-card-face {
+    gap: 12px;
+    padding-block: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memory-study-card-inner {
+    transform: none !important;
+    transition: none;
+  }
+
+  .memory-study-card-face {
+    transform: none;
+    transition: opacity 100ms linear;
+  }
+
+  .memory-study-card-back {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .memory-study-card.revealed .memory-study-card-front {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .memory-study-card.revealed .memory-study-card-back {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .memory-simple-assessment {
+    animation: none;
+  }
+}
