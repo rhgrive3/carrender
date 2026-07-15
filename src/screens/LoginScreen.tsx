@@ -42,20 +42,23 @@ export function LoginScreen() {
     };
   }, []);
 
+  const clearDisplayedError = () => {
+    setLocalError(null);
+    clearError();
+  };
+
   const switchMode = (next: Mode) => {
     if (busy) return;
     setMode(next);
     setPassword('');
     setPasswordConfirmation('');
     setShowPassword(false);
-    setLocalError(null);
-    clearError();
+    clearDisplayedError();
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLocalError(null);
-    clearError();
+    clearDisplayedError();
 
     if (offline) {
       setLocalError('オフラインのため認証できません。通信が戻ってからもう一度試してください');
@@ -136,7 +139,10 @@ export function LoginScreen() {
                 autoCorrect="off"
                 spellCheck={false}
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  clearDisplayedError();
+                }}
                 placeholder="3〜24文字"
                 maxLength={24}
                 disabled={busy}
@@ -153,7 +159,10 @@ export function LoginScreen() {
                   type={showPassword ? 'text' : 'password'}
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    clearDisplayedError();
+                  }}
                   placeholder="4文字以上"
                   disabled={busy}
                   required
@@ -181,7 +190,10 @@ export function LoginScreen() {
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="new-password"
                   value={passwordConfirmation}
-                  onChange={(e) => setPasswordConfirmation(e.target.value)}
+                  onChange={(e) => {
+                    setPasswordConfirmation(e.target.value);
+                    clearDisplayedError();
+                  }}
                   placeholder="同じパスワードをもう一度"
                   disabled={busy}
                   required
