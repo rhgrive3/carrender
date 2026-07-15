@@ -63,6 +63,22 @@ check('大容量状態を複数chunkへ分割', encodedLarge.chunks.length > 10 
 check('既定384KiB上限を全chunkが守る', encodedLarge.chunks.every((chunk) => chunk.byteLength <= MAX_MAIN_STATE_CHUNK_BYTES));
 check('大容量状態を全件復元する', restoredLarge.sessions.length === large.sessions.length && restoredLarge.sessions.at(-1)?.id === large.sessions.at(-1)?.id);
 
+console.log('--- AppState chunks: oversized unknown settings recovery ---');
+const contaminated = baseState();
+const expectedSettings = JSON.parse(JSON.stringify(contaminated.settings)) as AppState['settings'];
+const contaminatedSettings = contaminated.settings as AppState['settings'] & { legacyMemoryCache: string };
+contaminatedSettings.legacyMemoryCache = 'x'.repeat(MAX_MAIN_STATE_CHUNK_BYTES * 3);
+check(
+  '未知設定を含む元payloadは単一chunk上限を超えるfixture',
+  utf8Length(JSON.stringify([contaminated.settings])) > MAX_MAIN_STATE_CHUNK_BYTES,
+);
+const encodedContaminated = await encodeAppStateChunks(contaminated);
+const restoredContaminated = await decodeAppStateChunks(encodedContaminated.manifest, encodedContaminated.chunks);
+const settingsChunks = encodedContaminated.chunks.filter((chunk) => chunk.section === 'settings');
+check('巨大な未知設定があっても同期用settingsを上限内で生成する', settingsChunks.length === 1 && settingsChunks[0].byteLength <= MAX_MAIN_STATE_CHUNK_BYTES, settingsChunks);
+check('現行schema外の巨大設定をクラウドへ持ち越さない', !Object.prototype.hasOwnProperty.call(restoredContaminated.settings, 'legacyMemoryCache'));
+check('利用中の設定値は欠落させない', isDeepStrictEqual(restoredContaminated.settings, expectedSettings), restoredContaminated.settings);
+
 console.log('--- AppState chunks: corruption detection ---');
 const tampered = encodedSmall.chunks.map((chunk, index) => index === 0 ? { ...chunk, json: `${chunk.json} ` } : chunk);
 let tamperRejected = false;
