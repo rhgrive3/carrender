@@ -1,8 +1,8 @@
 import { lazy, Suspense, useMemo, useState } from 'react';
-import { Dumbbell, Flag, Plus, Star } from 'lucide-react';
+import { ArchiveRestore, ChevronRight, Dumbbell, Flag, Pencil, Plus, Sparkles, Star } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import type { Material } from '../types';
-import { addDays, diffDays, formatDateShort, genId, today } from '../lib/date';
+import { addDays, diffDays, formatDateShort, formatMinutes, genId, today } from '../lib/date';
 import { computeMaterialForecast, todayQuotaFor } from '../lib/analytics';
 import { ProgressBar, EmptyState, Rating, NumericInput, Disclosure, Segmented } from '../components/ui/bits';
 import { Sheet } from '../components/ui/Sheet';
@@ -36,6 +36,7 @@ export function MaterialsScreen({
   const [editTarget, setEditTarget] = useState<Material | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [archiveTab, setArchiveTab] = useState<'active' | 'archived'>('active');
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(null);
 
   const materials = useMemo(() => {
     const order = { risk: 0, behind: 1, onTrack: 2, ahead: 3 };
@@ -46,6 +47,7 @@ export function MaterialsScreen({
       .filter((m) => archiveTab === 'archived' ? m.archived : !m.archived)
       .sort((a, b) => (rank.get(a.id) ?? 2) - (rank.get(b.id) ?? 2));
   }, [archiveTab, state, t]);
+  const selectedMaterial = materials.find((material) => material.id === selectedMaterialId) ?? materials[0] ?? null;
 
   if (pane === 'memory') {
     return (
@@ -97,92 +99,35 @@ export function MaterialsScreen({
           「＋」から教材を追加すると、試験日までの計画を自動で作ります。
         </EmptyState>
       ) : (
-        <div className="materials-grid">
-        {materials.map((m) => {
-          const subject = state.subjects.find((s) => s.id === m.subjectId);
-          const forecast = computeMaterialForecast(state, m.id, t);
-          const rate = m.totalAmount > 0 ? m.doneAmount / m.totalAmount : 0;
-          const quota = todayQuotaFor(state, m.id, t);
-          const fu = FORECAST_UI[forecast?.status ?? 'onTrack'];
-          const done = m.doneAmount >= m.totalAmount;
-          const daysLeft = diffDays(t, m.targetDate);
-          const requiredWeekly = forecast ? Math.ceil(forecast.requiredPacePerDay * 7) : 0;
-          const progressDeficit = state.lastScheduleResult?.progressDeficits.find((item) => item.materialId === m.id);
-          return (
-            <div className="card" key={m.id}>
-              <div className="row spread">
-                <div className="task-meta-row" style={{ marginBottom: 0 }}>
-                  <span className="subject-chip" style={{ background: `${subject?.color}26`, color: subject?.color }}>
-                    {subject?.name}
-                  </span>
-                  {done ? (
-                    <span className="status-badge status-ok">🏆 完了</span>
-                  ) : (
-                    <span className={`status-badge ${fu.cls}`}>{fu.label}</span>
-                  )}
-                  {m.paused && <span className="status-badge status-warn">一時停止</span>}
-                </div>
-                <div className="row" style={{ gap: 6 }}>
-                  {m.archived && <button className="btn btn-secondary btn-sm" onClick={() => execute({ type: 'UPDATE_MATERIAL', material: { ...m, archived: false } })}>復元</button>}
-                  <button className="btn btn-ghost btn-sm" onClick={() => setEditTarget(m)} aria-label={`${m.name}を編集`}>編集</button>
-                </div>
-              </div>
-
-              <div style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>{m.name}</div>
-              <div className="row mt-8" style={{ gap: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <ProgressBar value={rate} color={subject?.color} />
-                </div>
-                <span style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{Math.round(rate * 100)}%</span>
-              </div>
-              <div className="row spread mt-8">
-                <span className="muted">
-                  残り {Math.max(0, m.totalAmount - m.doneAmount)}
-                  {m.unit}
-                  {!done && quota > 0 && ` ・ 今日の目安 ${quota}${m.unit}`}
-                </span>
-                <span className="faint" style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
-                  目標 {formatDateShort(m.targetDate)}
-                  {m.deadlinePolicy === 'strict' && ' 厳守'}
-                </span>
-              </div>
-              {!done && (
-                <div className="material-metrics mt-8">
-                  <span>
-                    <i>期限まで</i>
-                    <b style={daysLeft < 0 ? { color: 'var(--danger)' } : undefined}>
-                      {daysLeft < 0 ? `${Math.abs(daysLeft)}日超過` : `${daysLeft}日`}
-                    </b>
-                  </span>
-                  <span>
-                    <i>1日の目安</i>
-                    <b>{forecast ? `${forecast.requiredPacePerDay}${m.unit}` : '計算中'}</b>
-                  </span>
-                  <span>
-                    <i>1週間の目安</i>
-                    <b>{requiredWeekly > 0 ? `${requiredWeekly}${m.unit}` : '-'}</b>
-                  </span>
-                </div>
-              )}
-              {progressDeficit && progressDeficit.units > 0 && (
-                <div className="faint mt-8">進捗負債 {progressDeficit.units}{m.unit} ・ {progressDeficit.minutes}分</div>
-              )}
-              {m.estimatedMinutesPerUnit && m.estimateMode !== 'fixed' && (
-                <div className="faint mt-8">実績ベース見積 {m.estimatedMinutesPerUnit.toFixed(1)}分/{m.unit}</div>
-              )}
-              {forecast && forecast.status !== 'ahead' && forecast.status !== 'onTrack' && forecast.projectedFinishDate && (
-                <div className="faint mt-8">
-                  現在ペースの完了見込み {formatDateShort(forecast.projectedFinishDate)}
-                  {forecast.delayDays > 0 ? (
-                    <span style={{ color: forecast.status === 'risk' ? 'var(--danger)' : 'var(--warn)', fontWeight: 700 }}>({forecast.delayDays}日遅れ)</span>
-                  ) : (
-                    '(前倒し)'
+        <div className="materials-master-detail">
+          <div className="material-list-panel" aria-label="教材一覧">
+            {materials.map((material) => {
+              const subject = state.subjects.find((item) => item.id === material.subjectId);
+              const forecast = computeMaterialForecast(state, material.id, t);
+              const rate = material.totalAmount > 0 ? material.doneAmount / material.totalAmount : 0;
+              const status = material.doneAmount >= material.totalAmount ? '完了' : FORECAST_UI[forecast?.status ?? 'onTrack'].label;
+              return (
+                <div className={`material-list-item ${selectedMaterial?.id === material.id ? 'selected' : ''}`} key={material.id}>
+                  <button type="button" onClick={() => setSelectedMaterialId(material.id)} aria-pressed={selectedMaterial?.id === material.id}>
+                    <span className="subject-dot" style={{ background: subject?.color ?? 'var(--accent)' }} aria-hidden="true" />
+                    <span className="material-list-copy">
+                      <strong>{material.name}</strong>
+                      <small>{subject?.name} · 残り{Math.max(0, material.totalAmount - material.doneAmount)}{material.unit} · 目標{formatDateShort(material.targetDate)}</small>
+                      <span className="material-list-progress"><i style={{ width: `${Math.round(rate * 100)}%`, background: subject?.color }} /></span>
+                    </span>
+                    <span className={`material-list-state ${forecast?.status === 'risk' ? 'critical' : forecast?.status === 'behind' ? 'warning' : ''}`}>{status}</span>
+                    <ChevronRight size={17} aria-hidden="true" />
+                  </button>
+                  {material.archived && (
+                    <button className="material-restore" aria-label={`${material.name}を復元`} onClick={() => execute({ type: 'UPDATE_MATERIAL', material: { ...material, archived: false } })}>
+                      <ArchiveRestore size={17} aria-hidden="true" />
+                    </button>
                   )}
                 </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+          {selectedMaterial && <MaterialDetail material={selectedMaterial} onEdit={() => setEditTarget(selectedMaterial)} />}
         </div>
       )}
 
@@ -190,6 +135,55 @@ export function MaterialsScreen({
         <MaterialFormSheet material={editTarget} onClose={() => (editTarget ? setEditTarget(null) : setAddOpen(false))} />
       )}
     </div>
+  );
+}
+
+function MaterialDetail({ material, onEdit }: { material: Material; onEdit: () => void }) {
+  const { state } = useApp();
+  const t = today();
+  const subject = state.subjects.find((item) => item.id === material.subjectId);
+  const forecast = computeMaterialForecast(state, material.id, t);
+  const rate = material.totalAmount > 0 ? material.doneAmount / material.totalAmount : 0;
+  const quota = todayQuotaFor(state, material.id, t);
+  const daysLeft = diffDays(t, material.targetDate);
+  const progressDeficit = state.lastScheduleResult?.progressDeficits.find((item) => item.materialId === material.id);
+  const done = material.doneAmount >= material.totalAmount;
+
+  return (
+    <aside className="material-detail-panel" aria-label={`${material.name}の詳細`}>
+      <div className="material-detail-head">
+        <div>
+          <span className="subject-chip" style={{ background: `${subject?.color}20`, color: subject?.color }}>{subject?.name}</span>
+          <h2>{material.name}</h2>
+        </div>
+        <button className="btn btn-secondary btn-sm" onClick={onEdit}><Pencil size={14} aria-hidden="true" />編集</button>
+      </div>
+      <div className="material-progress-display">
+        <strong>{Math.round(rate * 100)}%</strong>
+        <span>{material.doneAmount} / {material.totalAmount}{material.unit}</span>
+        <ProgressBar value={rate} color={subject?.color} />
+      </div>
+      <dl className="material-detail-metrics">
+        <div><dt>期限まで</dt><dd className={daysLeft < 0 ? 'critical' : ''}>{done ? '完了' : daysLeft < 0 ? `${Math.abs(daysLeft)}日超過` : `${daysLeft}日`}</dd></div>
+        <div><dt>今日の目安</dt><dd>{done ? 'なし' : quota > 0 ? `${quota}${material.unit}` : '調整中'}</dd></div>
+        <div><dt>必要ペース</dt><dd>{forecast ? `${forecast.requiredPacePerDay}${material.unit}/日` : '計算中'}</dd></div>
+      </dl>
+      {progressDeficit && progressDeficit.units > 0 && (
+        <div className="status-banner warning">
+          <Flag size={18} aria-hidden="true" />
+          <div className="status-banner-copy"><strong>期限に間に合わせるには、あと{progressDeficit.units}{material.unit}必要です</strong><span>学習時間の目安は{formatMinutes(progressDeficit.minutes)}です。</span></div>
+        </div>
+      )}
+      {forecast?.projectedFinishDate && !done && (
+        <div className="material-forecast-line">
+          <span>現在ペースの完了見込み</span>
+          <strong className={forecast.status === 'risk' ? 'critical' : forecast.status === 'behind' ? 'warning' : ''}>{formatDateShort(forecast.projectedFinishDate)}</strong>
+        </div>
+      )}
+      {material.estimatedMinutesPerUnit && material.estimateMode !== 'fixed' && (
+        <p className="material-estimate-note">実績から、1{material.unit}あたり約{material.estimatedMinutesPerUnit.toFixed(1)}分と推定しています。</p>
+      )}
+    </aside>
   );
 }
 
@@ -296,63 +290,63 @@ function MaterialFormSheet({ material, onClose }: { material: Material | null; o
     onClose();
   };
 
+  const daysToFinish = Math.max(1, diffDays(t, targetDate) + 1);
+  const suggestedDaily = Math.max(1, Math.ceil(Math.max(0, totalAmount - doneAmount) / daysToFinish));
+  const suggestedSession = Math.max(1, Math.round(45 / Math.max(0.1, minutesPerUnit)));
+
   return (
     <Sheet open onClose={onClose} title={isEdit ? '教材を編集' : '教材を追加'}>
       <div className="field">
         <label htmlFor="mf-name">教材名</label>
         <input id="mf-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="例: 青チャート 例題" />
       </div>
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor="mf-subject">科目</label>
-          <select id="mf-subject" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
-            {state.subjects.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="mf-unit">単位</label>
-          <select id="mf-unit" value={unit} onChange={(e) => setUnit(e.target.value as Material['unit'])}>
-            {UNIT_OPTIONS.map((u) => (
-              <option key={u} value={u}>
-                {u}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor="mf-total">総量({unit})</label>
-          <NumericInput
-            id="mf-total"
-            value={totalAmount}
-            min={1}
-            placeholder="例: 300"
-            onChange={(v) => setTotalAmount(Math.max(0, v))}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="mf-done">終わった量</label>
-          <NumericInput
-            id="mf-done"
-            value={doneAmount}
-            min={0}
-            placeholder="例: 40"
-            onChange={(v) => setDoneAmount(Math.max(0, v))}
-          />
-        </div>
+      <div className="field">
+        <label htmlFor="mf-subject">科目</label>
+        <select id="mf-subject" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+          {state.subjects.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
       </div>
       <div className="field">
-        <label htmlFor="mf-target">目標完了日</label>
+        <label htmlFor="mf-total">総量（{unit}）</label>
+        <NumericInput id="mf-total" value={totalAmount} min={1} placeholder="例: 300" onChange={(v) => setTotalAmount(Math.max(0, v))} />
+      </div>
+      {isEdit && (
+        <div className="field">
+          <label htmlFor="mf-done">終わった量</label>
+          <NumericInput id="mf-done" value={doneAmount} min={0} placeholder="例: 40" onChange={(v) => setDoneAmount(Math.max(0, v))} />
+        </div>
+      )}
+      <div className="field">
+        <label htmlFor="mf-target">終わらせたい日</label>
         <input id="mf-target" type="date" value={targetDate} min={isEdit ? undefined : t} max={state.goal?.examDate} onChange={(e) => setTargetDate(e.target.value)} />
-        <div className="field-hint">この日までに終わるよう毎日の計画を自動で組みます。あとは保存するだけでOK。</div>
       </div>
 
-      <Disclosure title="詳細設定" summary="ペース・優先度・復習など(任意)">
+      <div className="material-form-suggestion" role="note">
+        <Sparkles size={20} aria-hidden="true" />
+        <div>
+          <strong>おすすめ設定を用意しました</strong>
+          <p>1{unit}約{minutesPerUnit}分、1回{suggestedSession}{unit}を目安にします。期限までの平均は1日{suggestedDaily}{unit}です。</p>
+          <small>最初の3回の実績から、所要時間をより正確に提案します。</small>
+        </div>
+      </div>
+
+      <Disclosure title="おすすめ設定を変更" summary={`1${unit} ${minutesPerUnit}分・頻度は自動`}>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="mf-unit">学習量の単位</label>
+            <select id="mf-unit" value={unit} onChange={(e) => setUnit(e.target.value as Material['unit'])}>
+              {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          {!isEdit && (
+            <div className="field">
+              <label htmlFor="mf-done">すでに終わった量</label>
+              <NumericInput id="mf-done" value={doneAmount} min={0} placeholder="0" onChange={(v) => setDoneAmount(Math.max(0, v))} />
+            </div>
+          )}
+        </div>
         <div className="field-row">
           <div className="field">
             <label htmlFor="mf-start">開始日</label>

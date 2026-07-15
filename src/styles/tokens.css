@@ -1,0 +1,93 @@
+@layer reset, legacy, tokens, base, components, layouts, utilities, overrides;
+
+@layer tokens {
+  :root {
+    color-scheme: dark;
+
+    --bg: #0c111d;
+    --bg-elev1: #131a28;
+    --bg-elev2: #1a2232;
+    --bg-elev3: #232d40;
+    --bg-glass: rgba(12, 17, 29, 0.82);
+
+    --text: #f3f5fa;
+    --text-sub: #aab3c4;
+    --text-faint: #778298;
+
+    --accent: #7c8cff;
+    --accent-strong: #6577f3;
+    --accent-2: #a886f7;
+    --accent-grad: linear-gradient(135deg, #7284f5 0%, #8b7aec 100%);
+    --accent-soft: rgba(124, 140, 255, 0.14);
+
+    --ok: #43c994;
+    --ok-soft: rgba(67, 201, 148, 0.13);
+    --warn: #e7ad52;
+    --warn-soft: rgba(231, 173, 82, 0.14);
+    --danger: #f2707f;
+    --danger-soft: rgba(242, 112, 127, 0.13);
+
+    --border: rgba(193, 202, 220, 0.1);
+    --border-strong: rgba(193, 202, 220, 0.2);
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+
+    --type-caption: 0.75rem;
+    --type-body: 0.9375rem;
+    --type-emphasis: 1.0625rem;
+    --type-title: clamp(1.5rem, 3vw, 2rem);
+    --type-display: clamp(2rem, 5vw, 3.25rem);
+
+    --radius-control: 12px;
+    --radius-card: 18px;
+    --radius-modal: 24px;
+    --radius-s: var(--radius-control);
+    --radius-m: var(--radius-card);
+    --radius-l: var(--radius-modal);
+
+    --motion-instant: 80ms;
+    --motion-fast: 160ms;
+    --motion-normal: 260ms;
+
+    --shadow-card: none;
+    --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.12);
+    --shadow-float: 0 18px 52px rgba(0, 0, 0, 0.42);
+
+    --width-reading: 720px;
+    --width-form: 680px;
+    --width-dashboard: 1180px;
+  }
+
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --bg: #f5f6f9;
+    --bg-elev1: #ffffff;
+    --bg-elev2: #f1f3f7;
+    --bg-elev3: #e8ebf1;
+    --bg-glass: rgba(250, 251, 253, 0.84);
+    --text: #171b24;
+    --text-sub: #5d6677;
+    --text-faint: #8a93a3;
+    --accent: #596be8;
+    --accent-strong: #4658d1;
+    --accent-2: #8065d4;
+    --accent-grad: linear-gradient(135deg, #596be8 0%, #7561d2 100%);
+    --accent-soft: rgba(89, 107, 232, 0.1);
+    --ok: #198962;
+    --ok-soft: rgba(25, 137, 98, 0.1);
+    --warn: #a66b13;
+    --warn-soft: rgba(166, 107, 19, 0.1);
+    --danger: #c74455;
+    --danger-soft: rgba(199, 68, 85, 0.09);
+    --border: rgba(38, 46, 64, 0.09);
+    --border-strong: rgba(38, 46, 64, 0.17);
+    --shadow-soft: 0 1px 2px rgba(22, 30, 46, 0.05);
+    --shadow-float: 0 20px 55px rgba(28, 37, 60, 0.15);
+  }
+}

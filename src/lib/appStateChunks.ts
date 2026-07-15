@@ -402,35 +402,41 @@ async function encodeSection(
   maxChunkBytes: number,
 ): Promise<{ manifest: AppStateChunkManifestSection; chunks: AppStateChunk[] }> {
   const chunks: AppStateChunk[] = [];
-  let current: unknown[] = [];
+  let currentJsonItems: string[] = [];
+  // JSON配列の角括弧2byte。各項目は一度だけ直列化し、カンマ分を加算する。
+  // 配列全体を項目追加ごとに再直列化すると、大規模ログでO(n²)になる。
+  let currentBytes = 2;
 
   const flush = async () => {
-    if (current.length === 0) return;
-    const json = JSON.stringify(current);
-    const byteLength = utf8Length(json);
+    if (currentJsonItems.length === 0) return;
+    const json = `[${currentJsonItems.join(',')}]`;
+    const byteLength = currentBytes;
     const index = chunks.length;
     chunks.push({ section: name, index, json, hash: await sha256Hex(json), byteLength });
-    current = [];
+    currentJsonItems = [];
+    currentBytes = 2;
   };
 
   for (const item of items) {
-    const candidate = [...current, item];
-    const candidateJson = JSON.stringify(candidate);
-    const candidateBytes = utf8Length(candidateJson);
+    // JSON.stringify配列内のundefined/function/symbolはnullになる挙動を維持する。
+    const itemJson = JSON.stringify(item) ?? 'null';
+    const itemBytes = utf8Length(itemJson);
+    const candidateBytes = currentBytes + itemBytes + (currentJsonItems.length > 0 ? 1 : 0);
     if (candidateBytes <= maxChunkBytes) {
-      current = candidate;
+      currentJsonItems.push(itemJson);
+      currentBytes = candidateBytes;
       continue;
     }
-    if (current.length === 0) {
+    if (currentJsonItems.length === 0) {
       throw new Error(`${name}の1項目がクラウド保存上限を超えています (${candidateBytes} bytes)`);
     }
     await flush();
-    const singleJson = JSON.stringify([item]);
-    const singleBytes = utf8Length(singleJson);
+    const singleBytes = itemBytes + 2;
     if (singleBytes > maxChunkBytes) {
       throw new Error(`${name}の1項目がクラウド保存上限を超えています (${singleBytes} bytes)`);
     }
-    current = [item];
+    currentJsonItems = [itemJson];
+    currentBytes = singleBytes;
   }
   await flush();
 

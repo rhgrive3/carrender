@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { PenLine, Plus, Share2, Timer } from 'lucide-react';
+import { PenLine, Plus, Search, Share2, Timer } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ui/Toast';
 import { computeAchievements, unlockedCount } from '../lib/achievements';
@@ -67,6 +67,10 @@ export function RecordsScreen() {
   const [editSession, setEditSession] = useState<StudySession | null>(null);
   const [period, setPeriod] = useState<Period>('week');
   const [offset, setOffset] = useState(0);
+  const [view, setView] = useState<'overview' | 'log'>('overview');
+  const [logQuery, setLogQuery] = useState('');
+  const [logSubject, setLogSubject] = useState('all');
+  const [logDate, setLogDate] = useState('');
 
   const analytics = useMemo(() => computeAnalytics(state, t), [state, t]);
   const achievements = useMemo(() => computeAchievements(state, t), [state, t]);
@@ -123,6 +127,19 @@ export function RecordsScreen() {
     [sessions, state.subjects],
   );
   const maxSubject = Math.max(1, ...bySubject.map(({ minutes }) => minutes));
+  const filteredLogSessions = useMemo(() => {
+    const query = logQuery.trim().toLocaleLowerCase('ja');
+    return [...state.sessions]
+      .filter((session) => logSubject === 'all' || session.subjectId === logSubject)
+      .filter((session) => !logDate || session.date === logDate)
+      .filter((session) => {
+        if (!query) return true;
+        const subject = resolveRecordSubject(state.subjects, session.subjectId);
+        const material = state.materials.find((item) => item.id === session.materialId);
+        return `${subject.name} ${material?.name ?? ''} ${session.rangeLabel} ${session.memo}`.toLocaleLowerCase('ja').includes(query);
+      })
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }, [logDate, logQuery, logSubject, state.materials, state.sessions, state.subjects]);
 
   const switchPeriod = (next: Period) => {
     setPeriod(next);
@@ -130,7 +147,7 @@ export function RecordsScreen() {
   };
 
   return (
-    <div className="screen">
+    <div className="screen records-v2">
       <div className="screen-header">
         <div>
           <div className="screen-title">記録</div>
@@ -148,6 +165,12 @@ export function RecordsScreen() {
         </div>
       </div>
 
+      <div className="segmented record-view-switch" role="tablist" aria-label="記録画面の切替">
+        <button role="tab" aria-selected={view === 'overview'} className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}>概要</button>
+        <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'active' : ''} onClick={() => setView('log')}>学習ログ</button>
+      </div>
+
+      {view === 'overview' && <div className="record-overview">
       <div className="segmented" role="tablist" aria-label="集計期間">
         <button className={period === 'week' ? 'active' : ''} onClick={() => switchPeriod('week')}>週</button>
         <button className={period === 'month' ? 'active' : ''} onClick={() => switchPeriod('month')}>月</button>
@@ -245,34 +268,46 @@ export function RecordsScreen() {
           ))}
         </div>
       )}
+      </div>}
 
-      <div className="section-label">学習ログ({sessions.length}件)</div>
-      {sessions.length === 0 ? (
-        <EmptyState icon="📝" title="この期間の記録はありません">
-          タイマーで勉強するか、「＋」から手動で記録できます。
-        </EmptyState>
-      ) : (
-        <SessionLog sessions={sessions} state={state} t={t} onEdit={setEditSession} />
+      {view === 'log' && (
+        <section className="record-log-view" aria-labelledby="record-log-title">
+          <div className="record-log-heading">
+            <div><span className="section-kicker">履歴</span><h2 id="record-log-title">学習ログ</h2></div>
+            <span className="faint">{filteredLogSessions.length}件</span>
+          </div>
+          <div className="record-log-filters">
+            <label className="record-search">
+              <Search size={17} aria-hidden="true" />
+              <span className="sr-only">学習ログを検索</span>
+              <input value={logQuery} onChange={(event) => setLogQuery(event.target.value)} placeholder="教材・科目・メモを検索" />
+            </label>
+            <label><span className="sr-only">科目で絞り込む</span><select value={logSubject} onChange={(event) => setLogSubject(event.target.value)}><option value="all">すべての科目</option>{state.subjects.map((subject) => <option value={subject.id} key={subject.id}>{subject.name}</option>)}</select></label>
+            <label><span className="sr-only">日付で絞り込む</span><input type="date" value={logDate} max={t} onChange={(event) => setLogDate(event.target.value)} /></label>
+          </div>
+          {filteredLogSessions.length === 0 ? (
+            <EmptyState icon="📝" title="条件に合う記録はありません">検索条件を変えるか、「＋」から記録を追加できます。</EmptyState>
+          ) : (
+            <div className="record-log-list"><SessionLog sessions={filteredLogSessions} state={state} t={t} onEdit={setEditSession} /></div>
+          )}
+        </section>
       )}
 
-      <div className="section-label">
-        <span>実績バッジ</span>
-        <span className="faint">{unlockedCount(achievements)}/{achievements.length} 獲得</span>
-      </div>
-      <div className="badge-grid">
-        {achievements.map((a) => (
-          <div key={a.id} className={`badge-cell ${a.unlocked ? 'unlocked' : ''}`} title={a.desc}>
-            <span className="badge-icon" aria-hidden="true">{a.icon}</span>
-            <span className="badge-title">{a.title}</span>
-            <span className="badge-desc">{a.unlocked ? '獲得!' : a.progressLabel}</span>
-            {!a.unlocked && (
-              <div className="badge-progress" aria-hidden="true">
-                <div style={{ width: `${Math.round(a.progress * 100)}%` }} />
+      {view === 'overview' && (
+        <details className="record-achievements">
+          <summary><span>実績バッジ</span><span>{unlockedCount(achievements)}/{achievements.length} 獲得</span></summary>
+          <div className="badge-grid">
+            {achievements.map((achievement) => (
+              <div key={achievement.id} className={`badge-cell ${achievement.unlocked ? 'unlocked' : ''}`} title={achievement.desc}>
+                <span className="badge-icon" aria-hidden="true">{achievement.icon}</span>
+                <span className="badge-title">{achievement.title}</span>
+                <span className="badge-desc">{achievement.unlocked ? '獲得!' : achievement.progressLabel}</span>
+                {!achievement.unlocked && <div className="badge-progress" aria-hidden="true"><div style={{ width: `${Math.round(achievement.progress * 100)}%` }} /></div>}
               </div>
-            )}
+            ))}
           </div>
-        ))}
-      </div>
+        </details>
+      )}
 
       {addOpen && <RecordSheet open onClose={() => setAddOpen(false)} />}
       {editSession && <RecordSheet open session={editSession} onClose={() => setEditSession(null)} />}

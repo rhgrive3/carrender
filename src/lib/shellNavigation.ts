@@ -1,4 +1,10 @@
 export type ShellTab = 'today' | 'plan' | 'materials' | 'records' | 'analytics';
+export type ShellMaterialsPane = 'materials' | 'memory';
+
+export interface ShellRoute {
+  tab: ShellTab;
+  materialsPane: ShellMaterialsPane;
+}
 
 export const SHELL_TAB_STORAGE_KEY = 'studycommander:last-shell-tab';
 
@@ -6,6 +12,20 @@ const SHELL_TABS = new Set<ShellTab>(['today', 'plan', 'materials', 'records', '
 
 export function isShellTab(value: unknown): value is ShellTab {
   return typeof value === 'string' && SHELL_TABS.has(value as ShellTab);
+}
+
+export function readShellRoute(hash: string | null | undefined, fallbackTab: ShellTab = 'today'): ShellRoute {
+  const path = (hash ?? '').replace(/^#\/?/, '').split('?')[0];
+  const [tabPart, panePart] = path.split('/');
+  const tab = isShellTab(tabPart) ? tabPart : fallbackTab;
+  return {
+    tab,
+    materialsPane: tab === 'materials' && panePart === 'memory' ? 'memory' : 'materials',
+  };
+}
+
+export function shellRouteHref(tab: ShellTab, materialsPane: ShellMaterialsPane = 'materials'): string {
+  return `#/${tab}${tab === 'materials' && materialsPane === 'memory' ? '/memory' : ''}`;
 }
 
 export function readStoredShellTab(

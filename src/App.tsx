@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppProvider, useApp } from './state/AppContext';
 import { AuthProvider, useAuth } from './state/AuthContext';
 import { MainStateBootstrap, MainStatePersistence } from './state/MainStatePersistence';
@@ -14,7 +14,6 @@ import { OnboardingScreen } from './screens/OnboardingScreen';
 import { SettingsSheet } from './screens/SettingsSheet';
 import { LoginScreen } from './screens/LoginScreen';
 import { TimerOverlay } from './components/timer/TimerOverlay';
-import { PlanHistoryLauncher } from './components/PlanHistoryLauncher';
 import { MainStateMergeBridge } from './components/MainStateMergeBridge';
 import { MainStateWriterLeaseBridge } from './components/MainStateWriterLeaseBridge';
 import { MaterialProgressIntegrityBridge } from './components/MaterialProgressIntegrityBridge';
@@ -28,7 +27,13 @@ import { InstallBanner } from './components/pwa/InstallBanner';
 import { shouldShowInstallGate } from './lib/pwa';
 import { MemoryProvider, useMemory } from './features/memory/ui/MemoryContext';
 import { resolveAppOwnerIdentity } from './state/ownerIdentity';
-import { readStoredShellTab, storeShellTab, type ShellTab } from './lib/shellNavigation';
+import {
+  readShellRoute,
+  readStoredShellTab,
+  shellRouteHref,
+  storeShellTab,
+  type ShellTab,
+} from './lib/shellNavigation';
 
 type Tab = ShellTab;
 
@@ -50,9 +55,17 @@ function Shell() {
     activeSession: activeMemorySession,
     pendingCount: memoryPendingCount,
   } = useMemory();
-  const [tab, setTab] = useState<Tab>(() => readStoredShellTab(typeof window === 'undefined' ? null : window.sessionStorage));
-  const [materialsPane, setMaterialsPane] = useState<MaterialsPane>('materials');
+  const [initialRoute] = useState(() => {
+    if (typeof window === 'undefined') return readShellRoute('', 'today');
+    const storedTab = readStoredShellTab(window.sessionStorage);
+    return readShellRoute(window.location.hash, storedTab);
+  });
+  const [tab, setTab] = useState<Tab>(initialRoute.tab);
+  const [materialsPane, setMaterialsPane] = useState<MaterialsPane>(initialRoute.materialsPane);
+  const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set([initialRoute.tab]));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const scrollPositions = useRef<Partial<Record<Tab, number>>>({});
+  const activeTabRef = useRef<Tab>(initialRoute.tab);
   const [memoryTodaySummary, setMemoryTodaySummary] = useState<{
     weakCount: number;
     recent?: { answerCount: number; needsReviewCount: number };
@@ -60,7 +73,89 @@ function Shell() {
 
   useEffect(() => {
     storeShellTab(typeof window === 'undefined' ? null : window.sessionStorage, tab);
+    activeTabRef.current = tab;
   }, [tab]);
+
+  const navigateShell = useCallback((nextTab: Tab, nextMaterialsPane: MaterialsPane = materialsPane) => {
+    if (nextTab === tab && (nextTab !== 'materials' || nextMaterialsPane === materialsPane)) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollPositions.current[nextTab] = 0;
+      return;
+    }
+
+    scrollPositions.current[tab] = window.scrollY;
+    const pane = nextTab === 'materials' ? nextMaterialsPane : materialsPane;
+    setTab(nextTab);
+    setMaterialsPane(pane);
+    setVisitedTabs((current) => {
+      if (current.has(nextTab)) return current;
+      const next = new Set(current);
+      next.add(nextTab);
+      return next;
+    });
+    window.history.pushState(
+      { ...(window.history.state ?? {}), shellTab: nextTab, materialsPane: pane, overlay: null },
+      '',
+      shellRouteHref(nextTab, pane),
+    );
+    requestAnimationFrame(() => window.scrollTo({ top: scrollPositions.current[nextTab] ?? 0 }));
+  }, [materialsPane, tab]);
+
+  const openSettings = useCallback(() => {
+    if (!settingsOpen) {
+      window.history.pushState(
+        { ...(window.history.state ?? {}), shellTab: tab, materialsPane, overlay: 'settings' },
+        '',
+        window.location.href,
+      );
+    }
+    setSettingsOpen(true);
+  }, [materialsPane, settingsOpen, tab]);
+
+  const closeSettings = useCallback(() => {
+    if (window.history.state?.overlay === 'settings') {
+      window.history.back();
+      return;
+    }
+    setSettingsOpen(false);
+  }, []);
+
+  useEffect(() => {
+    window.history.scrollRestoration = 'manual';
+    const currentRoute = readShellRoute(window.location.hash, tab);
+    if (!window.location.hash || currentRoute.tab !== tab || currentRoute.materialsPane !== materialsPane) {
+      window.history.replaceState(
+        { ...(window.history.state ?? {}), shellTab: tab, materialsPane, overlay: null },
+        '',
+        shellRouteHref(tab, materialsPane),
+      );
+    } else {
+      window.history.replaceState(
+        { ...(window.history.state ?? {}), shellTab: tab, materialsPane, overlay: null },
+        '',
+        window.location.href,
+      );
+    }
+
+    const onPopState = (event: PopStateEvent) => {
+      scrollPositions.current[activeTabRef.current] = window.scrollY;
+      const route = readShellRoute(window.location.hash, 'today');
+      setTab(route.tab);
+      setMaterialsPane(route.materialsPane);
+      setSettingsOpen(event.state?.overlay === 'settings');
+      setVisitedTabs((current) => {
+        if (current.has(route.tab)) return current;
+        const next = new Set(current);
+        next.add(route.tab);
+        return next;
+      });
+      requestAnimationFrame(() => window.scrollTo({ top: scrollPositions.current[route.tab] ?? 0 }));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+    // Initial history setup and popstate subscription intentionally run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auth may replace a legacy username owner with the stable user ID after an
   // offline launch reconnects. AppProvider/Shell remounts at that boundary,
@@ -71,6 +166,12 @@ function Shell() {
     if (!immersive) return;
     setMaterialsPane('memory');
     setTab('materials');
+    setVisitedTabs((current) => new Set(current).add('materials'));
+    window.history.replaceState(
+      { ...(window.history.state ?? {}), shellTab: 'materials', materialsPane: 'memory', overlay: null },
+      '',
+      shellRouteHref('materials', 'memory'),
+    );
   }, [immersive]);
 
   useEffect(() => {
@@ -99,7 +200,7 @@ function Shell() {
       const dark = pref === 'dark' || (pref === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
       document.documentElement.dataset.theme = dark ? 'dark' : 'light';
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute('content', dark ? '#0b0f1a' : '#eef1f8');
+      if (meta) meta.setAttribute('content', dark ? '#0c111d' : '#f5f6f9');
     };
     apply();
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -118,9 +219,10 @@ function Shell() {
   return (
     <>
       <div className="app-shell">
-        {!immersive && <SyncStatusBanner onOpenSettings={() => setSettingsOpen(true)} />}
-        {tab === 'today' && <TodayScreen
-          onOpenSettings={() => setSettingsOpen(true)}
+        {!immersive && <SyncStatusBanner onOpenSettings={openSettings} />}
+        <div className="shell-tab-panel" hidden={tab !== 'today'} aria-hidden={tab !== 'today'}>
+        {visitedTabs.has('today') && <TodayScreen
+          onOpenSettings={openSettings}
           memorySetCount={memorySets.length}
           hasActiveMemorySession={Boolean(activeMemorySession)}
           memoryWeakCount={memoryTodaySummary.weakCount}
@@ -129,16 +231,23 @@ function Shell() {
             navigateMemory(activeMemorySession
               ? { name: 'study', sessionId: activeMemorySession.id }
               : { name: 'home' });
-            setMaterialsPane('memory');
-            setTab('materials');
+            navigateShell('materials', 'memory');
           }} />}
-        {tab === 'plan' && <PlanScreen />}
-        {tab === 'materials' && <MaterialsScreen pane={materialsPane} onPaneChange={setMaterialsPane} />}
-        {tab === 'records' && <RecordsScreen />}
-        {tab === 'analytics' && <AnalyticsScreen />}
+        </div>
+        <div className="shell-tab-panel" hidden={tab !== 'plan'} aria-hidden={tab !== 'plan'}>
+          {visitedTabs.has('plan') && <PlanScreen />}
+        </div>
+        <div className="shell-tab-panel" hidden={tab !== 'materials'} aria-hidden={tab !== 'materials'}>
+          {visitedTabs.has('materials') && <MaterialsScreen pane={materialsPane} onPaneChange={(pane) => navigateShell('materials', pane)} />}
+        </div>
+        <div className="shell-tab-panel" hidden={tab !== 'records'} aria-hidden={tab !== 'records'}>
+          {visitedTabs.has('records') && <RecordsScreen />}
+        </div>
+        <div className="shell-tab-panel" hidden={tab !== 'analytics'} aria-hidden={tab !== 'analytics'}>
+          {visitedTabs.has('analytics') && <AnalyticsScreen onNavigate={navigateShell} />}
+        </div>
 
-        {!immersive && <PlanHistoryLauncher />}
-        <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <SettingsSheet open={settingsOpen} onClose={closeSettings} />
         <TimerOverlay />
       </div>
 
@@ -157,7 +266,7 @@ function Shell() {
             <button
               key={item.id}
               className={tab === item.id ? 'active' : ''}
-              onClick={() => setTab(item.id)}
+              onClick={() => navigateShell(item.id)}
               aria-label={item.label}
               aria-current={tab === item.id ? 'page' : undefined}
             >

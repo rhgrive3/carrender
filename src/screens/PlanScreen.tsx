@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, ChevronUp, Pin, Play, Plus, RefreshCw, Repeat, SkipForward, Trash2, TriangleAlert } from 'lucide-react';
+import { CalendarX2, Check, ChevronDown, ChevronUp, Pin, Play, Plus, RefreshCw, Repeat, SkipForward, Trash2, TriangleAlert } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { addDays, addMonths, formatDateShort, formatMinutes, formatMinutesCompact, formatMinutesTile, hmToMinutes, minutesToHM, monthKeyOf, monthLabel, today, WEEKDAY_LABELS, weekdayOf, genId } from '../lib/date';
 import { MonthCalendar } from '../components/ui/MonthCalendar';
@@ -12,6 +12,7 @@ import { useTimer } from '../components/timer/TimerContext';
 import { RecordSheet } from '../components/forms/RecordSheet';
 import { normalizeTaskSchedule } from '../lib/taskSchedule';
 import { compareTaskDisplayOrder, isPlacedPlanTask } from '../lib/taskFilters';
+import { PlanHistoryLauncher } from '../components/PlanHistoryLauncher';
 
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => (typeof window === 'undefined' ? false : window.matchMedia(query).matches));
@@ -36,6 +37,7 @@ export function PlanScreen() {
   const [addDate, setAddDate] = useState(t);
   const [view, setView] = useState<'week' | 'month'>('week');
   const [month, setMonth] = useState(() => monthKeyOf(t));
+  const [planChangePreview, setPlanChangePreview] = useState<'week' | 'today' | null>(null);
   const widePlan = useMediaQuery('(min-width: 1024px) and (orientation: landscape)');
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(t, i)), [t]);
@@ -56,8 +58,11 @@ export function PlanScreen() {
   const overdueCount = state.tasks.filter((x) => x.status === 'planned' && x.scheduledDate < t).length;
   const schedule = state.lastScheduleResult;
   const scheduleLabel = schedule
-    ? ({ success: '生成完了', partial: '一部未配置', infeasible: '厳守期限に配置不能', indeterminate: '判定未完了', invalidInput: '入力エラー', conflict: '固定条件が衝突' } as const)[schedule.status]
+    ? ({ success: '期限に間に合う見込み', partial: '予定に入れられていない学習あり', infeasible: 'このままでは期限に間に合いません', indeterminate: '計画を確認しています', invalidInput: '設定の確認が必要です', conflict: '同じ時間に予定が重なっています' } as const)[schedule.status]
     : null;
+  const futurePlannedTasks = state.tasks.filter((task) => task.status === 'planned' && task.scheduledDate >= t);
+  const todayMovableTasks = futurePlannedTasks.filter((task) => task.scheduledDate === t);
+  const todayMovableMinutes = todayMovableTasks.reduce((sum, task) => sum + task.estimatedMinutes, 0);
 
   const openDay = (date: string) => {
     setSelectedDay(date);
@@ -71,38 +76,35 @@ export function PlanScreen() {
           <div className="screen-title">計画</div>
           <div className="screen-sub">これから1週間の学習ブロック</div>
         </div>
-        <button
-          className="icon-btn"
-          aria-label="手動でタスクを追加"
-          onClick={() => {
-            setAddDate(selectedDay);
-            setAddOpen(true);
-          }}
-        >
-          <Plus size={22} strokeWidth={2.2} aria-hidden="true" />
-        </button>
+        <div className="row" style={{ gap: 4 }}>
+          <PlanHistoryLauncher inline />
+          <button
+            className="icon-btn"
+            aria-label="手動でタスクを追加"
+            onClick={() => {
+              setAddDate(selectedDay);
+              setAddOpen(true);
+            }}
+          >
+            <Plus size={22} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <div className="row" style={{ gap: 8 }}>
         <button
           className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
-          onClick={() => {
-            const result = execute({ type: 'RESCHEDULE', reason: '今週の再設計' });
-            toast(result.message ?? '1週間の計画を再設計しました');
-          }}
+          onClick={() => setPlanChangePreview('week')}
         >
           <RefreshCw size={14} strokeWidth={2.4} aria-hidden="true" /> 今週を再設計
         </button>
         <button
           className="btn btn-secondary btn-sm"
           style={{ flex: 1 }}
-          onClick={() => {
-            const result = execute({ type: 'TODAY_IMPOSSIBLE' });
-            toast(result.message ?? '今日の分を明日以降へ分散しました');
-          }}
+          onClick={() => setPlanChangePreview('today')}
         >
-          😮‍💨 今日は無理
+          <CalendarX2 size={14} strokeWidth={2.2} aria-hidden="true" /> 今日は無理
         </button>
       </div>
 
@@ -116,13 +118,13 @@ export function PlanScreen() {
           </div>
           {(schedule.objectiveReport.unscheduledMinutes > 0 || schedule.objectiveReport.unscheduledStrictMinutes > 0 || schedule.objectiveReport.progressDebtMinutes > 0) && (
             <div className="material-metrics mt-8">
-              {schedule.objectiveReport.unscheduledMinutes > 0 && <span><i>未配置</i><b>{formatMinutes(schedule.objectiveReport.unscheduledMinutes)}</b></span>}
-              {schedule.objectiveReport.unscheduledStrictMinutes > 0 && <span><i>厳守不足</i><b>{formatMinutes(schedule.objectiveReport.unscheduledStrictMinutes)}</b></span>}
-              {schedule.objectiveReport.progressDebtMinutes > 0 && <span><i>進捗負債</i><b>{formatMinutes(schedule.objectiveReport.progressDebtMinutes)}</b></span>}
+              {schedule.objectiveReport.unscheduledMinutes > 0 && <span><i>予定に入らない時間</i><b>{formatMinutes(schedule.objectiveReport.unscheduledMinutes)}</b></span>}
+              {schedule.objectiveReport.unscheduledStrictMinutes > 0 && <span><i>期限内に不足</i><b>{formatMinutes(schedule.objectiveReport.unscheduledStrictMinutes)}</b></span>}
+              {schedule.objectiveReport.progressDebtMinutes > 0 && <span><i>追加で必要</i><b>{formatMinutes(schedule.objectiveReport.progressDebtMinutes)}</b></span>}
             </div>
           )}
           {(schedule.conflicts.length > 0 || schedule.unscheduledWork.length > 0) && (
-            <div className="faint mt-8">固定衝突 {schedule.conflicts.length}件 ・ 未配置 {schedule.unscheduledWork.length}件</div>
+            <div className="faint mt-8">時間が重なる予定 {schedule.conflicts.length}件 ・ 予定に入らない学習 {schedule.unscheduledWork.length}件</div>
           )}
           {schedule.conflicts.slice(0, 3).map((conflict) => (
             <div key={conflict.taskId} className="faint mt-8" style={{ color: 'var(--danger)' }}>
@@ -264,6 +266,36 @@ export function PlanScreen() {
       )}
       {selected && <TaskEditSheet task={selected} onClose={() => setSelected(null)} />}
       {addOpen && <ManualTaskSheet initialDate={addDate} onClose={() => setAddOpen(false)} />}
+      {planChangePreview && (
+        <Sheet open onClose={() => setPlanChangePreview(null)} title={planChangePreview === 'week' ? '今週の計画を再設計' : '今日の学習を移動'}>
+          <div className="plan-change-preview">
+            <p className="plan-change-intro">
+              {planChangePreview === 'week'
+                ? '期限・空き時間・優先度を使って、これからの予定を組み直します。完了済みの記録は変わりません。'
+                : '今日の未着手分を、明日以降の空き時間へ分散します。'}
+            </p>
+            <dl>
+              <div><dt>確認するタスク</dt><dd>{planChangePreview === 'week' ? futurePlannedTasks.length : todayMovableTasks.length}件</dd></div>
+              <div><dt>今日から移動</dt><dd>{planChangePreview === 'today' ? `${todayMovableTasks.length}件` : '必要な分だけ'}</dd></div>
+              <div><dt>移動する学習時間</dt><dd>{planChangePreview === 'today' ? formatMinutes(todayMovableMinutes) : '自動計算'}</dd></div>
+              <div><dt>期限への影響</dt><dd className={schedule?.capacityReport.shortages.length ? 'critical' : 'success'}>{schedule?.capacityReport.shortages.length ? '調整が必要' : 'なしの見込み'}</dd></div>
+            </dl>
+            <div className="status-banner">
+              <RefreshCw size={18} aria-hidden="true" />
+              <div className="status-banner-copy"><strong>変更後も元に戻せます</strong><span>実行後15秒間は、画面下の「元に戻す」から復元できます。</span></div>
+            </div>
+            <div className="plan-change-actions">
+              <button className="btn btn-secondary" onClick={() => setPlanChangePreview(null)}>キャンセル</button>
+              <button className="btn btn-primary" onClick={() => {
+                const mode = planChangePreview;
+                const result = execute(mode === 'week' ? { type: 'RESCHEDULE', reason: '今週の再設計' } : { type: 'TODAY_IMPOSSIBLE' });
+                toast(result.message ?? (mode === 'week' ? '1週間の計画を再設計しました' : '今日の分を明日以降へ分散しました'));
+                setPlanChangePreview(null);
+              }}>{planChangePreview === 'week' ? 'この内容で再設計' : '明日以降へ移動'}</button>
+            </div>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }

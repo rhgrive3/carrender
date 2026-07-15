@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readStoredShellTab, SHELL_TAB_STORAGE_KEY, storeShellTab } from '../src/lib/shellNavigation';
+import { readShellRoute, readStoredShellTab, SHELL_TAB_STORAGE_KEY, shellRouteHref, storeShellTab } from '../src/lib/shellNavigation';
 
 class MemoryStorage {
   private readonly values = new Map<string, string>();
@@ -24,5 +24,11 @@ const blockedStorage = {
 };
 assert.equal(readStoredShellTab(blockedStorage), 'today', 'ストレージ読み込み不可でも起動できる');
 assert.doesNotThrow(() => storeShellTab(blockedStorage, 'plan'), 'ストレージ書き込み不可でも操作を継続できる');
+
+assert.deepEqual(readShellRoute('#/materials/memory'), { tab: 'materials', materialsPane: 'memory' }, '暗記ペインをURLから復元する');
+assert.deepEqual(readShellRoute('#/records'), { tab: 'records', materialsPane: 'materials' }, '主要タブをURLから復元する');
+assert.deepEqual(readShellRoute('#/unknown', 'analytics'), { tab: 'analytics', materialsPane: 'materials' }, '不正URLは保存タブへ戻す');
+assert.equal(shellRouteHref('materials', 'memory'), '#/materials/memory', '暗記ペインを履歴に残すURLを作る');
+assert.equal(shellRouteHref('today'), '#/today', '主要タブのURLを作る');
 
 console.log('✅ shell navigation regressions passed');
