@@ -20,6 +20,10 @@ assert.match(source, /const clearDisplayedError = \(\) => \{[\s\S]*setLocalError
 assert.match(source, /id="auth-username"[\s\S]*onChange=\{\(e\) => \{[\s\S]*setUsername\(e\.target\.value\)[\s\S]*clearDisplayedError\(\)/, 'ユーザー名の修正時に古いエラーを消す');
 assert.match(source, /id="auth-password"[\s\S]*onChange=\{\(e\) => \{[\s\S]*setPassword\(e\.target\.value\)[\s\S]*clearDisplayedError\(\)/, 'パスワードの修正時に古いエラーを消す');
 assert.match(source, /id="auth-password-confirmation"[\s\S]*onChange=\{\(e\) => \{[\s\S]*setPasswordConfirmation\(e\.target\.value\)[\s\S]*clearDisplayedError\(\)/, '確認用パスワードの修正時に古いエラーを消す');
+assert.match(authContext, /function nonEmptyString\(value: unknown\): string \| null \{[\s\S]*value\.trim\(\)[\s\S]*return normalized \? normalized : null/, '保存済み認証識別子は空白だけの値を受け入れない');
+assert.match(authContext, /const id = nonEmptyString\(stored\.id\)[\s\S]*const username = nonEmptyString\(stored\.username\)[\s\S]*if \(id && username/, 'v2認証ヒントは非空のIDとユーザー名が揃う場合だけ復元する');
+assert.match(authContext, /stored\.memoryOwner === undefined \? null : nonEmptyString\(stored\.memoryOwner\)[\s\S]*stored\.memoryOwner === undefined \|\| memoryOwner/, '壊れたmemoryOwnerを持つ認証ヒントを拒否する');
+assert.match(authContext, /const legacyUsername = nonEmptyString\(localStorage\.getItem\(AUTH_HINT_KEY\)\)/, '旧形式の空ユーザー名も認証済みとして復元しない');
 assert.match(authContext, /function clearHints\(\): void \{[\s\S]*removeItem\(AUTH_HINT_KEY\)[\s\S]*removeItem\(AUTH_USER_HINT_KEY\)/, '認証ヒントを一括破棄できる');
 assert.match(authContext, /if \(user\.id\) \{[\s\S]*setItem\(AUTH_USER_HINT_KEY, JSON\.stringify\(user\)\)[\s\S]*\} else \{[\s\S]*removeItem\(AUTH_USER_HINT_KEY\)[\s\S]*setItem\(AUTH_HINT_KEY, user\.username\)/, '旧形式ユーザーへ切り替える時は古いv2ヒントを残さない');
 assert.match(authContext, /catch \{[\s\S]*try \{[\s\S]*clearHints\(\)[\s\S]*\} catch/, 'ヒント保存が途中失敗した場合は混在した認証情報を破棄する');

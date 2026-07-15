@@ -33,18 +33,28 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function nonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
 function readHint(): AuthUser | null {
   try {
     const encoded = localStorage.getItem(AUTH_USER_HINT_KEY);
     if (encoded) {
       const value: unknown = JSON.parse(encoded);
-      if (value && typeof value === 'object'
-        && typeof (value as { id?: unknown }).id === 'string'
-        && typeof (value as { username?: unknown }).username === 'string') {
-        return value as AuthUser;
+      if (value && typeof value === 'object') {
+        const stored = value as { id?: unknown; username?: unknown; memoryOwner?: unknown };
+        const id = nonEmptyString(stored.id);
+        const username = nonEmptyString(stored.username);
+        const memoryOwner = stored.memoryOwner === undefined ? null : nonEmptyString(stored.memoryOwner);
+        if (id && username && (stored.memoryOwner === undefined || memoryOwner)) {
+          return memoryOwner ? { id, username, memoryOwner } : { id, username };
+        }
       }
     }
-    const legacyUsername = localStorage.getItem(AUTH_HINT_KEY);
+    const legacyUsername = nonEmptyString(localStorage.getItem(AUTH_HINT_KEY));
     return legacyUsername ? { username: legacyUsername } : null;
   } catch {
     return null;
