@@ -228,6 +228,18 @@ function deriveCap(
   };
 }
 
+function stateWithCaps(state: AppState, caps: ReadonlyArray<AutomaticSpreadCap>): AppState {
+  if (caps.length === 0) return state;
+  const byMaterial = new Map(caps.map((cap) => [cap.materialId, cap]));
+  return {
+    ...state,
+    materials: state.materials.map((material) => {
+      const cap = byMaterial.get(material.id);
+      return cap ? { ...material, maxUnitsPerDay: cap.maxUnitsPerDay } : material;
+    }),
+  };
+}
+
 export function applyAutomaticSpreadCaps(
   state: AppState,
   context: SchedulerContext,
@@ -235,18 +247,7 @@ export function applyAutomaticSpreadCaps(
   const caps = state.materials
     .map((material) => deriveCap(state, material, context))
     .filter((cap): cap is AutomaticSpreadCap => cap !== null);
-  if (caps.length === 0) return { state, caps };
-  const byMaterial = new Map(caps.map((cap) => [cap.materialId, cap]));
-  return {
-    state: {
-      ...state,
-      materials: state.materials.map((material) => {
-        const cap = byMaterial.get(material.id);
-        return cap ? { ...material, maxUnitsPerDay: cap.maxUnitsPerDay } : material;
-      }),
-    },
-    caps,
-  };
+  return { state: stateWithCaps(state, caps), caps };
 }
 
 export function computeMaterialSpreadScore(result: ScheduleGenerationResult): MaterialSpreadScore {
@@ -343,9 +344,14 @@ function compareSpread(a: ScheduleGenerationResult, b: ScheduleGenerationResult)
   ]);
 }
 
+function capSignature(caps: ReadonlyArray<AutomaticSpreadCap>): string {
+  return caps.map((cap) => `${cap.materialId}:${cap.maxUnitsPerDay}`).sort().join('|');
+}
+
 /**
- * 自動上限は利用者設定を書き換えず、生成時だけ適用する。元条件でも同じ計画を
- * 生成して比較し、期限・固定・未配置など上位保証が悪化する候補は必ず破棄する。
+ * 自動上限は利用者設定を書き換えず、生成時だけ適用する。まず全教材を試し、
+ * 上位保証が悪化する場合は短期限・厳守、厳守のみへ段階的に緩和する。
+ * どの候補も従来結果より悪い場合は従来結果をそのまま返す。
  */
 export function generateWithAutomaticSpreadCaps(
   state: AppState,
@@ -354,10 +360,37 @@ export function generateWithAutomaticSpreadCaps(
 ): ScheduleGenerationResult {
   const applied = applyAutomaticSpreadCaps(state, context);
   if (applied.caps.length === 0) return generate(state, context);
-  const candidate = generate(applied.state, context);
+
   const baseline = generate(state, context);
-  const hard = compareHardOutcomes(candidate, baseline);
-  if (hard < 0) return candidate;
-  if (hard > 0) return baseline;
-  return compareSpread(candidate, baseline) <= 0 ? candidate : baseline;
+  const today = dateInTimeZone(context.now, context.timezone);
+  const materialById = new Map(state.materials.map((material) => [material.id, material]));
+  const urgentCaps = applied.caps.filter((cap) => {
+    const material = materialById.get(cap.materialId);
+    return material?.deadlinePolicy === 'strict'
+      || Boolean(material && diffDays(today, material.targetDate) <= 14);
+  });
+  const strictCaps = applied.caps.filter((cap) => materialById.get(cap.materialId)?.deadlinePolicy === 'strict');
+  const strategies = [applied.caps, urgentCaps, strictCaps]
+    .filter((caps) => caps.length > 0);
+  const seen = new Set<string>();
+  let best = baseline;
+
+  for (const caps of strategies) {
+    const signature = capSignature(caps);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    const candidate = generate(stateWithCaps(state, caps), context);
+    // baselineより上位保証を悪化させる候補は採用しない。
+    if (compareHardOutcomes(candidate, baseline) > 0) continue;
+    const hardComparedWithBest = compareHardOutcomes(candidate, best);
+    if (hardComparedWithBest < 0
+      || (hardComparedWithBest === 0 && compareSpread(candidate, best) < 0)) {
+      best = candidate;
+    }
+    // 最も広い制約集合が安全かつ改善なら、追加試行を避ける。
+    if (caps === applied.caps && best === candidate
+      && compareHardOutcomes(candidate, baseline) === 0
+      && compareSpread(candidate, baseline) < 0) break;
+  }
+  return best;
 }
