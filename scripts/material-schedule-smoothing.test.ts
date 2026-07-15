@@ -4,6 +4,10 @@ import {
   smoothMaterialSchedule,
   summarizeMaterialConcentration,
 } from '../src/lib/materialScheduleSmoothing';
+import {
+  isMaterialConcentrationRegressionAcceptable,
+  smoothMaterialScheduleSafely,
+} from '../src/lib/safeMaterialScheduleSmoothing';
 import { emptyState } from '../src/state/AppContext';
 import type {
   AppState,
@@ -199,8 +203,98 @@ assert.ok(smoothed.objectiveReport.maxDailyMinutes <= result.objectiveReport.max
 const rerun = smoothMaterialSchedule(state, smoothed, context);
 assert.deepEqual(rerun.scheduledTasks, smoothed.scheduledTasks, '同じ入力へ再適用しても予定を揺らさない');
 
+// 実バックアップの試作比較で見つかった数学XSの隠れ回帰を、その数値で固定する。
+assert.equal(isMaterialConcentrationRegressionAcceptable(
+  { activeDays: 36, sameDayExcess: 0, maxDayMinutes: 75 },
+  { activeDays: 34, sameDayExcess: 2, maxDayMinutes: 125 },
+), false, '数学XSの75→125分・実施日36→34・同日重複0→2を拒否する');
+assert.equal(isMaterialConcentrationRegressionAcceptable(
+  { activeDays: 10, sameDayExcess: 1, maxDayMinutes: 90 },
+  { activeDays: 9, sameDayExcess: 2, maxDayMinutes: 105 },
+), true, '小さな詰合せ誤差は許容する');
+
+function guardTask(
+  materialId: string,
+  id: string,
+  rangeStart: number,
+  rangeEnd: number,
+  date: string,
+  minutes: number,
+): StudyTask {
+  return {
+    ...task(id, rangeStart, rangeEnd, date, '09:00', minutes === 90 ? '10:30' : '09:45'),
+    materialId,
+    sourceId: materialId,
+    title: materialId,
+    estimatedMinutes: minutes,
+  };
+}
+
+const guardTarget = material({
+  id: 'guard-target',
+  name: '集中改善対象',
+  deadlinePolicy: 'normal',
+  doneAmount: 0,
+  completedRanges: [],
+});
+const guardVictim = material({
+  id: 'guard-victim',
+  name: '交換で悪化し得る教材',
+  deadlinePolicy: 'normal',
+  doneAmount: 0,
+  completedRanges: [],
+});
+const guardTasks = [
+  guardTask('guard-target', 'target-a', 1, 2, D4, 90),
+  guardTask('guard-target', 'target-b', 3, 4, D4, 90),
+  guardTask('guard-target', 'target-c', 5, 6, D5, 90),
+  guardTask('guard-victim', 'victim-a', 1, 1, D1, 45),
+  guardTask('guard-victim', 'victim-b', 2, 2, D2, 45),
+  guardTask('guard-victim', 'victim-c', 3, 3, D3, 45),
+];
+const guardState: AppState = {
+  ...state,
+  materials: [guardTarget, guardVictim],
+};
+const guardResult: ScheduleGenerationResult = {
+  ...result,
+  scheduledTasks: guardTasks,
+  deadlineReports: [],
+};
+let smootherCalls = 0;
+let victimWasFrozen = false;
+const guarded = smoothMaterialScheduleSafely(guardState, guardResult, context, (_nextState, working) => {
+  smootherCalls += 1;
+  const frozen = working.scheduledTasks
+    .filter((entry) => entry.materialId === 'guard-victim')
+    .every((entry) => entry.placementLock === 'date');
+  if (smootherCalls === 2) victimWasFrozen = frozen;
+  return {
+    ...working,
+    scheduledTasks: working.scheduledTasks.map((entry) => {
+      if (entry.id === 'target-a') return { ...entry, scheduledDate: D2 };
+      if (entry.id === 'victim-b' && !frozen) return { ...entry, scheduledDate: D1 };
+      return entry;
+    }),
+  };
+});
+
+assert.equal(smootherCalls, 2, '悪化教材を検知したら凍結して一度再探索する');
+assert.equal(victimWasFrozen, true, '再探索では悪化した教材を元日付へ固定する');
+assert.deepEqual(
+  summarizeMaterialConcentration(guarded.scheduledTasks, 'guard-target'),
+  { activeDays: 3, sameDayExcess: 0, maxDayMinutes: 90 },
+  '対象教材の集中改善は維持する',
+);
+assert.deepEqual(
+  summarizeMaterialConcentration(guarded.scheduledTasks, 'guard-victim'),
+  { activeDays: 3, sameDayExcess: 0, maxDayMinutes: 45 },
+  '交換相手の集中悪化は元状態へ戻す',
+);
+assert.ok(guarded.scheduledTasks.every((entry) => entry.placementLock === 'none'), '一時的な凍結ロックを出力へ残さない');
+
 const recoverySource = readFileSync(new URL('../src/lib/schedulerRecovery.ts', import.meta.url), 'utf8');
-assert.match(recoverySource, /smoothMaterialSchedule\(state, generateBasePlanV2\(state, context\), context\)/, '通常生成経路へ平準化を組み込む');
-assert.match(recoverySource, /smoothMaterialSchedule\([\s\S]*adjustedState,[\s\S]*generateBasePlanV2\(adjustedState, context\)/, '期限超過回復経路にも平準化を組み込む');
+assert.match(recoverySource, /smoothMaterialScheduleSafely\(state, generateBasePlanV2\(state, context\), context\)/, '通常生成経路へ安全な平準化を組み込む');
+assert.match(recoverySource, /smoothMaterialScheduleSafely\([\s\S]*adjustedState,[\s\S]*generateBasePlanV2\(adjustedState, context\)/, '期限超過回復経路にも安全な平準化を組み込む');
 
 console.log('✅ material schedule smoothing regressions passed');
