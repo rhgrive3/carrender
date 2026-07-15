@@ -9,6 +9,7 @@ for (const label of ['今日', '計画', '教材', '記録', '分析']) {
   assert.match(appSource, new RegExp(`label: '${label}'`), `主要ナビに「${label}」を残す`);
 }
 
+assert.match(appSource, /createPortal\([\s\S]*document\.body/u, '下部ナビをdocument.bodyへPortal配置する');
 assert.match(
   appSource,
   /<nav\s+[\s\S]*?className="bottom-nav"[\s\S]*?data-layout-contract="fixed-bottom-navigation"/,
@@ -22,8 +23,9 @@ assert.ok(
 
 assert.match(contractCss, /position:\s*fixed\s*!important;/, '下部ナビはviewport基準で固定する');
 assert.match(contractCss, /bottom:\s*0\s*!important;/, '下部ナビを画面下端へ固定する');
-assert.match(contractCss, /left:\s*50%\s*!important;/, '下部ナビを画面中央へ配置する');
-assert.match(contractCss, /transform:\s*translateX\(-50%\)\s*!important;/, '中央寄せを維持する');
+assert.match(contractCss, /inset-inline:\s*0\s*!important;/, '下部ナビを画面幅基準で配置する');
+assert.match(contractCss, /transform:\s*none\s*!important;/, '親変形の影響を受けない');
+assert.match(contractCss, /z-index:\s*1000\s*!important;/, '他UIより前面に表示する');
 assert.match(
   contractCss,
   /padding-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)\s*!important;/,
