@@ -135,22 +135,29 @@ function Shell() {
       {tab === 'records' && <RecordsScreen />}
       {tab === 'analytics' && <AnalyticsScreen />}
 
-      {!immersive && <nav className="bottom-nav" aria-label="メインナビゲーション">
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            className={tab === item.id ? 'active' : ''}
-            onClick={() => setTab(item.id)}
-            aria-label={item.label}
-            aria-current={tab === item.id ? 'page' : undefined}
-          >
-            <span className="nav-icon" aria-hidden="true">
-              <item.Icon active={tab === item.id} />
-            </span>
-            {item.label}
-          </button>
-        ))}
-      </nav>}
+      {/* UX契約: 通常画面の主要5タブは、スクロール位置に関係なく常に画面下へ固定する。 */}
+      {!immersive && (
+        <nav
+          className="bottom-nav"
+          data-layout-contract="fixed-bottom-navigation"
+          aria-label="メインナビゲーション"
+        >
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              className={tab === item.id ? 'active' : ''}
+              onClick={() => setTab(item.id)}
+              aria-label={item.label}
+              aria-current={tab === item.id ? 'page' : undefined}
+            >
+              <span className="nav-icon" aria-hidden="true">
+                <item.Icon active={tab === item.id} />
+              </span>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      )}
 
       {!immersive && <PlanHistoryLauncher />}
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
