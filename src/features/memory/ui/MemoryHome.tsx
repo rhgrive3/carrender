@@ -4,7 +4,7 @@ import type { MemoryLocalSnapshot } from '../infrastructure/repositories';
 import type { MemorySet } from '../domain/types';
 import { generateLearningTargets, summarizeLearningTargetStats } from '../domain/selectors';
 import { createMemorySet } from '../application/content';
-import { createStudySession } from '../application/session';
+import { createSimpleStudySession } from '../application/simpleSession';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
 import { MemoryDialog } from './MemoryDialog';
@@ -60,7 +60,7 @@ export function MemoryHome() {
     if (!repository || startingSetId || summary.cards === 0) return;
     setStartingSetId(summary.set.id);
     try {
-      const created = await createStudySession({
+      const created = await createSimpleStudySession({
         repository,
         selectedSetIds: [summary.set.id],
         config: { questionCount: { type: 'weak', count: 10 }, direction: 'output', includeUnverifiedAi: false, preferredExerciseType: 'flashcard' },
