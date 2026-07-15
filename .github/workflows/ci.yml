@@ -37,24 +37,21 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Scheduler recovery diagnostic
-        id: recovery
+      - name: Unit and regression tests
+        id: tests
         continue-on-error: true
-        run: npx vite-node scripts/scheduler-recovery.test.ts > recovery.log 2>&1
+        run: npm test > all-tests.log 2>&1
 
-      - name: Upload scheduler recovery log
+      - name: Upload full test log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scheduler-recovery-log
-          path: recovery.log
+          name: full-test-log
+          path: all-tests.log
 
-      - name: Stop on scheduler recovery failure
-        if: steps.recovery.outcome == 'failure'
+      - name: Stop on test failure
+        if: steps.tests.outcome == 'failure'
         run: exit 1
-
-      - name: Unit and regression tests
-        run: npm test
 
       - name: Cloudflare API integration tests
         run: npm run test:integration:api
