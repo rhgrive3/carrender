@@ -26,6 +26,7 @@ import { computeAnalytics } from '../lib/analytics';
 import { RecordSheet } from '../components/forms/RecordSheet';
 import { EmptyState } from '../components/ui/bits';
 import { MonthCalendar } from '../components/ui/MonthCalendar';
+import { resolveRecordSubject, summarizeRecordSubjects } from '../lib/recordSubjects';
 import type { AppState, StudySession, Subject } from '../types';
 
 type Period = 'week' | 'month';
@@ -117,12 +118,11 @@ export function RecordsScreen() {
     [state.sessions, from, to],
   );
 
-  const bySubject = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of sessions) map.set(s.subjectId, (map.get(s.subjectId) ?? 0) + s.minutes);
-    return [...map.entries()].sort((a, b) => b[1] - a[1]);
-  }, [sessions]);
-  const maxSubject = Math.max(1, ...bySubject.map(([, m]) => m));
+  const bySubject = useMemo(
+    () => summarizeRecordSubjects(sessions, state.subjects),
+    [sessions, state.subjects],
+  );
+  const maxSubject = Math.max(1, ...bySubject.map(({ minutes }) => minutes));
 
   const switchPeriod = (next: Period) => {
     setPeriod(next);
@@ -166,7 +166,6 @@ export function RecordsScreen() {
         </div>
       </div>
 
-      {/* サマリー */}
       <div className="day-stats mt-12">
         <div><b>{formatMinutesTile(totalActual)}</b><span>合計</span></div>
         <div><b>{formatMinutesTile(Math.round(dailyAvg))}</b><span>日平均</span></div>
@@ -177,7 +176,6 @@ export function RecordsScreen() {
         </div>
       </div>
 
-      {/* 週間目標(Studyplus式) */}
       {period === 'week' && offset === 0 && state.settings.weeklyTargetMinutes > 0 && (
         <div className="card mt-12" style={{ padding: 13 }}>
           <div className="row spread" style={{ marginBottom: 8 }}>
@@ -208,51 +206,46 @@ export function RecordsScreen() {
         <MonthHeatCalendar month={addMonths(monthKeyOf(t), offset)} minutesByDay={minutesByDay} />
       )}
 
-      {/* 科目別 */}
       {bySubject.length > 0 && (
         <div className="card mt-12">
           <div className="section-label" style={{ margin: '0 0 12px' }}>科目別の学習時間</div>
-          {bySubject.map(([sid, min]) => {
-            const subject = state.subjects.find((s) => s.id === sid);
-            return (
-              <div key={sid} className="row" style={{ marginBottom: 9 }}>
-                <span
+          {bySubject.map(({ subject, minutes }) => (
+            <div key={subject.id} className="row" style={{ marginBottom: 9 }}>
+              <span
+                style={{
+                  minWidth: 46,
+                  maxWidth: 88,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  color: subject.color,
+                  flexShrink: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {subject.name}
+              </span>
+              <div style={{ flex: 1, height: 9, background: 'var(--bg-elev3)', borderRadius: 100 }}>
+                <div
                   style={{
-                    minWidth: 46,
-                    maxWidth: 88,
-                    fontSize: 12.5,
-                    fontWeight: 700,
-                    color: subject?.color,
-                    flexShrink: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
+                    width: `${(minutes / maxSubject) * 100}%`,
+                    height: '100%',
+                    borderRadius: 100,
+                    background: subject.color,
+                    transition: 'width 0.5s ease',
                   }}
-                >
-                  {subject?.name}
-                </span>
-                <div style={{ flex: 1, height: 9, background: 'var(--bg-elev3)', borderRadius: 100 }}>
-                  <div
-                    style={{
-                      width: `${(min / maxSubject) * 100}%`,
-                      height: '100%',
-                      borderRadius: 100,
-                      background: subject?.color ?? 'var(--accent)',
-                      transition: 'width 0.5s ease',
-                    }}
-                  />
-                </div>
-                <span className="faint" style={{ width: 78, textAlign: 'right', flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                  {formatMinutesTile(min)}
-                  <span style={{ marginLeft: 4 }}>{totalActual > 0 ? `${Math.round((min / totalActual) * 100)}%` : ''}</span>
-                </span>
+                />
               </div>
-            );
-          })}
+              <span className="faint" style={{ width: 78, textAlign: 'right', flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                {formatMinutesTile(minutes)}
+                <span style={{ marginLeft: 4 }}>{totalActual > 0 ? `${Math.round((minutes / totalActual) * 100)}%` : ''}</span>
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* セッション一覧 */}
       <div className="section-label">学習ログ({sessions.length}件)</div>
       {sessions.length === 0 ? (
         <EmptyState icon="📝" title="この期間の記録はありません">
@@ -262,7 +255,6 @@ export function RecordsScreen() {
         <SessionLog sessions={sessions} state={state} t={t} onEdit={setEditSession} />
       )}
 
-      {/* 実績バッジ */}
       <div className="section-label">
         <span>実績バッジ</span>
         <span className="faint">{unlockedCount(achievements)}/{achievements.length} 獲得</span>
@@ -288,10 +280,6 @@ export function RecordsScreen() {
   );
 }
 
-// ============================================================
-// 週の予定 vs 実績バーチャート
-// ============================================================
-
 function WeekChart({
   days,
   sessions,
@@ -312,20 +300,13 @@ function WeekChart({
   const t = today();
   const maxDay = Math.max(60, ...days.map((d) => Math.max(minutesByDay.get(d) ?? 0, plannedByDay.get(d) ?? 0)));
   const achievement = totalPlanned > 0 ? Math.min(999, Math.round((totalActual / totalPlanned) * 100)) : null;
-  const subjectById = new Map(subjects.map((subject) => [subject.id, subject]));
   const subjectMinutes = new Map<string, Map<string, number>>();
   for (const session of sessions) {
     const map = subjectMinutes.get(session.date) ?? new Map<string, number>();
     map.set(session.subjectId, (map.get(session.subjectId) ?? 0) + session.minutes);
     subjectMinutes.set(session.date, map);
   }
-  const visibleSubjects = subjects
-    .map((subject) => ({
-      subject,
-      minutes: days.reduce((sum, day) => sum + (subjectMinutes.get(day)?.get(subject.id) ?? 0), 0),
-    }))
-    .filter((item) => item.minutes > 0)
-    .sort((a, b) => b.minutes - a.minutes);
+  const visibleSubjects = summarizeRecordSubjects(sessions, subjects);
 
   return (
     <div className="card mt-12 studyplus-chart-card">
@@ -340,7 +321,10 @@ function WeekChart({
           const future = d > t;
           const stacks = [...(subjectMinutes.get(d)?.entries() ?? [])]
             .sort((a, b) => b[1] - a[1])
-            .map(([subjectId, minutes]) => ({ subject: subjectById.get(subjectId), minutes }));
+            .map(([subjectId, minutes]) => ({
+              subject: resolveRecordSubject(subjects, subjectId),
+              minutes,
+            }));
           return (
             <div key={d} className={`studyplus-day ${future ? 'future' : ''}`}>
               <div className="studyplus-total">{actual > 0 ? formatMinutesCompact(actual) : ''}</div>
@@ -357,12 +341,12 @@ function WeekChart({
                 >
                   {stacks.map(({ subject, minutes }) => (
                     <div
-                      key={subject?.id ?? 'unknown'}
+                      key={subject.id}
                       className="studyplus-stack"
-                      title={`${subject?.name ?? '不明'} ${formatMinutes(minutes)}`}
+                      title={`${subject.name} ${formatMinutes(minutes)}`}
                       style={{
                         height: `${Math.max(8, (minutes / Math.max(1, actual)) * 100)}%`,
-                        background: subject?.color ?? 'var(--accent)',
+                        background: subject.color,
                       }}
                     />
                   ))}
@@ -391,10 +375,6 @@ function WeekChart({
   );
 }
 
-// ============================================================
-// 月のヒートカレンダー
-// ============================================================
-
 function MonthHeatCalendar({ month, minutesByDay }: { month: string; minutesByDay: Map<string, number> }) {
   const monthDays = Array.from({ length: daysInMonthOf(month) }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`);
   const max = Math.max(60, ...monthDays.map((d) => minutesByDay.get(d) ?? 0));
@@ -419,10 +399,6 @@ function MonthHeatCalendar({ month, minutesByDay }: { month: string; minutesByDa
   );
 }
 
-// ============================================================
-// 学習ログ(日付見出し付き)
-// ============================================================
-
 function SessionLog({ sessions, state, t, onEdit }: { sessions: StudySession[]; state: AppState; t: string; onEdit: (session: StudySession) => void }) {
   let lastDate = '';
   const out: JSX.Element[] = [];
@@ -439,15 +415,15 @@ function SessionLog({ sessions, state, t, onEdit }: { sessions: StudySession[]; 
         </div>,
       );
     }
-    const subject = state.subjects.find((x) => x.id === s.subjectId);
+    const subject = resolveRecordSubject(state.subjects, s.subjectId);
     const material = state.materials.find((x) => x.id === s.materialId);
     out.push(
       <button type="button" className="task-card session-log-button" key={s.id} onClick={() => onEdit(s)} aria-label={`${material?.name ?? s.rangeLabel ?? '学習'}の記録を編集`}>
-        <div className="subject-bar" style={{ background: subject?.color ?? 'var(--accent)' }} />
+        <div className="subject-bar" style={{ background: subject.color }} />
         <div className="task-main">
           <div className="task-meta-row">
-            <span className="subject-chip" style={{ background: `${subject?.color}26`, color: subject?.color }}>
-              {subject?.name}
+            <span className="subject-chip" style={{ background: `color-mix(in srgb, ${subject.color}, transparent 85%)`, color: subject.color }}>
+              {subject.name}
             </span>
             <span className="task-type-chip iflex" style={{ gap: 3 }}>
               {s.source === 'timer' ? (
