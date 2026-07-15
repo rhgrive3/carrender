@@ -18,19 +18,29 @@ assert.equal(active.deleted, false);
 
 const deleted = resolveRecordSubject(subjects, 'subject-deleted');
 assert.equal(deleted.id, 'subject-deleted');
-assert.equal(deleted.name, '削除済みの科目 · ETED');
+assert.match(deleted.name, /^削除済みの科目 · [A-Z0-9]{7}$/);
 assert.equal(deleted.deleted, true);
 assert.ok(deleted.color, '削除済み科目にも表示色がある');
 
 const otherDeleted = resolveRecordSubject(subjects, 'subject-deleted-2');
 assert.notEqual(otherDeleted.name, deleted.name, '複数の削除済み科目を同じ表示へ潰さない');
-assert.match(otherDeleted.name, /^削除済みの科目 · [A-Z0-9]{1,4}$/);
+assert.match(otherDeleted.name, /^削除済みの科目 · [A-Z0-9]{7}$/);
+
+const sameLegacySuffixA = resolveRecordSubject(subjects, 'subject-alpha-SAME');
+const sameLegacySuffixB = resolveRecordSubject(subjects, 'subject-beta-SAME');
+assert.notEqual(
+  sameLegacySuffixA.name,
+  sameLegacySuffixB.name,
+  '末尾4文字が同じIDでも削除済み科目を区別する',
+);
 
 const summary = summarizeRecordSubjects([
   { subjectId: 'subject-active', minutes: 30 },
   { subjectId: 'subject-deleted', minutes: 20 },
   { subjectId: 'subject-deleted', minutes: 15 },
   { subjectId: 'subject-deleted-2', minutes: 10 },
+  { subjectId: 'subject-alpha-SAME', minutes: 5 },
+  { subjectId: 'subject-beta-SAME', minutes: 4 },
 ], subjects);
 
 assert.deepEqual(
@@ -39,9 +49,11 @@ assert.deepEqual(
     ['subject-deleted', 35],
     ['subject-active', 30],
     ['subject-deleted-2', 10],
+    ['subject-alpha-SAME', 5],
+    ['subject-beta-SAME', 4],
   ],
 );
-assert.equal(summary.filter((item) => item.subject.deleted).length, 2);
+assert.equal(summary.filter((item) => item.subject.deleted).length, 4);
 assert.equal(new Set(summary.map((item) => item.subject.id)).size, summary.length, '削除済み科目ごとに一意なキーを保つ');
 assert.equal(new Set(summary.map((item) => item.subject.name)).size, summary.length, '削除済み科目も表示名で区別できる');
 
