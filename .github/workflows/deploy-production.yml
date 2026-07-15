@@ -34,6 +34,16 @@ jobs:
         with:
           ref: ${{ env.DEPLOY_SHA }}
 
+      - name: Skip stale automatic deployment
+        if: github.event_name == 'workflow_run'
+        run: |
+          git fetch --no-tags origin main
+          CURRENT_MAIN_SHA="$(git rev-parse origin/main)"
+          if [ "$DEPLOY_SHA" != "$CURRENT_MAIN_SHA" ]; then
+            echo "Skipping stale deployment: verified $DEPLOY_SHA, current main is $CURRENT_MAIN_SHA"
+            exit 78
+          fi
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
