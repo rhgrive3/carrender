@@ -17,6 +17,7 @@ import { TimerOverlay } from './components/timer/TimerOverlay';
 import { PlanHistoryLauncher } from './components/PlanHistoryLauncher';
 import { MainStateMergeBridge } from './components/MainStateMergeBridge';
 import { MainStateWriterLeaseBridge } from './components/MainStateWriterLeaseBridge';
+import { MaterialProgressIntegrityBridge } from './components/MaterialProgressIntegrityBridge';
 import { SchemaCompatibilityGate } from './components/SchemaCompatibilityGate';
 import { SyncStatusBanner } from './components/SyncStatusBanner';
 
@@ -201,6 +202,7 @@ function AuthenticatedApp() {
           <MainStatePersistence owner={mainStateOwner}>
             <TimerProvider>
               <ToastProvider>
+                <MaterialProgressIntegrityBridge />
                 <MainStateMergeBridge />
                 <MainStateWriterLeaseBridge />
                 <Shell />
