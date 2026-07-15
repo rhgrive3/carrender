@@ -111,7 +111,15 @@ function isStorageQuotaError(error: unknown): boolean {
     && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
 }
 
-function clearEmergencyCache(): void {
+export function getStateUpdatedAt(): string | null {
+  try {
+    return localStorage.getItem(UPDATED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearEmergencyStateCache(): void {
   try {
     localStorage.removeItem(KEY);
     localStorage.removeItem(UPDATED_KEY);
@@ -122,7 +130,7 @@ function clearEmergencyCache(): void {
 
 function suppressEmergencyCache(reason: string): void {
   emergencyCacheSuppressed = true;
-  clearEmergencyCache();
+  clearEmergencyStateCache();
   publishStateSaveFailure(null);
   console.info(reason);
 }

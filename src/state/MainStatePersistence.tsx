@@ -4,7 +4,15 @@ import type { AppState } from '../types';
 import { AppStateIndexedDbRepository } from '../lib/appStateIndexedDb';
 import { canonicalizeCloudSettings, canonicalizeSettingsWithHistory } from '../lib/appStateChunks';
 import { getMainSyncMetadata, markMainSyncClean, markMainSyncDirty } from '../lib/mainSync';
-import { getStateOwner, loadState, migrateState, saveStateNow, setStateOwner } from '../lib/storage';
+import {
+  clearEmergencyStateCache,
+  getStateOwner,
+  getStateUpdatedAt,
+  loadState,
+  migrateState,
+  saveStateNow,
+  setStateOwner,
+} from '../lib/storage';
 import { useApp } from './AppContext';
 
 function restoreSyncMetadata(owner: string, repositoryMetadata: Awaited<ReturnType<AppStateIndexedDbRepository['loadSyncMetadata']>>): void {
@@ -19,6 +27,21 @@ function restoreSyncMetadata(owner: string, repositoryMetadata: Awaited<ReturnTy
 /** 未知設定だけを除去し、計画履歴など現行の端末データは保持する。 */
 export function canonicalizeLocalSettings(input: AppState['settings']): AppState['settings'] {
   return canonicalizeSettingsWithHistory(input) ?? canonicalizeCloudSettings(input);
+}
+
+export function shouldUseEmergencyStateCache(
+  localUpdatedAt: string | null,
+  indexedDbUpdatedAt: string | null,
+  hasIndexedDbState: boolean,
+): boolean {
+  if (!hasIndexedDbState) return true;
+  if (!localUpdatedAt) return false;
+  if (!indexedDbUpdatedAt) return true;
+  const localTime = Date.parse(localUpdatedAt);
+  const indexedDbTime = Date.parse(indexedDbUpdatedAt);
+  if (!Number.isFinite(localTime)) return false;
+  if (!Number.isFinite(indexedDbTime)) return true;
+  return localTime >= indexedDbTime;
 }
 
 export interface StoredStateBaseline {
@@ -66,15 +89,23 @@ export function MainStateBootstrap({ owner, children }: { owner: string; childre
 
     void (async () => {
       try {
-        const [storedState, storedSyncMetadata] = await Promise.all([
+        const [storedState, storedSyncMetadata, storedStateSavedAt] = await Promise.all([
           repository.loadState(),
           repository.loadSyncMetadata(),
+          repository.loadStateSavedAt(),
         ]);
         if (cancelled) return;
         restoreSyncMetadata(owner, storedSyncMetadata);
 
         const cachedOwner = getStateOwner();
-        const localState = cachedOwner === null || cachedOwner === owner ? loadState() : null;
+        const cacheBelongsToOwner = cachedOwner === null || cachedOwner === owner;
+        const useEmergencyCache = cacheBelongsToOwner && shouldUseEmergencyStateCache(
+          getStateUpdatedAt(),
+          storedStateSavedAt,
+          Boolean(storedState),
+        );
+        if (cacheBelongsToOwner && !useEmergencyCache) clearEmergencyStateCache();
+        const localState = useEmergencyCache ? loadState() : null;
         if (localState) {
           // 旧版・破損データ由来の未知設定はlocalStorageの小さい上限を圧迫する。
           // AppProviderを起動する前に未知設定だけを縮小し、計画履歴を含む現行データは保持する。

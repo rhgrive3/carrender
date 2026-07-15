@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import type { AppState } from '../src/types';
+import { shouldUseEmergencyStateCache } from '../src/state/MainStatePersistence';
 import {
   EMERGENCY_CACHE_MAX_CHARS,
   clearOwnedState,
@@ -23,6 +24,11 @@ class ControlledStorage {
     this.values.set(key, value);
   }
 }
+
+assert.equal(shouldUseEmergencyStateCache(null, '2026-07-16T08:00:00.000Z', true), false, 'undated legacy cache never overwrites IndexedDB');
+assert.equal(shouldUseEmergencyStateCache('2026-07-16T07:00:00.000Z', '2026-07-16T08:00:00.000Z', true), false, 'older emergency cache never overwrites IndexedDB');
+assert.equal(shouldUseEmergencyStateCache('2026-07-16T09:00:00.000Z', '2026-07-16T08:00:00.000Z', true), true, 'newer pagehide cache may recover the latest edit');
+assert.equal(shouldUseEmergencyStateCache(null, null, false), true, 'legacy cache remains usable when IndexedDB has no state');
 
 const storage = new ControlledStorage();
 Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
