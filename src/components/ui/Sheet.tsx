@@ -145,9 +145,9 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
       }}
     >
       <div className="sheet" ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : 'ダイアログ'}>
-        <div className="sheet-grabber" />
+        <div className="sheet-grabber" aria-hidden="true" />
         <div className="sheet-title-row">
-          {title && <div className="sheet-title" id={titleId}>{title}</div>}
+          {title && <h2 className="sheet-title" id={titleId}>{title}</h2>}
           <button className="sheet-close" type="button" aria-label="閉じる" onClick={onClose}>
             <X size={18} strokeWidth={2.2} aria-hidden="true" />
           </button>
