@@ -63,6 +63,7 @@ export function minutesInTimeZone(date: Date, timeZone = APP_TIME_ZONE): number 
 /** 指定タイムゾーンのローカル日付・時刻を、保存用UTC ISO文字列へ変換する。 */
 export function localDateTimeToISOString(date: ISODate, time: string, timeZone = APP_TIME_ZONE): string {
   if (!isValidCalendarDate(date)) throw new Error('INVALID_LOCAL_DATE');
+  if (!/^\d{2}:\d{2}$/.test(time)) throw new Error('INVALID_LOCAL_TIME');
   const { y, m, d } = partsOf(date);
   const [hour, minute] = time.split(':').map(Number);
   if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
