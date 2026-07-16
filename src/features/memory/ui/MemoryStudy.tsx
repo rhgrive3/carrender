@@ -157,7 +157,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         <button type="button" className="memory-study-icon" aria-label="最後の回答を取り消す" disabled={!queue.undo || busy} onClick={() => void undo()}><RotateCcw size={21} /></button>
       </header>
       <div className="memory-study-mode">{directionLabel}</div>
-      <main className="memory-study-stage">
+      <div className="memory-study-stage">
         <div
           className="memory-study-flip-shell"
           onPointerDown={(event) => { if (event.isPrimary) pointerStartX.current = event.clientX; }}
@@ -216,7 +216,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
             <button type="button" className="memory-good" aria-label="覚えた" disabled={busy} onClick={() => void commit('correct')}><span>覚えた</span><small>次へ</small></button>
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }
