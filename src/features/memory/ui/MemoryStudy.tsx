@@ -9,6 +9,18 @@ import { useMemory } from './MemoryContext';
 const SWIPE_THRESHOLD_PX = 48;
 type CardFlipDirection = 'to-answer' | 'to-question';
 
+export function uniqueDisplayAnswers(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const answers: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    answers.push(normalized);
+  }
+  return answers;
+}
+
 export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const { repository, navigate, refresh, requestSync } = useMemory();
   const toast = useToast();
@@ -153,8 +165,8 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
 
   const prompt = target.mode === 'input' ? item.label : sense.promptJa;
   const displayedAnswers = target.mode === 'input'
-    ? [sense.promptJa]
-    : answers.map((value) => value.displayForm).filter(Boolean);
+    ? uniqueDisplayAnswers([sense.promptJa])
+    : uniqueDisplayAnswers(answers.map((value) => value.displayForm));
   const directionLabel = target.mode === 'output' ? '日本語 → 英語' : '英語 → 日本語';
   const promptLanguage = target.mode === 'output' ? '日本語' : '英語';
   const answerLanguage = target.mode === 'output' ? '英語' : '日本語';
