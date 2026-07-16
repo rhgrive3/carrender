@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const source = await readFile(new URL('../src/features/memory/ui/MemoryResult.tsx', import.meta.url), 'utf8');
+
+assert.equal(source.includes('const mounted = useRef(true)'), true);
+assert.equal(source.includes('if (!mounted.current) return;'), true);
+assert.equal(source.includes('if (mounted.current) toast(caught instanceof Error'), true);
+assert.equal(source.includes('if (mounted.current) setUndoing(false)'), true);
+
+const refreshAt = source.indexOf('await refresh();');
+const syncAt = source.indexOf('void requestSync(true);', refreshAt);
+const guardAt = source.indexOf('if (!mounted.current) return;', syncAt);
+const navigateAt = source.indexOf("navigate({ name: 'study'", guardAt);
+assert.equal(refreshAt < syncAt && syncAt < guardAt && guardAt < navigateAt, true);
+
+console.log('memory result undo race contract passed');
