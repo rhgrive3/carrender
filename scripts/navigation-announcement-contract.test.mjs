@@ -10,6 +10,8 @@ assert.match(source, /\[data-app-screen-label\]/, 'nested immersive screens must
 assert.match(source, /!element\.closest\('\[hidden\]'\)/, 'labels inside inactive tab panels must be ignored');
 assert.match(source, /contextualLabel \|\| current/, 'nested screen labels must take precedence over the parent navigation tab');
 assert.match(source, /new MutationObserver\(announceCurrentScreen\)/, 'screen changes must be observed without continuous polling');
+assert.match(source, /observer\.observe\(document\.body,/, 'the observer must include body-level portal navigation');
+assert.doesNotMatch(source, /observer\.observe\(root,/, 'the observer must not be limited to the React root');
 assert.match(source, /attributeFilter: \['aria-current', 'data-app-screen-label', 'hidden'\]/, 'the observer must cover navigation, nested screens, and tab visibility');
 assert.match(source, /observer\.disconnect\(\)/, 'the navigation observer must be cleaned up');
 assert.doesNotMatch(source, /setInterval\(/, 'navigation announcements must not use continuous polling');

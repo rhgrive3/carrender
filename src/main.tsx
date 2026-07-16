@@ -54,7 +54,10 @@ function NavigationAnnouncement() {
     if (!root) return undefined;
 
     const observer = new MutationObserver(announceCurrentScreen);
-    observer.observe(root, {
+    // 下部ナビはfixedの包含ブロック問題を避けるためdocument.body直下へ
+    // portalされる。#rootだけを監視するとaria-currentの変更を取り逃すため、
+    // アプリ本体とportal UIの共通祖先であるbodyを監視する。
+    observer.observe(document.body, {
       subtree: true,
       childList: true,
       attributes: true,
