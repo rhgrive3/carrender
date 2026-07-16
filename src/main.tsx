@@ -83,6 +83,31 @@ function NavigationAnnouncement() {
   );
 }
 
+function MainLandmarkGuard() {
+  React.useEffect(() => {
+    const rootMain = document.getElementById('app-main-content');
+    if (!rootMain) return undefined;
+
+    const normalizeNestedMain = () => {
+      rootMain.querySelectorAll<HTMLElement>('main').forEach((nestedMain) => {
+        // アプリ全体のmainを一意に保つ。画面内の視覚レイアウト用mainは
+        // regionへ降格し、VoiceOverの「メイン」ランドマーク重複を防ぐ。
+        if (!nestedMain.hasAttribute('role')) nestedMain.setAttribute('role', 'region');
+        if (!nestedMain.hasAttribute('aria-label') && !nestedMain.hasAttribute('aria-labelledby')) {
+          nestedMain.setAttribute('aria-label', '画面の主要コンテンツ');
+        }
+      });
+    };
+
+    normalizeNestedMain();
+    const observer = new MutationObserver(normalizeNestedMain);
+    observer.observe(rootMain, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return null;
+}
+
 preserveUnreadableState();
 registerSW({ immediate: true });
 
@@ -93,6 +118,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         {(dayKey) => (
           <>
             <NavigationAnnouncement />
+            <MainLandmarkGuard />
             <a className="skip-link" href="#app-main-content">本文へ移動</a>
             <main id="app-main-content" tabIndex={-1}>
               <App key={dayKey} />
