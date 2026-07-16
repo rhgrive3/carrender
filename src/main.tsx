@@ -20,6 +20,8 @@ import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 import { DayRolloverBoundary } from './components/DayRolloverBoundary';
 import { preserveUnreadableState } from './lib/preserveUnreadableState';
 
+const APP_TITLE = 'StudyCommander 学習司令塔';
+
 function NavigationAnnouncement() {
   const [message, setMessage] = React.useState('');
   const lastLabelRef = React.useRef<string | null>(null);
@@ -29,6 +31,10 @@ function NavigationAnnouncement() {
       const current = document.querySelector('.bottom-nav [aria-current="page"]');
       const label = current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
       if (!label || label === lastLabelRef.current) return;
+
+      // iPadのタブ一覧・ブラウザ履歴・支援技術でも現在画面を識別できるよう、
+      // 視覚上のナビ選択と文書タイトルを常に同じ状態へ揃える。
+      document.title = `${label} | ${APP_TITLE}`;
 
       if (lastLabelRef.current === null) {
         lastLabelRef.current = label;
