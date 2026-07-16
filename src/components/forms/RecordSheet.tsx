@@ -107,6 +107,13 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     );
   }, [material, session, state, subjectId, task]);
 
+  useEffect(() => {
+    if (!open) return;
+    // 教材・科目の変更で上限が下がった場合、表示値と保存時の実量を一致させる。
+    // NumericInputのmaxは次の入力だけを制限するため、親stateもここで補正する必要がある。
+    setAmountDone((current) => Math.min(remainingAmount, Math.max(0, current)));
+  }, [open, remainingAmount, selectedMaterialId]);
+
   const save = () => {
     if (!subjectId) {
       toast('科目を選択してください');
