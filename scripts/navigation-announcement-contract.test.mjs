@@ -8,7 +8,7 @@ assert.match(source, /function NavigationAnnouncement\(\)/, 'navigation announce
 assert.match(source, /\.bottom-nav \[aria-current="page"\]/, 'the active bottom-navigation item must be observed');
 assert.match(source, /\[data-app-screen-label\]/, 'nested immersive screens must be able to expose their current label');
 assert.match(source, /\[role="dialog"\]\[aria-modal="true"\]/, 'the topmost modal must participate in current-screen naming');
-assert.match(source, /findLast\(\(element\) => !element\.closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)\)/, 'only the topmost exposed modal may be announced');
+assert.match(source, /dialogs\.reverse\(\)\.find\(\(element\) => !element\.closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)\)/, 'only the topmost exposed modal may be announced without requiring post-ES2020 APIs');
 assert.match(source, /activeDialog\?\.getAttribute\('aria-label'\)/, 'modal aria-label must be supported');
 assert.match(source, /document\.getElementById\(labelledBy\)\?\.textContent/, 'modal aria-labelledby text must be supported');
 assert.match(source, /!element\.parentElement\?\.closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)/, 'labels behind inactive tabs or modal isolation must be ignored');
