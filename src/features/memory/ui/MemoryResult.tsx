@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Home, RotateCcw, RotateCw } from 'lucide-react';
 import type { MemoryAttempt, MemorySession, MemorySetBundle } from '../domain/types';
 import { undoMemoryAnswer } from '../application/session';
@@ -14,6 +14,12 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   const [undoing, setUndoing] = useState(false);
   const [loadError, setLoadError] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!repository) return;
@@ -59,16 +65,19 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     try {
       const restored = await undoMemoryAnswer(repository, session);
       if (!restored) {
-        toast('取り消せる回答はありません');
+        if (mounted.current) toast('取り消せる回答はありません');
         return;
       }
+      // 取り消しはIndexedDBへ保存済みなので、結果画面を離れた後も集計更新と
+      // 端末間同期は完了させる。古い画面からのToast・状態更新・遷移だけを止める。
       await refresh();
       void requestSync(true);
+      if (!mounted.current) return;
       navigate({ name: 'study', sessionId: restored.session.id });
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : '回答を取り消せませんでした');
+      if (mounted.current) toast(caught instanceof Error ? caught.message : '回答を取り消せませんでした');
     } finally {
-      setUndoing(false);
+      if (mounted.current) setUndoing(false);
     }
   };
 
