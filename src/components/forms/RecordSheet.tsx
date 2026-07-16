@@ -5,7 +5,7 @@ import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
 import { resolveSessionProgress, useApp } from '../../state/AppContext';
 import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
-import { APP_TIME_ZONE, minutesInTimeZone, minutesToHM, today } from '../../lib/date';
+import { APP_TIME_ZONE, localDateTimeToISOString, minutesInTimeZone, minutesToHM, today } from '../../lib/date';
 import { missingRecordMaterialOption, missingRecordSubjectOption } from '../../lib/recordReferences';
 import type { StudySession } from '../../types';
 
@@ -118,6 +118,11 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     }
     if ((!preset || session) && recordDate > today()) {
       toast('未来日の記録は追加できません');
+      return;
+    }
+    // 今日の手入力・編集で未来時刻を許すと、学習ログが未来の記録として並び時系列が壊れる。
+    if ((!preset || session) && recordDate === today() && localDateTimeToISOString(recordDate, startTime) > new Date().toISOString()) {
+      toast('未来の開始時刻は指定できません');
       return;
     }
     const preservesReference = !session || (session.subjectId === subjectId && session.materialId === selectedMaterialId);
