@@ -31,5 +31,20 @@ assert.throws(
   /INVALID_LOCAL_DATE/,
   '日付末尾の余分な文字を受け入れない',
 );
+assert.throws(
+  () => localDateTimeToISOString('2026-07-15', '7:05'),
+  /INVALID_LOCAL_TIME/,
+  'ゼロ埋めされていない時刻を受け入れない',
+);
+assert.throws(
+  () => localDateTimeToISOString('2026-07-15', '07:05:30'),
+  /INVALID_LOCAL_TIME/,
+  '秒を含む時刻を分単位の入力として暗黙受理しない',
+);
+assert.throws(
+  () => localDateTimeToISOString('2026-07-15', '24:00'),
+  /INVALID_LOCAL_TIME/,
+  '日付をまたぐ24時を受け入れない',
+);
 
-console.log('✅ local calendar date validation regressions passed');
+console.log('✅ local calendar date/time validation regressions passed');
