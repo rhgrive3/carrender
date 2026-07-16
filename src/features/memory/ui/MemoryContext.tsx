@@ -71,27 +71,45 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     setRepository(next);
     setReady(false);
     setError(null);
+    setSyncStatus('idle');
+    setSyncError(null);
     void (async () => {
+      // IndexedDBを開けない場合だけ暗記機能全体のエラーにする。端末データを
+      // 読めた後のネットワーク・同期失敗まで致命扱いにして画面を塞がない。
       try {
         await next.clientId();
         await refreshRepository(next);
         if (mounted.current && activeRepository.current === next) setReady(true);
-        if (typeof navigator === 'undefined' || navigator.onLine !== false) {
-          if (mounted.current && activeRepository.current === next) setSyncStatus('syncing');
-          if (mounted.current && activeRepository.current === next) setSyncError(null);
-          // Startup also drains pending offline edits and paginated remote changes.
-          // Five-record transport chunks keep each Pages Function under D1 limits.
-          const result = await flushMemorySync(next, 100);
-          if (mounted.current && activeRepository.current === next) {
-            setSyncStatus(result.status);
-            setSyncError(result.errorMessage ?? null);
-          }
-          await refreshRepository(next);
-        }
       } catch (caught) {
         if (mounted.current && activeRepository.current === next) {
           setError(caught instanceof Error ? caught.message : '暗記データを開けませんでした');
           setReady(true);
+        }
+        return;
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        if (mounted.current && activeRepository.current === next) setSyncStatus('offline');
+        return;
+      }
+
+      if (mounted.current && activeRepository.current === next) {
+        setSyncStatus('syncing');
+        setSyncError(null);
+      }
+      try {
+        // Startup also drains pending offline edits and paginated remote changes.
+        // Five-record transport chunks keep each Pages Function under D1 limits.
+        const result = await flushMemorySync(next, 100);
+        if (mounted.current && activeRepository.current === next) {
+          setSyncStatus(result.status);
+          setSyncError(result.errorMessage ?? null);
+        }
+        await refreshRepository(next);
+      } catch (caught) {
+        if (mounted.current && activeRepository.current === next) {
+          setSyncStatus('error');
+          setSyncError(caught instanceof Error ? caught.message : '暗記データを同期できませんでした');
         }
       }
     })();
@@ -111,25 +129,33 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
 
   const requestSync = useCallback(async (force = false) => {
     if (!repository) return;
-    const [unsynced, hasPendingContentMutations] = await Promise.all([
-      repository.unsyncedAttempts(force ? 20 : 21),
-      repository.hasPendingContentMutations(),
-    ]);
-    // 回答だけは20件ごとにバッチ送信する一方、カード/セットの編集は
-    // 1件でも即時同期する。以前は未同期回答数だけを見ていたため、編集だけが
-    // 次の回答・画面遷移まで端末に残ることがあった。
-    if (!force && !hasPendingContentMutations && unsynced.length < 20) {
+    try {
+      const [unsynced, hasPendingContentMutations] = await Promise.all([
+        repository.unsyncedAttempts(force ? 20 : 21),
+        repository.hasPendingContentMutations(),
+      ]);
+      // 回答だけは20件ごとにバッチ送信する一方、カード/セットの編集は
+      // 1件でも即時同期する。以前は未同期回答数だけを見ていたため、編集だけが
+      // 次の回答・画面遷移まで端末に残ることがあった。
+      if (!force && !hasPendingContentMutations && unsynced.length < 20) {
+        await refreshRepository(repository);
+        return;
+      }
+      setSyncStatus('syncing');
+      setSyncError(null);
+      const result = await flushMemorySync(repository);
+      if (mounted.current && activeRepository.current === repository) {
+        setSyncStatus(result.status);
+        setSyncError(result.errorMessage ?? null);
+      }
       await refreshRepository(repository);
-      return;
+    } catch (caught) {
+      if (mounted.current && activeRepository.current === repository) {
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+        setSyncStatus(offline ? 'offline' : 'error');
+        setSyncError(offline ? null : caught instanceof Error ? caught.message : '暗記データを同期できませんでした');
+      }
     }
-    setSyncStatus('syncing');
-    setSyncError(null);
-    const result = await flushMemorySync(repository);
-    if (mounted.current && activeRepository.current === repository) {
-      setSyncStatus(result.status);
-      setSyncError(result.errorMessage ?? null);
-    }
-    await refreshRepository(repository);
   }, [refreshRepository, repository]);
 
   useEffect(() => {

@@ -33,6 +33,12 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const questionStarted = useRef(performance.now());
   const pointerStartX = useRef<number | null>(null);
   const ignoreNextClick = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!repository) return;
@@ -96,17 +102,20 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         responseMs: performance.now() - questionStarted.current,
         presentedExerciseType: 'flashcard',
       });
+      await refresh();
+      void requestSync(result.session.status === 'completed');
+      // 保存中に利用者が暗記ホームへ戻った場合、完了後に古い学習画面へ
+      // 勝手に遷移させない。IndexedDBへの回答保存と同期要求はそのまま維持する。
+      if (!mounted.current) return;
       setRevealed(false);
       setFlipDirection(undefined);
       questionStarted.current = performance.now();
       setSession(result.session);
-      await refresh();
-      void requestSync(result.session.status === 'completed');
       if (result.session.status === 'completed') navigate({ name: 'result', sessionId: result.session.id });
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : '回答を保存できませんでした');
+      if (mounted.current) toast(caught instanceof Error ? caught.message : '回答を保存できませんでした');
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -115,19 +124,23 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     setBusy(true);
     try {
       const restored = await undoMemoryAnswer(repository, session);
-      if (!restored) toast('取り消せる回答はありません');
-      else {
-        setRevealed(false);
-        setFlipDirection(undefined);
-        setSession(restored.session);
-        await refresh();
-        void requestSync(false);
-        toast('最後の回答を取り消しました');
+      if (!restored) {
+        if (mounted.current) toast('取り消せる回答はありません');
+        return;
       }
+      // 取り消し自体は既にIndexedDBへ保存済み。画面を閉じた直後でも、
+      // Contextの集計更新と端末間同期は最後まで要求する。
+      await refresh();
+      void requestSync(false);
+      if (!mounted.current) return;
+      setRevealed(false);
+      setFlipDirection(undefined);
+      setSession(restored.session);
+      toast('最後の回答を取り消しました');
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : '回答の取り消しを保存できませんでした');
+      if (mounted.current) toast(caught instanceof Error ? caught.message : '回答の取り消しを保存できませんでした');
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -160,7 +173,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     return <div className="memory-study-overlay"><div className="card memory-study-load-error" role="alert"><h2>セッションを開けませんでした</h2><p>{loadError}</p><button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'home' })}>暗記ホームへ戻る</button></div></div>;
   }
   if (!session || !bundle || !queue || !target || !sense || !item || !progress) {
-    return <div className="memory-study-overlay"><div className="memory-study-loading">カードを準備しています…</div></div>;
+    return <div className="memory-study-overlay"><div className="memory-study-loading" role="status" aria-live="polite">カードを準備しています…</div></div>;
   }
 
   const prompt = target.mode === 'input' ? item.label : sense.promptJa;

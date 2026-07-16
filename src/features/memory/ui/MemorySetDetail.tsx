@@ -17,15 +17,38 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   const [editingSet, setEditingSet] = useState(false);
   const [setName, setSetName] = useState('');
   const [setDescription, setSetDescription] = useState('');
+  const [loadError, setLoadError] = useState<string>();
+  const [reloadKey, setReloadKey] = useState(0);
+  const [actionBusy, setActionBusy] = useState(false);
 
   const reload = async () => {
     if (!repository) return;
     const next = await repository.loadSetBundle([setId]);
+    if (!next.sets[0]) throw new Error('暗記セットが見つかりません');
+    const nextStats = await repository.getStats(new Set(next.senses.map((sense) => sense.id)));
     setBundle(next);
-    setStats(await repository.getStats(new Set(next.senses.map((sense) => sense.id))));
+    setStats(nextStats);
   };
 
-  useEffect(() => { void reload(); }, [repository, setId]);
+  useEffect(() => {
+    if (!repository) return;
+    let cancelled = false;
+    setBundle(null);
+    setStats([]);
+    setLoadError(undefined);
+    void (async () => {
+      const next = await repository.loadSetBundle([setId]);
+      if (!next.sets[0]) throw new Error('暗記セットが見つかりません');
+      const nextStats = await repository.getStats(new Set(next.senses.map((sense) => sense.id)));
+      if (!cancelled) {
+        setBundle(next);
+        setStats(nextStats);
+      }
+    })().catch((caught) => {
+      if (!cancelled) setLoadError(caught instanceof Error ? caught.message : '暗記セットを読み込めませんでした');
+    });
+    return () => { cancelled = true; };
+  }, [reloadKey, repository, setId]);
 
   const targets = useMemo(() => bundle ? generateLearningTargets({ content: bundle, setMembers: bundle.setMembers, selectedSetIds: [setId], direction: 'output', includeUnverifiedAi: false })
     .filter((target) => !target.exerciseId && target.mode === 'output') : [], [bundle, setId]);
@@ -48,21 +71,37 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   const filtered = normalizeSearchText(query) ? rows.filter((row) => row.search.includes(normalizeSearchText(query))) : rows;
   const set = bundle?.sets[0];
 
+  const runAction = async (operation: () => Promise<void>, fallback: string) => {
+    if (actionBusy) return;
+    setActionBusy(true);
+    try {
+      await operation();
+    } catch (caught) {
+      toast(caught instanceof Error ? caught.message : fallback);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const removeFromSet = async (itemId: string) => {
     if (!repository || !window.confirm('このカードをセットから外しますか？')) return;
     const member = bundle?.setMembers.find((value) => value.itemId === itemId);
     if (!member) return;
-    await repository.saveSetMember({ ...member, deletedAt: new Date().toISOString() });
-    await Promise.all([reload(), refresh()]);
-    void requestSync(true);
+    await runAction(async () => {
+      await repository.saveSetMember({ ...member, deletedAt: new Date().toISOString() });
+      await Promise.all([reload(), refresh()]);
+      void requestSync(true);
+    }, 'カードをセットから外せませんでした');
   };
 
   const verifyItem = async (itemId: string) => {
     if (!repository || !window.confirm('この内容を確認済みにして通常学習へ含めますか？')) return;
-    const count = await verifyMemoryItem(repository, itemId);
-    await Promise.all([reload(), refresh()]);
-    void requestSync(true);
-    toast(`${count}件を確認済みにしました`);
+    await runAction(async () => {
+      const count = await verifyMemoryItem(repository, itemId);
+      await Promise.all([reload(), refresh()]);
+      void requestSync(true);
+      toast(`${count}件を確認済みにしました`);
+    }, '内容を確認済みにできませんでした');
   };
 
   const beginSetEdit = () => {
@@ -73,22 +112,38 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   };
 
   const saveSetEdit = async () => {
-    if (!repository || !set) return;
-    await updateMemorySet(repository, set, { name: setName, description: setDescription, tags: set.tags });
-    setEditingSet(false);
-    await Promise.all([reload(), refresh()]);
-    void requestSync(true);
+    if (!repository || !set || !setName.trim()) return;
+    await runAction(async () => {
+      await updateMemorySet(repository, set, { name: setName, description: setDescription, tags: set.tags });
+      setEditingSet(false);
+      await Promise.all([reload(), refresh()]);
+      void requestSync(true);
+    }, '暗記セットを更新できませんでした');
   };
 
   const removeSet = async () => {
     if (!repository || !set || !window.confirm('このセットを削除しますか？カード本体と成績は残ります。')) return;
-    await deleteMemorySet(repository, set);
-    await refresh();
-    void requestSync(true);
-    navigate({ name: 'home' });
+    await runAction(async () => {
+      await deleteMemorySet(repository, set);
+      await refresh();
+      void requestSync(true);
+      navigate({ name: 'home' });
+    }, '暗記セットを削除できませんでした');
   };
 
-  if (!bundle || !set) return <div className="card memory-loading">セットを読み込んでいます…</div>;
+  if (loadError) {
+    return (
+      <div className="card memory-error" role="alert">
+        <h2>暗記セットを開けませんでした</h2>
+        <p>{loadError}</p>
+        <div className="row" style={{ gap: 8 }}>
+          <button type="button" className="btn btn-secondary" onClick={() => setReloadKey((value) => value + 1)}>再読み込み</button>
+          <button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'home' })}>暗記ホームへ戻る</button>
+        </div>
+      </div>
+    );
+  }
+  if (!bundle || !set) return <div className="card memory-loading" role="status" aria-live="polite">セットを読み込んでいます…</div>;
 
   return (
     <section className="memory-detail memory-simple-detail">
@@ -96,10 +151,10 @@ export function MemorySetDetail({ setId }: { setId: string }) {
         <button type="button" className="icon-btn" aria-label="暗記ホームへ戻る" onClick={() => navigate({ name: 'home' })}><ArrowLeft size={21} /></button>
         <div><h2>{set.name}</h2><p>{bundle.senses.length}カード</p></div>
         <div className="memory-page-actions">
-          <button type="button" className="icon-btn" aria-label="セットを編集" onClick={beginSetEdit}><Pencil size={19} /></button>
-          <button type="button" className="icon-btn" aria-label="セットを削除" onClick={() => void removeSet()}><Trash2 size={19} /></button>
-          <button type="button" className="icon-btn" aria-label="取込・出力" onClick={() => navigate({ name: 'import', setId })}><Download size={20} /></button>
-          <button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'editor', setId })}><Plus size={18} />追加</button>
+          <button type="button" className="icon-btn" aria-label="セットを編集" disabled={actionBusy} onClick={beginSetEdit}><Pencil size={19} /></button>
+          <button type="button" className="icon-btn" aria-label="セットを削除" disabled={actionBusy} onClick={() => void removeSet()}><Trash2 size={19} /></button>
+          <button type="button" className="icon-btn" aria-label="取込・出力" disabled={actionBusy} onClick={() => navigate({ name: 'import', setId })}><Download size={20} /></button>
+          <button type="button" className="btn btn-primary" disabled={actionBusy} onClick={() => navigate({ name: 'editor', setId })}><Plus size={18} />追加</button>
         </div>
       </div>
 
@@ -107,28 +162,28 @@ export function MemorySetDetail({ setId }: { setId: string }) {
         <span><b>{bundle.senses.length}</b><small>カード</small></span>
         <span><b>{summary.weakSenseCount}</b><small>苦手</small></span>
         <span><b>{summary.unattemptedSenseCount}</b><small>未学習</small></span>
-        <button type="button" className="btn btn-primary" disabled={bundle.senses.length === 0} onClick={() => navigate({ name: 'studySetup', setIds: [setId] })}>学習を始める</button>
+        <button type="button" className="btn btn-primary" disabled={bundle.senses.length === 0 || actionBusy} onClick={() => navigate({ name: 'studySetup', setIds: [setId] })}>学習を始める</button>
       </div>
 
       <label className="memory-search memory-search-wide"><Search size={17} /><span className="sr-only">カードを検索</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="日本語・英語を検索" /></label>
 
-      <div className="memory-simple-card-list" role="list">
+      <div className="memory-simple-card-list" role="list" aria-busy={actionBusy}>
         {filtered.map(({ item, senses, answers, examples, hasUnverified }) => (
           <article className="card memory-simple-card-row" key={item.id} role="listitem">
-            <button type="button" className="memory-simple-card-main" onClick={() => navigate({ name: 'editor', setId, itemId: item.id })}>
+            <button type="button" className="memory-simple-card-main" disabled={actionBusy} onClick={() => navigate({ name: 'editor', setId, itemId: item.id })}>
               <span className="memory-content-meaning">{senses.map((sense) => sense.promptJa).join('／')}</span>
               <b>{answers.map((answer) => answer.displayForm).join('／')}</b>
               {examples[0] && <small>{examples[0].english}</small>}
             </button>
-            {hasUnverified && <button type="button" className="icon-btn memory-verify" aria-label="AI追加内容を確認済みにする" onClick={() => void verifyItem(item.id)}><CheckCircle2 size={18} /></button>}
-            <button type="button" className="icon-btn memory-remove" aria-label="セットから外す" onClick={() => void removeFromSet(item.id)}><Trash2 size={18} /></button>
+            {hasUnverified && <button type="button" className="icon-btn memory-verify" aria-label="AI追加内容を確認済みにする" disabled={actionBusy} onClick={() => void verifyItem(item.id)}><CheckCircle2 size={18} /></button>}
+            <button type="button" className="icon-btn memory-remove" aria-label="セットから外す" disabled={actionBusy} onClick={() => void removeFromSet(item.id)}><Trash2 size={18} /></button>
           </article>
         ))}
       </div>
 
       {filtered.length === 0 && <div className="card empty-state"><div className="empty-title">該当するカードがありません</div></div>}
 
-      {editingSet && <MemoryDialog title="暗記セットを編集" onClose={() => setEditingSet(false)} footer={<button type="button" className="btn btn-primary" onClick={() => void saveSetEdit()}>変更を保存</button>}><div className="field"><label htmlFor="memory-edit-set-name">セット名</label><input id="memory-edit-set-name" autoFocus value={setName} onChange={(event) => setSetName(event.target.value)} /></div><div className="field"><label htmlFor="memory-edit-set-description">説明</label><textarea id="memory-edit-set-description" value={setDescription} onChange={(event) => setSetDescription(event.target.value)} /></div></MemoryDialog>}
+      {editingSet && <MemoryDialog title="暗記セットを編集" onClose={() => { if (!actionBusy) setEditingSet(false); }} footer={<button type="button" className="btn btn-primary" disabled={actionBusy || !setName.trim()} onClick={() => void saveSetEdit()}>{actionBusy ? '保存中…' : '変更を保存'}</button>}><div className="field"><label htmlFor="memory-edit-set-name">セット名</label><input id="memory-edit-set-name" autoFocus value={setName} onChange={(event) => setSetName(event.target.value)} /></div><div className="field"><label htmlFor="memory-edit-set-description">説明</label><textarea id="memory-edit-set-description" value={setDescription} onChange={(event) => setSetDescription(event.target.value)} /></div></MemoryDialog>}
     </section>
   );
 }
