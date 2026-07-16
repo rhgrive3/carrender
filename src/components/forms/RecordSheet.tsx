@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Timer } from 'lucide-react';
 import { Sheet } from '../ui/Sheet';
 import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
-import { resolveSessionProgress, useApp } from '../../state/AppContext';
+import { useApp } from '../../state/AppContext';
 import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
 import { APP_TIME_ZONE, localDateTimeToISOString, minutesInTimeZone, minutesToHM, today } from '../../lib/date';
 import { missingRecordMaterialOption, missingRecordSubjectOption } from '../../lib/recordReferences';
 import { applyRecordSessionTransaction } from '../../lib/recordSessionTransaction';
+import { recordAmountInputLimit } from '../../lib/recordEditCapacity';
 import type { StudySession } from '../../types';
 
 export interface RecordPreset {
@@ -97,20 +98,14 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
   const quota = material ? todayQuotaFor(state, material.id, today()) : 0;
   const remainingAmount = useMemo(() => {
     if (!material) return task?.amount ?? 9999;
-    const remaining = resolveSessionProgress(state, {
-      taskId: preset?.taskId ?? null,
-      subjectId,
-      materialId: material.id,
-      minutes,
-      amountDone: Number.MAX_SAFE_INTEGER,
-      focus: null,
-      memo: '',
-      source: preset?.source ?? 'manual',
-      rangeLabel: preset?.rangeLabel ?? '',
-      completedTask: false,
-    }).amountDone;
-    return session?.materialId === material.id ? Math.max(remaining, session.amountDone) : remaining;
-  }, [material, minutes, preset?.rangeLabel, preset?.source, preset?.taskId, session, state, subjectId, task?.amount]);
+    const keepsEditedReference = Boolean(session && session.subjectId === subjectId && session.materialId === material.id);
+    return recordAmountInputLimit(
+      state,
+      material.id,
+      keepsEditedReference ? session : undefined,
+      session && !keepsEditedReference ? undefined : task,
+    );
+  }, [material, session, state, subjectId, task]);
 
   const save = () => {
     if (!subjectId) {
