@@ -10,14 +10,26 @@ interface SheetProps {
   children: ReactNode;
 }
 
-let modalDepth = 0;
+const modalStack: HTMLElement[] = [];
 let appRootState: { hadInert: boolean; ariaHidden: string | null } | null = null;
 
-function isolateAppRoot() {
-  const appRoot = document.getElementById('root');
-  if (!appRoot) return () => undefined;
+function refreshModalIsolation() {
+  modalStack.forEach((backdrop, index) => {
+    const isTopmost = index === modalStack.length - 1;
+    if (isTopmost) {
+      backdrop.removeAttribute('inert');
+      backdrop.removeAttribute('aria-hidden');
+    } else {
+      backdrop.setAttribute('inert', '');
+      backdrop.setAttribute('aria-hidden', 'true');
+    }
+  });
+}
 
-  if (modalDepth === 0) {
+function isolateModal(backdrop: HTMLElement) {
+  const appRoot = document.getElementById('root');
+
+  if (modalStack.length === 0 && appRoot) {
     appRootState = {
       hadInert: appRoot.hasAttribute('inert'),
       ariaHidden: appRoot.getAttribute('aria-hidden'),
@@ -27,12 +39,16 @@ function isolateAppRoot() {
     appRoot.setAttribute('inert', '');
     appRoot.setAttribute('aria-hidden', 'true');
   }
-  modalDepth += 1;
+
+  modalStack.push(backdrop);
+  refreshModalIsolation();
 
   return () => {
-    modalDepth = Math.max(0, modalDepth - 1);
-    if (modalDepth !== 0 || !appRootState) return;
+    const index = modalStack.lastIndexOf(backdrop);
+    if (index >= 0) modalStack.splice(index, 1);
+    refreshModalIsolation();
 
+    if (modalStack.length !== 0 || !appRoot || !appRootState) return;
     if (!appRootState.hadInert) appRoot.removeAttribute('inert');
     if (appRootState.ariaHidden === null) appRoot.removeAttribute('aria-hidden');
     else appRoot.setAttribute('aria-hidden', appRootState.ariaHidden);
@@ -53,18 +69,20 @@ function isVisibleFocusable(element: HTMLElement, root: HTMLElement) {
 
 /** モバイル向けボトムシート */
 export function Sheet({ open, onClose, title, children }: SheetProps) {
+  const backdropRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !backdropRef.current) return;
     const prev = document.body.style.overflow;
-    const restoreAppRoot = isolateAppRoot();
+    const restoreModalIsolation = isolateModal(backdropRef.current);
     document.body.style.overflow = 'hidden';
     // フォーカスをシートへ移し、閉じたら開いた元のボタンへ戻す
     const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     sheetRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
+      if (backdropRef.current?.hasAttribute('inert')) return;
       if (e.key === 'Escape') {
         // 日本語IMEの変換候補を閉じるEscapeまでシートの閉操作として扱うと、
         // 入力途中の内容を失うため、composition中のキーイベントは無視する。
@@ -101,7 +119,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener('keydown', onKey);
-      restoreAppRoot();
+      restoreModalIsolation();
       prevFocus?.focus();
     };
   }, [open, onClose]);
@@ -111,6 +129,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
   return createPortal(
     <div
       className="sheet-backdrop"
+      ref={backdropRef}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
