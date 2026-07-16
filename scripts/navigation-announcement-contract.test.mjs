@@ -14,5 +14,7 @@ assert.match(source, /aria-live="polite"/, 'screen changes must be announced pol
 assert.match(source, /aria-atomic="true"/, 'the entire screen-change message must be announced');
 assert.match(source, /lastLabelRef\.current === null/, 'the initial screen must not be redundantly announced');
 assert.match(source, /\$\{label\}画面を表示しました/, 'the message must name the newly displayed screen');
+assert.match(source, /const APP_TITLE = 'StudyCommander 学習司令塔'/, 'the stable app title must be defined once');
+assert.match(source, /document\.title = `\$\{label\} \| \$\{APP_TITLE\}`/, 'the document title must follow the active screen');
 
 console.log('navigation announcement contract: ok');
