@@ -40,8 +40,19 @@ function NavigationAnnouncement() {
     };
 
     announceCurrentScreen();
-    const intervalId = window.setInterval(announceCurrentScreen, 100);
-    return () => window.clearInterval(intervalId);
+
+    const root = document.getElementById('root');
+    if (!root) return undefined;
+
+    const observer = new MutationObserver(announceCurrentScreen);
+    observer.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['aria-current'],
+    });
+
+    return () => observer.disconnect();
   }, []);
 
   return (
