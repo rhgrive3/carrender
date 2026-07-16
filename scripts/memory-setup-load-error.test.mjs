@@ -15,13 +15,13 @@ assert.match(
 );
 assert.match(
   source,
-  /disabled=\{starting \|\| selectedSetIds\.length === 0 \|\| plannedCount === 0 \|\| Boolean\(eligibilityError\)\}/,
-  '件数の読込に失敗した状態では学習開始を許可しない',
+  /disabled=\{starting \|\| selectedSetIds\.length === 0 \|\| !eligibilityReady \|\| plannedCount === 0 \|\| Boolean\(eligibilityError\)\}/,
+  '件数の読込に失敗した状態と未確認状態では学習開始を許可しない',
 );
 assert.match(
   source,
-  /setEligibleCount\(0\);[\s\S]*?setEligibilityError\(undefined\);[\s\S]*?loadSetBundle/,
-  '再読込中に前回の件数やエラーを残さない',
+  /setEligibleCount\(0\);[\s\S]*?setResolvedEligibilityKey\(undefined\);[\s\S]*?setEligibilityError\(undefined\);[\s\S]*?loadSetBundle/,
+  '再読込中に前回の件数・確認キー・エラーを残さない',
 );
 
 console.log('✅ memory setup load error contract passed');
