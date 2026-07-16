@@ -20,6 +20,59 @@ import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 import { DayRolloverBoundary } from './components/DayRolloverBoundary';
 import { preserveUnreadableState } from './lib/preserveUnreadableState';
 
+function NavigationAnnouncement() {
+  const [message, setMessage] = React.useState('');
+  const lastLabelRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const announceCurrentScreen = () => {
+      const current = document.querySelector<HTMLElement>('.bottom-nav [aria-current="page"]');
+      const label = current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
+      if (!label || label === lastLabelRef.current) return;
+
+      if (lastLabelRef.current === null) {
+        lastLabelRef.current = label;
+        return;
+      }
+
+      lastLabelRef.current = label;
+      setMessage(`${label}画面を表示しました`);
+    };
+
+    const observer = new MutationObserver(announceCurrentScreen);
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['aria-current'],
+    });
+    announceCurrentScreen();
+
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      style={{
+        position: 'fixed',
+        width: 1,
+        height: 1,
+        padding: 0,
+        margin: -1,
+        overflow: 'hidden',
+        clip: 'rect(0, 0, 0, 0)',
+        whiteSpace: 'nowrap',
+        border: 0,
+      }}
+    >
+      {message}
+    </div>
+  );
+}
+
 preserveUnreadableState();
 registerSW({ immediate: true });
 
@@ -29,6 +82,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DayRolloverBoundary>
         {(dayKey) => (
           <>
+            <NavigationAnnouncement />
             <a className="skip-link" href="#app-main-content">本文へ移動</a>
             <main id="app-main-content" tabIndex={-1}>
               <App key={dayKey} />
