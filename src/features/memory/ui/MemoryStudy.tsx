@@ -7,6 +7,7 @@ import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
 
 const SWIPE_THRESHOLD_PX = 48;
+type CardFlipDirection = 'to-answer' | 'to-question';
 
 export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const { repository, navigate, refresh, requestSync } = useMemory();
@@ -14,6 +15,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const [session, setSession] = useState<MemorySession>();
   const [bundle, setBundle] = useState<MemorySetBundle>();
   const [revealed, setRevealed] = useState(false);
+  const [flipDirection, setFlipDirection] = useState<CardFlipDirection>();
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string>();
   const questionStarted = useRef(performance.now());
@@ -64,6 +66,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     setRevealed(false);
+    setFlipDirection(undefined);
     questionStarted.current = performance.now();
   }, [session?.answerCount, target?.id]);
 
@@ -82,6 +85,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         presentedExerciseType: 'flashcard',
       });
       setRevealed(false);
+      setFlipDirection(undefined);
       questionStarted.current = performance.now();
       setSession(result.session);
       await refresh();
@@ -102,6 +106,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       if (!restored) toast('取り消せる回答はありません');
       else {
         setRevealed(false);
+        setFlipDirection(undefined);
         setSession(restored.session);
         await refresh();
         toast('最後の回答を取り消しました');
@@ -112,7 +117,9 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   };
 
   const setCardSide = (next: boolean) => {
-    if (!busy) setRevealed(next);
+    if (busy || next === revealed) return;
+    setFlipDirection(next ? 'to-answer' : 'to-question');
+    setRevealed(next);
   };
 
   const handleFaceClick = (next: boolean) => {
@@ -130,7 +137,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     const delta = clientX - start;
     if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return;
     ignoreNextClick.current = true;
-    setRevealed(delta < 0);
+    setCardSide(delta < 0);
     window.setTimeout(() => { ignoreNextClick.current = false; }, 0);
   };
 
@@ -166,10 +173,15 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         >
           <article
             key={target.id}
-            className={`memory-study-card memory-simple-study-card ${revealed ? 'revealed' : ''}`}
+            className={`memory-study-card memory-simple-study-card ${revealed ? 'revealed' : ''} ${flipDirection ? `flip-${flipDirection}` : ''}`}
             data-card-side={revealed ? 'answer' : 'question'}
           >
-            <div className="memory-study-card-inner">
+            <div
+              className="memory-study-card-inner"
+              onAnimationEnd={(event) => {
+                if (event.animationName.startsWith('memory-card-android-flip-')) setFlipDirection(undefined);
+              }}
+            >
               <button
                 type="button"
                 className="memory-study-card-face memory-study-card-front"

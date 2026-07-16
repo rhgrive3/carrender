@@ -33,8 +33,20 @@ try {
         </div>
       </div>
       <script>
+        const card = document.querySelector('.memory-study-card');
+        const inner = document.querySelector('.memory-study-card-inner');
         document.querySelector('.memory-study-card-front').addEventListener('click', () => {
-          document.querySelector('.memory-study-card').classList.add('revealed');
+          card.classList.remove('flip-to-question');
+          card.classList.add('revealed', 'flip-to-answer');
+        });
+        document.querySelector('.memory-study-card-back').addEventListener('click', () => {
+          card.classList.remove('revealed', 'flip-to-answer');
+          card.classList.add('flip-to-question');
+        });
+        inner.addEventListener('animationend', (event) => {
+          if (event.animationName.startsWith('memory-card-android-flip-')) {
+            card.classList.remove('flip-to-answer', 'flip-to-question');
+          }
         });
       </script>
     </body></html>`);
@@ -47,6 +59,7 @@ try {
       m11: matrix.m11,
       transform: style.transform,
       transitionDuration: style.transitionDuration,
+      innerAnimationName: style.animationName,
       cardAnimationName: cardStyle.animationName,
     };
   });
@@ -54,18 +67,31 @@ try {
   const before = await readFrame();
   await page.locator('.memory-study-card-front').click();
   await page.waitForTimeout(170);
-  const middle = await readFrame();
+  const forwardMiddle = await readFrame();
   await page.waitForTimeout(520);
-  const after = await readFrame();
+  const answer = await readFrame();
 
-  assert.notEqual(before.transitionDuration, '0s', 'Android mobile context keeps a non-zero flip transition');
-  assert.equal(before.cardAnimationName, after.cardAnimationName, 'revealing the answer does not rebuild the parent animation layer');
+  assert.notEqual(before.transitionDuration, '0s', 'Android mobile context keeps the CSS transition fallback');
+  assert.equal(before.cardAnimationName, answer.cardAnimationName, 'revealing the answer does not rebuild the parent animation layer');
   assert.ok(before.m11 > 0.95, `front starts unrotated: ${before.transform}`);
-  assert.ok(Math.abs(middle.m11) < 0.95, `Android renders an intermediate flip frame: ${middle.transform}`);
-  assert.ok(after.m11 < -0.95, `answer finishes at 180 degrees: ${after.transform}`);
+  assert.match(forwardMiddle.innerAnimationName, /memory-card-android-flip-to-answer/u, 'Android uses the explicit forward keyframe');
+  assert.ok(Math.abs(forwardMiddle.m11) < 0.95, `Android renders an intermediate forward frame: ${forwardMiddle.transform}`);
+  assert.ok(answer.m11 < -0.95, `answer finishes at 180 degrees: ${answer.transform}`);
+
+  // 3D裏面の実ブラウザ hit testing はエンジン差があるため、ここでは
+  // DOMイベントを直接送って戻り方向のアニメーション契約だけを検証する。
+  await page.locator('.memory-study-card-back').dispatchEvent('click');
+  await page.waitForTimeout(170);
+  const reverseMiddle = await readFrame();
+  await page.waitForTimeout(520);
+  const frontAgain = await readFrame();
+
+  assert.match(reverseMiddle.innerAnimationName, /memory-card-android-flip-to-question/u, 'Android uses the explicit reverse keyframe');
+  assert.ok(Math.abs(reverseMiddle.m11) < 0.95, `Android renders an intermediate reverse frame: ${reverseMiddle.transform}`);
+  assert.ok(frontAgain.m11 > 0.95, `question finishes back at zero degrees: ${frontAgain.transform}`);
 
   await context.close();
-  console.log('✅ Android memory-card flip animation has intermediate frames');
+  console.log('✅ Android memory-card flip uses explicit forward and reverse keyframes');
 } finally {
   await browser.close();
 }
