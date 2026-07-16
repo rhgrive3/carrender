@@ -34,4 +34,13 @@ assert.match(
 );
 assert.match(sheetSource, /const focusIsOutside =/, '予期せずフォーカスが外れた場合もシート内へ戻す');
 
+assert.match(sheetSource, /document\.getElementById\('root'\)/, 'portal外のアプリ本体を背面UIとして特定する');
+assert.match(sheetSource, /appRoot\.setAttribute\('inert', ''\)/, 'シート表示中は背面UIを操作不能にする');
+assert.match(sheetSource, /appRoot\.setAttribute\('aria-hidden', 'true'\)/, 'VoiceOverの仮想カーソルから背面UIを隠す');
+assert.match(sheetSource, /hadInert: appRoot\.hasAttribute\('inert'\)/, '既存のinert状態を保存する');
+assert.match(sheetSource, /ariaHidden: appRoot\.getAttribute\('aria-hidden'\)/, '既存のaria-hidden状態を保存する');
+assert.match(sheetSource, /modalDepth \+= 1/, '複数シートが重なっても背面隔離を維持する');
+assert.match(sheetSource, /modalDepth = Math\.max\(0, modalDepth - 1\)/, 'シート終了時にネスト深度を安全に減らす');
+assert.match(sheetSource, /restoreAppRoot\(\)/, 'シート終了時に背面UIの状態を復元する');
+
 console.log('✅ sheet keyboard accessibility regressions passed');
