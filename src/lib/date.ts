@@ -10,6 +10,7 @@ function partsOf(date: ISODate): { y: number; m: number; d: number } {
 }
 
 function isValidCalendarDate(date: ISODate): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
   const { y, m, d } = partsOf(date);
   if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d) || m < 1 || m > 12 || d < 1) return false;
   const candidate = new Date(Date.UTC(y, m - 1, d));
