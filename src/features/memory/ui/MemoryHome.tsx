@@ -104,19 +104,28 @@ export function MemoryHome() {
       ) : (
         <>
           <div className="memory-simple-library-head"><label className="memory-search"><Search size={17} /><span className="sr-only">セットを検索</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="セットを検索" /></label><button type="button" className="icon-btn" aria-label="暗記セットを追加" onClick={() => setCreateSetOpen(true)}><Plus size={20} /></button></div>
-          <div className="memory-simple-set-cards">
-            {filtered.map((summary) => (
-              <article className="card memory-simple-set-card" key={summary.set.id}>
-                <div><h3>{summary.set.name}</h3><p>{summary.cards}カード</p></div>
-                <div className="memory-simple-metrics"><span><b>{summary.weak}</b><small>苦手</small></span><span><b>{summary.newCount}</b><small>未学習</small></span></div>
-                <div className="memory-simple-set-actions">
-                  <button type="button" className="btn btn-primary" disabled={startingSetId === summary.set.id || summary.cards === 0} onClick={() => void start(summary)}><Play size={18} fill="currentColor" />{startingSetId === summary.set.id ? '準備中…' : '10問始める'}</button>
-                  <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'set', setId: summary.set.id })}>カードを見る</button>
-                  <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'studySetup', setIds: [summary.set.id] })}>設定</button>
-                </div>
-              </article>
-            ))}
-          </div>
+          {filtered.length === 0 ? (
+            <div className="card empty-state memory-empty" role="status">
+              <span className="empty-icon" aria-hidden="true">🔎</span>
+              <div className="empty-title">一致する暗記セットがありません</div>
+              <p>検索語を変えるか、検索を解除してください。</p>
+              <button type="button" className="btn btn-secondary" onClick={() => setQuery('')}>検索を解除</button>
+            </div>
+          ) : (
+            <div className="memory-simple-set-cards">
+              {filtered.map((summary) => (
+                <article className="card memory-simple-set-card" key={summary.set.id}>
+                  <div><h3>{summary.set.name}</h3><p>{summary.cards}カード</p></div>
+                  <div className="memory-simple-metrics"><span><b>{summary.weak}</b><small>苦手</small></span><span><b>{summary.newCount}</b><small>未学習</small></span></div>
+                  <div className="memory-simple-set-actions">
+                    <button type="button" className="btn btn-primary" disabled={startingSetId === summary.set.id || summary.cards === 0} onClick={() => void start(summary)}><Play size={18} fill="currentColor" />{startingSetId === summary.set.id ? '準備中…' : '10問始める'}</button>
+                    <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'set', setId: summary.set.id })}>カードを見る</button>
+                    <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'studySetup', setIds: [summary.set.id] })}>設定</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </>
       )}
       {createSetOpen && <CreateSetDialog onClose={() => setCreateSetOpen(false)} />}

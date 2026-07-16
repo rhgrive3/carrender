@@ -21,6 +21,8 @@ assert.match(home, /10問始める/u, 'ホームの主操作は10問開始');
 assert.match(home, /createSimpleStudySession/u, 'ホームはカード専用セッションを使う');
 assert.match(home, /summaries\.length > 0[\s\S]*カード追加[\s\S]*セット追加/u, 'セット未作成時はカード追加ではなくセット追加を案内する');
 assert.doesNotMatch(home, /setId: summaries\[0\]\?\.set\.id/u, '存在しないセットへカードを追加する導線を残さない');
+assert.match(home, /filtered\.length === 0[\s\S]*一致する暗記セットがありません[\s\S]*検索を解除/u, '検索0件時は理由と解除導線を表示する');
+assert.match(home, /role="status"/u, '検索結果0件を支援技術へ通知する');
 assert.doesNotMatch(home, /Input／Output差|Composition/u, 'ホームへ専門的な分析を出さない');
 assert.match(setup, /日本語 → 英語/u);
 assert.match(setup, /英語 → 日本語/u);
