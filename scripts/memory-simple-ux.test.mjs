@@ -52,8 +52,8 @@ assert.match(androidFlipFix, /-webkit-transform-style:\s*preserve-3d/u, 'Android
 assert.match(androidFlipFix, /translateZ\(0\) rotateY\(180deg\)/u, 'GPU合成レイヤー上で答え側へ回転する');
 assert.match(androidFlipFix, /@keyframes memory-card-android-flip-to-answer[\s\S]*rotateY\(0deg\)[\s\S]*rotateY\(180deg\)/u, 'Androidの表から裏への明示的なキーフレームを持つ');
 assert.match(androidFlipFix, /@keyframes memory-card-android-flip-to-question[\s\S]*rotateY\(180deg\)[\s\S]*rotateY\(0deg\)/u, 'Androidの裏から表への明示的なキーフレームを持つ');
-assert.match(androidFlipFix, /hover:\s*none[\s\S]*pointer:\s*coarse[\s\S]*flip-to-answer[\s\S]*memory-card-android-flip-to-answer/u, 'タッチ端末では遷移だけに依存せず前進キーフレームを使う');
-assert.match(androidFlipFix, /flip-to-question[\s\S]*memory-card-android-flip-to-question/u, 'タッチ端末では戻り方向もキーフレームで回転する');
+assert.match(androidFlipFix, /\.memory-study-card\.flip-to-answer \.memory-study-card-inner[\s\S]*memory-card-android-flip-to-answer/u, '反転方向クラスへ前進キーフレームを直接適用する');
+assert.match(androidFlipFix, /\.memory-study-card\.flip-to-question \.memory-study-card-inner[\s\S]*memory-card-android-flip-to-question/u, '戻り方向クラスへ後退キーフレームを直接適用する');
 assert.match(androidFlipFix, /prefers-reduced-motion:\s*reduce[\s\S]*animation:\s*none !important[\s\S]*transform:\s*none !important/u, '視差低減設定のフェード切替を維持する');
 assert.match(cardUx, /\.memory-simple-set-cards > \.card \+ \.card[\s\S]*margin-top:\s*0/u, '2枚目だけ下へずれるグローバルmarginを解除する');
 assert.match(cardUx, /\.memory-simple-set-card[\s\S]*height:\s*100%/u, 'セットカードの高さを揃える');
