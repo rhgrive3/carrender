@@ -15,19 +15,37 @@ assert.match(
   /<nav\s+[\s\S]*?className="bottom-nav"[\s\S]*?data-layout-contract="fixed-bottom-navigation"/,
   '主要5タブのナビへ固定レイアウト契約を明示する',
 );
+assert.match(appSource, /import \{ createPortal \} from 'react-dom';/, '下部ナビをReact portalで祖先レイアウトから分離する');
+assert.match(
+  appSource,
+  /createPortal\([\s\S]*?<nav[\s\S]*?data-portal-target="document\.body"[\s\S]*?document\.body,?[\s\S]*?\)/,
+  '下部ナビのDOMをdocument.body直下へポータルする',
+);
+assert.match(mainSource, /<main id="app-main-content"[\s\S]*?<App key=\{dayKey\} \/>[\s\S]*?<\/main>/, '画面本文はmainランドマーク内に保つ');
 assert.match(mainSource, /import '\.\/styles\/layoutContracts\.css';/, '固定レイアウト契約CSSを読み込む');
 assert.ok(
   mainSource.indexOf("import './styles/layoutContracts.css';") > mainSource.indexOf("import './styles/ux-audit.css';"),
   '固定契約CSSは一般画面CSSより後に読み込む',
 );
 
+assert.match(
+  contractCss,
+  /body\s*>\s*\.bottom-nav\[data-layout-contract='fixed-bottom-navigation'\]/,
+  '固定契約はdocument.body直下のナビだけへ適用する',
+);
 assert.match(contractCss, /position:\s*fixed\s*!important;/, '下部ナビはviewport基準で固定する');
 assert.match(contractCss, /bottom:\s*0\s*!important;/, '下部ナビを画面下端へ固定する');
 assert.match(contractCss, /left:\s*0\s*!important;/, '固定要素をビューポート左端基準にする');
 assert.match(contractCss, /right:\s*0\s*!important;/, '固定要素をビューポート右端基準にする');
 assert.match(contractCss, /margin-inline:\s*auto\s*!important;/, '下部ナビを画面中央へ配置する');
-assert.match(contractCss, /transform:\s*none\s*!important;/, '親の変形に依存しない固定レイアウトにする');
-assert.match(appSource, /<div className="app-shell">[\s\S]*?<\/div>[\s\S]*?<nav/, 'BottomNavigationをスクロール対象のapp-shell外へ配置する');
+assert.match(contractCss, /transform:\s*none\s*!important;/, '固定ナビ自体へ変形を残さない');
+assert.match(contractCss, /display:\s*flex\s*!important;/, '通常画面の固定ナビを意図せず非表示にしない');
+assert.match(contractCss, /width:\s*min\(100%,\s*760px\)\s*!important;/, 'スクロールバーを含む100vwへ依存せず画面幅内へ収める');
+assert.match(
+  contractCss,
+  /height:\s*calc\(var\(--nav-height\)\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\)\s*!important;/,
+  'Safe Area込みの操作面高を固定契約に含める',
+);
 assert.match(
   contractCss,
   /padding-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)\s*!important;/,
