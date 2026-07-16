@@ -53,9 +53,23 @@ export function recordAmountInputLimit(
   const ownContribution = session?.materialId === material.id
     ? normalizeUnitRanges(session.progressRangesAdded ?? [], total)
     : [];
-  const completedWithoutEditedSession = ownContribution.length > 0
-    ? subtractRanges(completed, ownContribution)
-    : completed;
+
+  let completedWithoutEditedSession = completed;
+  if (ownContribution.length > 0 && session) {
+    // rebuildMaterialProgressと同じく、全新形式記録の寄与を一度外してから、
+    // 編集対象以外を戻す。複数記録が同じ範囲を持つ不整合データでも過剰に空けない。
+    const materialSessions = state.sessions.filter((entry) => entry.materialId === material.id);
+    const sessionIsInState = materialSessions.some((entry) => entry.id === session.id);
+    const beforeContributions = [
+      ...materialSessions.flatMap((entry) => entry.progressRangesAdded ?? []),
+      ...(sessionIsInState ? [] : ownContribution),
+    ];
+    const remainingContributions = materialSessions
+      .filter((entry) => entry.id !== session.id)
+      .flatMap((entry) => entry.progressRangesAdded ?? []);
+    const baseline = subtractRanges(completed, beforeContributions);
+    completedWithoutEditedSession = normalizeUnitRanges([...baseline, ...remainingContributions], total);
+  }
 
   let eligible = remainingUnitRanges(total, completedWithoutEditedSession);
   const explicit = taskRange(task);
