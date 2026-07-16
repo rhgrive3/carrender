@@ -28,8 +28,11 @@ function NavigationAnnouncement() {
 
   React.useEffect(() => {
     const announceCurrentScreen = () => {
+      const contextualLabels = [...document.querySelectorAll<HTMLElement>('[data-app-screen-label]')];
+      const contextualLabel = contextualLabels.find((element) => !element.closest('[hidden]'))
+        ?.dataset.appScreenLabel?.trim();
       const current = document.querySelector('.bottom-nav [aria-current="page"]');
-      const label = current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
+      const label = contextualLabel || current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
       if (!label || label === lastLabelRef.current) return;
 
       // iPadのタブ一覧・ブラウザ履歴・支援技術でも現在画面を識別できるよう、
@@ -55,7 +58,7 @@ function NavigationAnnouncement() {
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ['aria-current'],
+      attributeFilter: ['aria-current', 'data-app-screen-label', 'hidden'],
     });
 
     return () => observer.disconnect();
