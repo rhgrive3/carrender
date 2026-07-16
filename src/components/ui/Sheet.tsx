@@ -12,6 +12,7 @@ interface SheetProps {
 
 const modalStack: HTMLElement[] = [];
 let appRootState: { hadInert: boolean; ariaHidden: string | null } | null = null;
+let portalBackgroundStates: Array<{ element: HTMLElement; hadInert: boolean; ariaHidden: string | null }> = [];
 let bodyOverflowState: string | null = null;
 
 function refreshModalIsolation() {
@@ -27,12 +28,40 @@ function refreshModalIsolation() {
   });
 }
 
+function isolatePortalBackground(backdrop: HTMLElement, appRoot: HTMLElement | null) {
+  portalBackgroundStates = [...document.body.children]
+    .filter((element): element is HTMLElement => element instanceof HTMLElement)
+    .filter((element) => element !== appRoot && element !== backdrop && !element.classList.contains('sheet-backdrop'))
+    .map((element) => ({
+      element,
+      hadInert: element.hasAttribute('inert'),
+      ariaHidden: element.getAttribute('aria-hidden'),
+    }));
+
+  portalBackgroundStates.forEach(({ element }) => {
+    // 下部ナビなどbody直下へportalされたUIも、シート表示中は背面操作・読み上げ対象から外す。
+    element.setAttribute('inert', '');
+    element.setAttribute('aria-hidden', 'true');
+  });
+}
+
+function restorePortalBackground() {
+  portalBackgroundStates.forEach(({ element, hadInert, ariaHidden }) => {
+    if (!element.isConnected) return;
+    if (!hadInert) element.removeAttribute('inert');
+    if (ariaHidden === null) element.removeAttribute('aria-hidden');
+    else element.setAttribute('aria-hidden', ariaHidden);
+  });
+  portalBackgroundStates = [];
+}
+
 function isolateModal(backdrop: HTMLElement) {
   const appRoot = document.getElementById('root');
 
   if (modalStack.length === 0) {
     bodyOverflowState = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    isolatePortalBackground(backdrop, appRoot);
 
     if (appRoot) {
       appRootState = {
@@ -60,6 +89,7 @@ function isolateModal(backdrop: HTMLElement) {
       document.body.style.overflow = bodyOverflowState;
       bodyOverflowState = null;
     }
+    restorePortalBackground();
 
     if (!appRoot || !appRootState) return;
     if (!appRootState.hadInert) appRoot.removeAttribute('inert');
