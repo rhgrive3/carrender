@@ -5,22 +5,27 @@
  * ビューポート下端へ固定する。sticky / absolute / static へ変更しない。
  * iOS/iPadOSではホームインジケータと横画面の左右Safe Areaを操作面から除外する。
  * このファイルは他の画面CSSより後に読み込み、意図しない上書きを防ぐ。
- * ナビは .app-shell の外に置く。スクロール・transform・contain を持つ親を
- * fixed の包含ブロックにしないための意図的なレイアウト契約。
+ * ナビのDOMはReact portalでdocument.body直下に置く。#root / main / .app-shellの
+ * scroll・transform・filter・perspective・containをfixedの包含ブロックにしない。
  */
-.bottom-nav[data-layout-contract='fixed-bottom-navigation'] {
+body > .bottom-nav[data-layout-contract='fixed-bottom-navigation'] {
   position: fixed !important;
   top: auto !important;
   right: 0 !important;
   bottom: 0 !important;
   left: 0 !important;
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
   box-sizing: border-box !important;
   margin-inline: auto !important;
   transform: none !important;
-  width: min(100vw, 760px) !important;
+  width: min(100%, 760px) !important;
   max-width: 760px !important;
+  height: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px)) !important;
   padding-right: env(safe-area-inset-right, 0px) !important;
   padding-bottom: env(safe-area-inset-bottom, 0px) !important;
   padding-left: env(safe-area-inset-left, 0px) !important;
+  isolation: isolate;
   z-index: 50 !important;
 }
