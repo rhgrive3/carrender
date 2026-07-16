@@ -7,6 +7,7 @@ import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
 import { APP_TIME_ZONE, localDateTimeToISOString, minutesInTimeZone, minutesToHM, today } from '../../lib/date';
 import { missingRecordMaterialOption, missingRecordSubjectOption } from '../../lib/recordReferences';
+import { applyRecordSessionTransaction } from '../../lib/recordSessionTransaction';
 import type { StudySession } from '../../types';
 
 export interface RecordPreset {
@@ -144,9 +145,15 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       date: preset && !session ? undefined : recordDate,
       startTime: preset && !session ? undefined : startTime,
     };
-    const result = session
-      ? execute({ type: 'UPDATE_SESSION', sessionId: session.id, input })
-      : execute({ type: 'RECORD_SESSION', input });
+    const action = session
+      ? ({ type: 'UPDATE_SESSION' as const, sessionId: session.id, input })
+      : ({ type: 'RECORD_SESSION' as const, input });
+    const tasklessMaterialRecord = Boolean(input.materialId && !input.taskId && !input.taskLocator?.sourceId);
+    // 自由記録は今回分の個数として加算する。当日の古い自動タスクを保護したままにせず、
+    // 記録反映後の残量から今日以降を再計画して「完了済み範囲と重複」を発生させない。
+    const result = tasklessMaterialRecord
+      ? execute({ type: 'REPLACE_STATE', state: applyRecordSessionTransaction(state, action, today()) })
+      : execute(action);
     if (!result.changed) { toast(result.message ?? '記録を保存できませんでした'); return; }
     toast(result.message ?? (session ? '記録を更新しました' : '記録を保存しました 🎉'));
     onDone?.();
@@ -226,7 +233,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       {(material || task || session?.materialId) && (
         <div className="field">
           <label>
-            どこまで進んだ?{material ? `(${material.unit}数)` : ''}
+            {material ? `今回やった${material.unit}数` : '今回やった量'}
             {quota > 0 && <span style={{ fontWeight: 500 }}> ・今日の目安 {quota}{material?.unit}</span>}
           </label>
           <NumericInput
@@ -235,7 +242,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
             max={remainingAmount}
             placeholder={`例: ${quota || task?.amount || 10}`}
             onChange={setAmountDone}
-            ariaLabel="完了量"
+            ariaLabel="今回やった量"
           />
         </div>
       )}
