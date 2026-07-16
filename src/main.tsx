@@ -26,7 +26,7 @@ function NavigationAnnouncement() {
 
   React.useEffect(() => {
     const announceCurrentScreen = () => {
-      const current = document.querySelector<HTMLElement>('.bottom-nav [aria-current="page"]');
+      const current = document.querySelector('.bottom-nav [aria-current="page"]');
       const label = current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
       if (!label || label === lastLabelRef.current) return;
 
@@ -39,16 +39,9 @@ function NavigationAnnouncement() {
       setMessage(`${label}画面を表示しました`);
     };
 
-    const observer = new MutationObserver(announceCurrentScreen);
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ['aria-current'],
-    });
     announceCurrentScreen();
-
-    return () => observer.disconnect();
+    const intervalId = window.setInterval(announceCurrentScreen, 100);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   return (
@@ -58,14 +51,11 @@ function NavigationAnnouncement() {
       aria-atomic="true"
       style={{
         position: 'fixed',
-        width: 1,
-        height: 1,
-        padding: 0,
-        margin: -1,
+        width: '1px',
+        height: '1px',
         overflow: 'hidden',
-        clip: 'rect(0, 0, 0, 0)',
+        clipPath: 'inset(50%)',
         whiteSpace: 'nowrap',
-        border: 0,
       }}
     >
       {message}
