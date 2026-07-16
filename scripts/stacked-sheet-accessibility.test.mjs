@@ -15,5 +15,8 @@ assert.match(source, /let bodyOverflowState: string \| null = null/);
 assert.match(source, /if \(modalStack\.length === 0\) \{[\s\S]*bodyOverflowState = document\.body\.style\.overflow;[\s\S]*document\.body\.style\.overflow = 'hidden'/);
 assert.match(source, /if \(modalStack\.length !== 0\) return;[\s\S]*document\.body\.style\.overflow = bodyOverflowState/);
 assert.doesNotMatch(source, /const prev = document\.body\.style\.overflow/);
+assert.match(source, /<h2 className="sheet-title" id=\{titleId\}>\{title\}<\/h2>/);
+assert.doesNotMatch(source, /<div className="sheet-title" id=\{titleId\}>/);
+assert.match(source, /<div className="sheet-grabber" aria-hidden="true" \/>/);
 
-console.log('✅ Stacked sheets expose only the topmost dialog and retain scroll lock');
+console.log('✅ Stacked sheets expose only the topmost dialog, retain scroll lock, and expose a semantic heading');
