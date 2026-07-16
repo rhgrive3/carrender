@@ -22,14 +22,18 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   const [countChoice, setCountChoice] = useState<CountChoice>('weak10');
   const [direction, setDirection] = useState<DirectionChoice>('output');
   const [eligibleCount, setEligibleCount] = useState(0);
+  const [eligibilityError, setEligibilityError] = useState<string>();
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
     if (!repository || selectedSetIds.length === 0) {
       setEligibleCount(0);
+      setEligibilityError(undefined);
       return;
     }
     let cancelled = false;
+    setEligibleCount(0);
+    setEligibilityError(undefined);
     void repository.loadSetBundle(selectedSetIds).then((bundle) => {
       const targets = generateLearningTargets({
         content: bundle,
@@ -39,6 +43,10 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         includeUnverifiedAi: false,
       }).filter((target) => !target.exerciseId && (target.mode === 'output' || target.mode === 'input'));
       if (!cancelled) setEligibleCount(targets.length);
+    }).catch((caught) => {
+      if (cancelled) return;
+      setEligibleCount(0);
+      setEligibilityError(caught instanceof Error ? caught.message : 'カード件数を読み込めませんでした');
     });
     return () => { cancelled = true; };
   }, [direction, repository, selectedSetIds]);
@@ -101,8 +109,14 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
           </div>
         </fieldset>
 
-        <div className="memory-start-summary" aria-live="polite">{eligibleCount === 0 ? '出題できるカードがありません' : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}</div>
-        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || plannedCount === 0} onClick={() => void start()}><Play size={20} fill="currentColor" />{starting ? '準備中…' : '学習を始める'}</button>
+        <div className="memory-start-summary" aria-live="polite">
+          {eligibilityError
+            ? <span role="alert">カード件数を読み込めませんでした。通信状態を確認して、セットを選び直してください。</span>
+            : eligibleCount === 0
+              ? '出題できるカードがありません'
+              : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}
+        </div>
+        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || plannedCount === 0 || Boolean(eligibilityError)} onClick={() => void start()}><Play size={20} fill="currentColor" />{starting ? '準備中…' : '学習を始める'}</button>
       </div>
     </section>
   );
