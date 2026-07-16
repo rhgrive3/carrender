@@ -28,14 +28,21 @@ function NavigationAnnouncement() {
 
   React.useEffect(() => {
     const announceCurrentScreen = () => {
+      const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];
+      const activeDialog = dialogs.findLast((element) => !element.closest('[hidden], [inert], [aria-hidden="true"]'));
+      const labelledBy = activeDialog?.getAttribute('aria-labelledby');
+      const dialogLabel = (
+        activeDialog?.getAttribute('aria-label')
+        || (labelledBy ? document.getElementById(labelledBy)?.textContent : '')
+      )?.trim();
       const contextualLabels = [...document.querySelectorAll<HTMLElement>('[data-app-screen-label]')];
       const contextualLabel = contextualLabels.find((element) => {
         // ラベル要素自体は表示を持たないhiddenマーカーとして置かれる。
-        // 非表示タブだけを除外するため、要素自身ではなく祖先のhiddenを確認する。
-        return !element.parentElement?.closest('[hidden]');
+        // 背面タブ・モーダル背面だけを除外するため、要素自身ではなく祖先を確認する。
+        return !element.parentElement?.closest('[hidden], [inert], [aria-hidden="true"]');
       })?.dataset.appScreenLabel?.trim();
       const current = document.querySelector('.bottom-nav [aria-current="page"]');
-      const label = contextualLabel || current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
+      const label = dialogLabel || contextualLabel || current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
       if (!label || label === lastLabelRef.current) return;
 
       // iPadのタブ一覧・ブラウザ履歴・支援技術でも現在画面を識別できるよう、
@@ -57,14 +64,14 @@ function NavigationAnnouncement() {
     if (!root) return undefined;
 
     const observer = new MutationObserver(announceCurrentScreen);
-    // 下部ナビはfixedの包含ブロック問題を避けるためdocument.body直下へ
-    // portalされる。#rootだけを監視するとaria-currentの変更を取り逃すため、
+    // 下部ナビとモーダルはfixedの包含ブロック問題を避けるためdocument.body直下へ
+    // portalされる。#rootだけを監視すると現在画面の変更を取り逃すため、
     // アプリ本体とportal UIの共通祖先であるbodyを監視する。
     observer.observe(document.body, {
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ['aria-current', 'data-app-screen-label', 'hidden'],
+      attributeFilter: ['aria-current', 'aria-hidden', 'aria-label', 'aria-labelledby', 'aria-modal', 'data-app-screen-label', 'hidden', 'inert'],
     });
 
     return () => observer.disconnect();
