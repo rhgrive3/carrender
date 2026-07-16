@@ -22,17 +22,26 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   const [countChoice, setCountChoice] = useState<CountChoice>('weak10');
   const [direction, setDirection] = useState<DirectionChoice>('output');
   const [eligibleCount, setEligibleCount] = useState(0);
+  const [resolvedEligibilityKey, setResolvedEligibilityKey] = useState<string>();
   const [eligibilityError, setEligibilityError] = useState<string>();
   const [starting, setStarting] = useState(false);
+
+  const eligibilityKey = useMemo(
+    () => `${direction}:${[...selectedSetIds].sort().join(',')}`,
+    [direction, selectedSetIds],
+  );
+  const eligibilityReady = selectedSetIds.length > 0 && resolvedEligibilityKey === eligibilityKey;
 
   useEffect(() => {
     if (!repository || selectedSetIds.length === 0) {
       setEligibleCount(0);
+      setResolvedEligibilityKey(undefined);
       setEligibilityError(undefined);
       return;
     }
     let cancelled = false;
     setEligibleCount(0);
+    setResolvedEligibilityKey(undefined);
     setEligibilityError(undefined);
     void repository.loadSetBundle(selectedSetIds).then((bundle) => {
       const targets = generateLearningTargets({
@@ -42,14 +51,18 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         direction,
         includeUnverifiedAi: false,
       }).filter((target) => !target.exerciseId && (target.mode === 'output' || target.mode === 'input'));
-      if (!cancelled) setEligibleCount(targets.length);
+      if (!cancelled) {
+        setEligibleCount(targets.length);
+        setResolvedEligibilityKey(eligibilityKey);
+      }
     }).catch((caught) => {
       if (cancelled) return;
       setEligibleCount(0);
+      setResolvedEligibilityKey(undefined);
       setEligibilityError(caught instanceof Error ? caught.message : 'カード件数を読み込めませんでした');
     });
     return () => { cancelled = true; };
-  }, [direction, repository, selectedSetIds]);
+  }, [direction, eligibilityKey, repository, selectedSetIds]);
 
   const plannedCount = useMemo(
     () => resolveQuestionCount(eligibleCount, questionCount(countChoice)),
@@ -57,7 +70,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   );
 
   const start = async () => {
-    if (!repository || starting) return;
+    if (!repository || starting || !eligibilityReady || plannedCount === 0 || eligibilityError) return;
     setStarting(true);
     try {
       const config: MemorySessionConfig = {
@@ -112,11 +125,13 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         <div className="memory-start-summary" aria-live="polite">
           {eligibilityError
             ? <span role="alert">カード件数を読み込めませんでした。通信状態を確認して、セットを選び直してください。</span>
-            : eligibleCount === 0
-              ? '出題できるカードがありません'
-              : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}
+            : !eligibilityReady
+              ? 'カード件数を確認中…'
+              : eligibleCount === 0
+                ? '出題できるカードがありません'
+                : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}
         </div>
-        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || plannedCount === 0 || Boolean(eligibilityError)} onClick={() => void start()}><Play size={20} fill="currentColor" />{starting ? '準備中…' : '学習を始める'}</button>
+        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || !eligibilityReady || plannedCount === 0 || Boolean(eligibilityError)} onClick={() => void start()}><Play size={20} fill="currentColor" />{starting ? '準備中…' : '学習を始める'}</button>
       </div>
     </section>
   );
