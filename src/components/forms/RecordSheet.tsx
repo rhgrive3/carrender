@@ -120,9 +120,9 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       toast('未来日の記録は追加できません');
       return;
     }
-    const preservesTask = !session || (session.subjectId === subjectId && session.materialId === selectedMaterialId);
+    const preservesReference = !session || (session.subjectId === subjectId && session.materialId === selectedMaterialId);
     const input = {
-      taskId: preservesTask ? session?.taskId ?? preset?.taskId ?? null : null,
+      taskId: preservesReference ? session?.taskId ?? preset?.taskId ?? null : null,
       subjectId,
       materialId: selectedMaterialId,
       minutes: Math.max(1, minutes),
@@ -130,8 +130,11 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       focus,
       memo,
       source: session?.source ?? preset?.source ?? 'manual',
-      rangeLabel: session?.rangeLabel ?? preset?.rangeLabel ?? material?.name ?? '',
-      completedTask: Boolean(preservesTask && (session?.taskId ?? preset?.taskId) && completed),
+      // 教材・科目を変更した編集では旧教材の表示名を残さず、検索・履歴表示も新しい参照へ同期する。
+      rangeLabel: preservesReference
+        ? session?.rangeLabel ?? preset?.rangeLabel ?? material?.name ?? ''
+        : material?.name ?? '',
+      completedTask: Boolean(preservesReference && (session?.taskId ?? preset?.taskId) && completed),
       taskLocator: preset?.taskLocator,
       date: preset && !session ? undefined : recordDate,
       startTime: preset && !session ? undefined : startTime,
