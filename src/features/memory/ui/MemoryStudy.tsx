@@ -170,6 +170,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       <div className="memory-study-stage">
         <div
           className="memory-study-flip-shell"
+          onClick={() => handleFaceClick(!revealed)}
           onPointerDown={(event) => { if (event.isPrimary) pointerStartX.current = event.clientX; }}
           onPointerUp={(event) => { if (event.isPrimary) handlePointerUp(event.clientX); }}
           onPointerCancel={() => { pointerStartX.current = null; }}
@@ -192,7 +193,6 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
                 aria-hidden={revealed}
                 tabIndex={revealed ? -1 : 0}
                 disabled={busy}
-                onClick={() => handleFaceClick(true)}
               >
                 <span className="memory-card-side-label">問題 <small>{promptLanguage}</small></span>
                 <h1>{prompt}</h1>
@@ -207,7 +207,6 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
                 aria-hidden={!revealed}
                 tabIndex={revealed ? 0 : -1}
                 disabled={busy}
-                onClick={() => handleFaceClick(false)}
               >
                 <span className="memory-card-side-label">答え <small>{answerLanguage}</small></span>
                 <div className="memory-card-back-prompt">{prompt}</div>
