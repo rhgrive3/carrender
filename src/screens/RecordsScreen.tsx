@@ -176,8 +176,8 @@ export function RecordsScreen() {
 
       {view === 'overview' && <div className="record-overview">
       <div className="segmented" role="tablist" aria-label="集計期間">
-        <button className={period === 'week' ? 'active' : ''} onClick={() => switchPeriod('week')}>週</button>
-        <button className={period === 'month' ? 'active' : ''} onClick={() => switchPeriod('month')}>月</button>
+        <button role="tab" aria-selected={period === 'week'} className={period === 'week' ? 'active' : ''} onClick={() => switchPeriod('week')}>週</button>
+        <button role="tab" aria-selected={period === 'month'} className={period === 'month' ? 'active' : ''} onClick={() => switchPeriod('month')}>月</button>
       </div>
 
       <div className="period-nav mt-12">
