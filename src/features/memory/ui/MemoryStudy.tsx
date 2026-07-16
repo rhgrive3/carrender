@@ -109,8 +109,11 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         setFlipDirection(undefined);
         setSession(restored.session);
         await refresh();
+        void requestSync(false);
         toast('最後の回答を取り消しました');
       }
+    } catch (caught) {
+      toast(caught instanceof Error ? caught.message : '回答の取り消しを保存できませんでした');
     } finally {
       setBusy(false);
     }
