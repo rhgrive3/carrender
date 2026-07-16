@@ -27,7 +27,10 @@ assert.match(studySource, /await refresh\(\);[\s\S]*?requestSync[\s\S]*?if \(!mo
 assert.match(studySource, /if \(mounted\.current\) toast/, '離脱後に古い学習画面のエラーToastを出さない');
 
 assert.match(contextSource, /IndexedDBを開けない場合だけ暗記機能全体のエラーにする/, '端末データ初期化と同期失敗を別の状態として扱う');
-assert.match(contextSource, /const requestSync = useCallback\(async[\s\S]*?catch \(caught\)[\s\S]*?setSyncStatus\(offline \? 'offline' : 'error'\)/, '同期前のIndexedDB読込失敗も未処理Promiseにしない');
+assert.match(contextSource, /const requestSync = useCallback\([\s\S]*?catch \(caught\)[\s\S]*?setSyncStatus\(offline \? 'offline' : 'error'\)/, '同期前のIndexedDB読込失敗も未処理Promiseにしない');
 assert.match(contextSource, /setSyncError\(caught instanceof Error \? caught\.message : '暗記データを同期できませんでした'\)/, '起動時の同期失敗を端末データの致命エラーと分離する');
+assert.match(contextSource, /const syncInFlight = useRef<Promise<void> \| null>\(null\)/, '同期中Promiseを保持して多重実行を判定する');
+assert.match(contextSource, /if \(syncInFlight\.current\) return syncInFlight\.current/, '回答保存・画面復帰・手動同期が重なった場合は実行中の同期へ合流する');
+assert.match(contextSource, /run\.finally\(\(\) => \{[\s\S]*?syncInFlight\.current === run[\s\S]*?syncInFlight\.current = null/, '同期完了後だけsingle-flightロックを解除する');
 
 console.log('✅ memory resilience contracts passed');

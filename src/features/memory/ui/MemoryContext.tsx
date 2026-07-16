@@ -46,6 +46,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
   const [view, setView] = useState<MemoryView>({ name: 'home' });
   const mounted = useRef(true);
   const activeRepository = useRef<MemoryRepository | null>(null);
+  const syncInFlight = useRef<Promise<void> | null>(null);
 
   const refreshRepository = useCallback(async (target: MemoryRepository) => {
     const [nextSets, session, pending, conflicts] = await Promise.all([
@@ -68,6 +69,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     mounted.current = true;
     const next = new MemoryRepository(owner);
     activeRepository.current = next;
+    syncInFlight.current = null;
     setRepository(next);
     setReady(false);
     setError(null);
@@ -116,6 +118,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     return () => {
       if (activeRepository.current === next) {
         activeRepository.current = null;
+        syncInFlight.current = null;
         mounted.current = false;
       }
       next.close();
@@ -127,35 +130,49 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     await refreshRepository(repository);
   }, [refreshRepository, repository]);
 
-  const requestSync = useCallback(async (force = false) => {
-    if (!repository) return;
-    try {
-      const [unsynced, hasPendingContentMutations] = await Promise.all([
-        repository.unsyncedAttempts(force ? 20 : 21),
-        repository.hasPendingContentMutations(),
-      ]);
-      // 回答だけは20件ごとにバッチ送信する一方、カード/セットの編集は
-      // 1件でも即時同期する。以前は未同期回答数だけを見ていたため、編集だけが
-      // 次の回答・画面遷移まで端末に残ることがあった。
-      if (!force && !hasPendingContentMutations && unsynced.length < 20) {
-        await refreshRepository(repository);
-        return;
+  const requestSync = useCallback((force = false): Promise<void> => {
+    if (!repository) return Promise.resolve();
+    // 画面復帰・online・回答保存・手動操作が同時に発火しても、同じ端末キューを
+    // 複数のflushが並行処理しないよう、実行中の同期Promiseへ合流させる。
+    if (syncInFlight.current) return syncInFlight.current;
+
+    const target = repository;
+    const run = (async () => {
+      try {
+        const [unsynced, hasPendingContentMutations] = await Promise.all([
+          target.unsyncedAttempts(force ? 20 : 21),
+          target.hasPendingContentMutations(),
+        ]);
+        // 回答だけは20件ごとにバッチ送信する一方、カード/セットの編集は
+        // 1件でも即時同期する。以前は未同期回答数だけを見ていたため、編集だけが
+        // 次の回答・画面遷移まで端末に残ることがあった。
+        if (!force && !hasPendingContentMutations && unsynced.length < 20) {
+          await refreshRepository(target);
+          return;
+        }
+        if (mounted.current && activeRepository.current === target) {
+          setSyncStatus('syncing');
+          setSyncError(null);
+        }
+        const result = await flushMemorySync(target);
+        if (mounted.current && activeRepository.current === target) {
+          setSyncStatus(result.status);
+          setSyncError(result.errorMessage ?? null);
+        }
+        await refreshRepository(target);
+      } catch (caught) {
+        if (mounted.current && activeRepository.current === target) {
+          const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+          setSyncStatus(offline ? 'offline' : 'error');
+          setSyncError(offline ? null : caught instanceof Error ? caught.message : '暗記データを同期できませんでした');
+        }
       }
-      setSyncStatus('syncing');
-      setSyncError(null);
-      const result = await flushMemorySync(repository);
-      if (mounted.current && activeRepository.current === repository) {
-        setSyncStatus(result.status);
-        setSyncError(result.errorMessage ?? null);
-      }
-      await refreshRepository(repository);
-    } catch (caught) {
-      if (mounted.current && activeRepository.current === repository) {
-        const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
-        setSyncStatus(offline ? 'offline' : 'error');
-        setSyncError(offline ? null : caught instanceof Error ? caught.message : '暗記データを同期できませんでした');
-      }
-    }
+    })();
+    syncInFlight.current = run;
+    void run.finally(() => {
+      if (syncInFlight.current === run) syncInFlight.current = null;
+    });
+    return run;
   }, [refreshRepository, repository]);
 
   useEffect(() => {
