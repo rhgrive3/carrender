@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-// beforeinstallpromptを取り逃さないよう、Reactマウント前にリスナーを登録する
+// beforeinstallpromptを取り逃がさないよう、Reactマウント前にリスナーを登録する
 import './lib/pwa';
 import App from './App';
 import '@fontsource-variable/noto-sans-jp';
@@ -29,7 +29,7 @@ function NavigationAnnouncement() {
   React.useEffect(() => {
     const announceCurrentScreen = () => {
       const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];
-      const activeDialog = dialogs.findLast((element) => !element.closest('[hidden], [inert], [aria-hidden="true"]'));
+      const activeDialog = dialogs.reverse().find((element) => !element.closest('[hidden], [inert], [aria-hidden="true"]'));
       const labelledBy = activeDialog?.getAttribute('aria-labelledby');
       const dialogLabel = (
         activeDialog?.getAttribute('aria-label')
