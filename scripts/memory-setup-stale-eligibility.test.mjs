@@ -30,8 +30,8 @@ assert.match(
 );
 assert.match(
   source,
-  /!eligibilityReady[\s\S]*?'カード件数を確認中…'/,
-  '読込中をカード0件と誤表示せず確認中として案内する',
+  /selectedSetIds\.length === 0[\s\S]*?'学習するセットを選んでください'[\s\S]*?!eligibilityReady[\s\S]*?'カード件数を確認中…'/,
+  'セット未選択を読込中と誤表示せず、選択を促してから読込状態を案内する',
 );
 assert.match(
   source,
