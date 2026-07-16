@@ -71,23 +71,38 @@ export function localDateTimeToISOString(date: ISODate, time: string, timeZone =
   }
   const targetAsUtc = Date.UTC(y, m - 1, d, hour, minute);
   let candidate = targetAsUtc;
-  // Intlから得た現地表示との差分で補正する。Tokyoでは1回で収束し、
-  // DSTがあるzoneでも通常2回以内に対象の現地時刻へ一致する。
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const shownParts = (value: number) => {
+    const parts = formatter.formatToParts(new Date(value));
+    const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((item) => item.type === type)?.value ?? 0);
+    return {
+      year: part('year'),
+      month: part('month'),
+      day: part('day'),
+      hour: part('hour') % 24,
+      minute: part('minute'),
+    };
+  };
+  // Intlから得た現地表示との差分で補正する。DST境界では一致しない現地時刻があり得るため、
+  // 反復後に必ず入力値との完全一致を確認し、別時刻への暗黙補正を防ぐ。
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(new Date(candidate));
-    const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0);
-    const shownAsUtc = Date.UTC(value('year'), value('month') - 1, value('day'), value('hour') % 24, value('minute'));
+    const shown = shownParts(candidate);
+    const shownAsUtc = Date.UTC(shown.year, shown.month - 1, shown.day, shown.hour, shown.minute);
     const delta = targetAsUtc - shownAsUtc;
     candidate += delta;
     if (delta === 0) break;
+  }
+  const resolved = shownParts(candidate);
+  if (resolved.year !== y || resolved.month !== m || resolved.day !== d || resolved.hour !== hour || resolved.minute !== minute) {
+    throw new Error('INVALID_LOCAL_TIME');
   }
   return new Date(candidate).toISOString();
 }
