@@ -117,14 +117,23 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       toast('科目を選択してください');
       return;
     }
-    if ((!preset || session) && recordDate > today()) {
-      toast('未来日の記録は追加できません');
-      return;
-    }
-    // 今日の手入力・編集で未来時刻を許すと、学習ログが未来の記録として並び時系列が壊れる。
-    if ((!preset || session) && recordDate === today() && localDateTimeToISOString(recordDate, startTime) > new Date().toISOString()) {
-      toast('未来の開始時刻は指定できません');
-      return;
+    let resolvedStartedAt: string | null = null;
+    if (!preset || session) {
+      try {
+        resolvedStartedAt = localDateTimeToISOString(recordDate, startTime);
+      } catch {
+        toast('学習日と開始時刻を正しく入力してください');
+        return;
+      }
+      if (recordDate > today()) {
+        toast('未来日の記録は追加できません');
+        return;
+      }
+      // 今日の手入力・編集で未来時刻を許すと、学習ログが未来の記録として並び時系列が壊れる。
+      if (recordDate === today() && resolvedStartedAt > new Date().toISOString()) {
+        toast('未来の開始時刻は指定できません');
+        return;
+      }
     }
     const preservesReference = !session || (session.subjectId === subjectId && session.materialId === selectedMaterialId);
     const input = {
