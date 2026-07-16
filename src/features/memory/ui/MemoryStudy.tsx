@@ -30,6 +30,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const [flipDirection, setFlipDirection] = useState<CardFlipDirection>();
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string>();
+  const [reloadKey, setReloadKey] = useState(0);
   const questionStarted = useRef(performance.now());
   const pointerStartX = useRef<number | null>(null);
   const ignoreNextClick = useRef(false);
@@ -43,6 +44,9 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     if (!repository) return;
     let cancelled = false;
+    setSession(undefined);
+    setBundle(undefined);
+    setLoadError(undefined);
     void (async () => {
       const loaded = await repository.getSession(sessionId);
       if (!loaded) throw new Error('学習セッションが見つかりません');
@@ -72,7 +76,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       if (!cancelled) setLoadError(caught instanceof Error ? caught.message : 'セッションを開けませんでした');
     });
     return () => { cancelled = true; };
-  }, [navigate, refresh, repository, sessionId]);
+  }, [navigate, refresh, reloadKey, repository, sessionId]);
 
   const queue = useMemo(() => session ? queueFromSession(session) : undefined, [session]);
   const target = queue ? currentLearningTarget(queue) : undefined;
@@ -170,7 +174,18 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   };
 
   if (loadError) {
-    return <div className="memory-study-overlay"><div className="card memory-study-load-error" role="alert"><h2>セッションを開けませんでした</h2><p>{loadError}</p><button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'home' })}>暗記ホームへ戻る</button></div></div>;
+    return (
+      <div className="memory-study-overlay">
+        <div className="card memory-study-load-error" role="alert">
+          <h2>セッションを開けませんでした</h2>
+          <p>{loadError}</p>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn btn-secondary" onClick={() => setReloadKey((value) => value + 1)}>再読み込み</button>
+            <button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'home' })}>暗記ホームへ戻る</button>
+          </div>
+        </div>
+      </div>
+    );
   }
   if (!session || !bundle || !queue || !target || !sense || !item || !progress) {
     return <div className="memory-study-overlay"><div className="memory-study-loading" role="status" aria-live="polite">カードを準備しています…</div></div>;
