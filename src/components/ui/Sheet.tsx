@@ -12,6 +12,7 @@ interface SheetProps {
 
 const modalStack: HTMLElement[] = [];
 let appRootState: { hadInert: boolean; ariaHidden: string | null } | null = null;
+let bodyOverflowState: string | null = null;
 
 function refreshModalIsolation() {
   modalStack.forEach((backdrop, index) => {
@@ -29,15 +30,20 @@ function refreshModalIsolation() {
 function isolateModal(backdrop: HTMLElement) {
   const appRoot = document.getElementById('root');
 
-  if (modalStack.length === 0 && appRoot) {
-    appRootState = {
-      hadInert: appRoot.hasAttribute('inert'),
-      ariaHidden: appRoot.getAttribute('aria-hidden'),
-    };
-    // aria-modalだけではiOS/iPadOS VoiceOverの仮想カーソルが背面へ移動できる場合がある。
-    // portal先のシート以外をinert化し、視覚・キーボード・支援技術の操作対象を一致させる。
-    appRoot.setAttribute('inert', '');
-    appRoot.setAttribute('aria-hidden', 'true');
+  if (modalStack.length === 0) {
+    bodyOverflowState = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    if (appRoot) {
+      appRootState = {
+        hadInert: appRoot.hasAttribute('inert'),
+        ariaHidden: appRoot.getAttribute('aria-hidden'),
+      };
+      // aria-modalだけではiOS/iPadOS VoiceOverの仮想カーソルが背面へ移動できる場合がある。
+      // portal先のシート以外をinert化し、視覚・キーボード・支援技術の操作対象を一致させる。
+      appRoot.setAttribute('inert', '');
+      appRoot.setAttribute('aria-hidden', 'true');
+    }
   }
 
   modalStack.push(backdrop);
@@ -48,7 +54,14 @@ function isolateModal(backdrop: HTMLElement) {
     if (index >= 0) modalStack.splice(index, 1);
     refreshModalIsolation();
 
-    if (modalStack.length !== 0 || !appRoot || !appRootState) return;
+    if (modalStack.length !== 0) return;
+
+    if (bodyOverflowState !== null) {
+      document.body.style.overflow = bodyOverflowState;
+      bodyOverflowState = null;
+    }
+
+    if (!appRoot || !appRootState) return;
     if (!appRootState.hadInert) appRoot.removeAttribute('inert');
     if (appRootState.ariaHidden === null) appRoot.removeAttribute('aria-hidden');
     else appRoot.setAttribute('aria-hidden', appRootState.ariaHidden);
@@ -75,9 +88,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
 
   useEffect(() => {
     if (!open || !backdropRef.current) return;
-    const prev = document.body.style.overflow;
     const restoreModalIsolation = isolateModal(backdropRef.current);
-    document.body.style.overflow = 'hidden';
     // フォーカスをシートへ移し、閉じたら開いた元のボタンへ戻す
     const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     sheetRef.current?.focus();
@@ -117,7 +128,6 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => {
-      document.body.style.overflow = prev;
       window.removeEventListener('keydown', onKey);
       restoreModalIsolation();
       prevFocus?.focus();
