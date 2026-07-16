@@ -11,5 +11,8 @@ assert.match(source, /backdrop\.removeAttribute\('inert'\)/);
 assert.match(source, /backdrop\.removeAttribute\('aria-hidden'\)/);
 assert.match(source, /if \(backdropRef\.current\?\.hasAttribute\('inert'\)\) return/);
 assert.match(source, /ref=\{backdropRef\}/);
+assert.match(source, /<h2 className="sheet-title" id=\{titleId\}>\{title\}<\/h2>/);
+assert.doesNotMatch(source, /<div className="sheet-title" id=\{titleId\}>/);
+assert.match(source, /<div className="sheet-grabber" aria-hidden="true" \/>/);
 
-console.log('✅ Stacked sheets expose only the topmost dialog');
+console.log('✅ Stacked sheets expose only the topmost dialog with a semantic heading');
