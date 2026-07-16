@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AppProvider, useApp } from './state/AppContext';
 import { AuthProvider, useAuth } from './state/AuthContext';
 import { MainStateBootstrap, MainStatePersistence } from './state/MainStatePersistence';
@@ -255,14 +256,15 @@ function Shell() {
       </div>
 
       {/*
-       * UX契約: ナビはスクロール対象の app-shell の外に置く。
-       * iPadOS のスクロールコンテナや親の transform/overflow/contain が
-       * position: fixed の基準を変えないよう、ここをビューポート直下に保つ。
+       * UX契約: ナビのDOMはdocument.body直下へポータルする。
+       * app-shellだけでなく#app-main-contentや#rootにも所属させず、祖先の
+       * transform / overflow / containがfixedの包含ブロックを変える経路を断つ。
        */}
-      {!immersive && (
+      {!immersive && typeof document !== 'undefined' && createPortal(
         <nav
           className="bottom-nav"
           data-layout-contract="fixed-bottom-navigation"
+          data-portal-target="document.body"
           aria-label="メインナビゲーション"
         >
           {TABS.map((item) => (
@@ -279,7 +281,8 @@ function Shell() {
               {item.label}
             </button>
           ))}
-        </nav>
+        </nav>,
+        document.body,
       )}
     </>
   );
