@@ -25,21 +25,32 @@ function summariesOf(snapshot: MemoryLocalSnapshot): SetSummary[] {
 
 function CreateSetDialog({ onClose }: { onClose: () => void }) {
   const { repository, refresh, requestSync } = useMemory();
+  const toast = useToast();
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const save = async () => {
     if (!repository || saving || !name.trim()) return;
     setSaving(true);
-    try { await createMemorySet(repository, { name }); await refresh(); void requestSync(true); onClose(); }
-    finally { setSaving(false); }
+    try {
+      await createMemorySet(repository, { name });
+      await refresh();
+      void requestSync(true);
+      onClose();
+    } catch (caught) {
+      toast(caught instanceof Error ? caught.message : '暗記セットを作成できませんでした');
+    } finally {
+      setSaving(false);
+    }
   };
-  return <MemoryDialog title="暗記セットを追加" onClose={onClose} footer={<button type="button" className="btn btn-primary" disabled={saving || !name.trim()} onClick={() => void save()}>セットを作る</button>}><div className="field"><label htmlFor="memory-set-name">セット名</label><input id="memory-set-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="例：LEAP 1〜300" /></div></MemoryDialog>;
+  return <MemoryDialog title="暗記セットを追加" onClose={() => { if (!saving) onClose(); }} footer={<button type="button" className="btn btn-primary" disabled={saving || !name.trim()} onClick={() => void save()}>{saving ? '作成中…' : 'セットを作る'}</button>}><div className="field"><label htmlFor="memory-set-name">セット名</label><input id="memory-set-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="例：LEAP 1〜300" /></div></MemoryDialog>;
 }
 
 export function MemoryHome() {
   const { repository, ready, error, activeSession, syncStatus, syncError, pendingCount, conflictCount, navigate, refresh, requestSync } = useMemory();
   const toast = useToast();
   const [snapshot, setSnapshot] = useState<MemoryLocalSnapshot | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string>();
+  const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
   const [query, setQuery] = useState('');
   const [createSetOpen, setCreateSetOpen] = useState(false);
   const [conflictsOpen, setConflictsOpen] = useState(false);
@@ -48,9 +59,14 @@ export function MemoryHome() {
   useEffect(() => {
     if (!repository || !ready) return;
     let cancelled = false;
-    void repository.loadSnapshot().then((value) => { if (!cancelled) setSnapshot(value); });
+    setSnapshotError(undefined);
+    void repository.loadSnapshot().then((value) => {
+      if (!cancelled) setSnapshot(value);
+    }).catch((caught) => {
+      if (!cancelled) setSnapshotError(caught instanceof Error ? caught.message : '暗記データを読み込めませんでした');
+    });
     return () => { cancelled = true; };
-  }, [repository, ready, pendingCount]);
+  }, [pendingCount, ready, repository, snapshotReloadKey]);
 
   const summaries = useMemo(() => snapshot ? summariesOf(snapshot) : [], [snapshot]);
   const normalized = query.normalize('NFKC').trim().toLocaleLowerCase('ja-JP');
@@ -71,8 +87,18 @@ export function MemoryHome() {
     finally { setStartingSetId(undefined); }
   };
 
-  if (!ready) return <div className="card memory-loading">暗記データを開いています…</div>;
+  if (!ready) return <div className="card memory-loading" role="status" aria-live="polite">暗記データを開いています…</div>;
   if (error) return <div className="card memory-error" role="alert">{error}</div>;
+  if (!snapshot && snapshotError) {
+    return (
+      <div className="card memory-error" role="alert">
+        <h2>暗記データを開けませんでした</h2>
+        <p>{snapshotError}</p>
+        <button type="button" className="btn btn-primary" onClick={() => setSnapshotReloadKey((value) => value + 1)}>再読み込み</button>
+      </div>
+    );
+  }
+  if (!snapshot) return <div className="card memory-loading" role="status" aria-live="polite">暗記データを読み込んでいます…</div>;
 
   return (
     <section className="memory-home memory-simple-home">
@@ -87,6 +113,8 @@ export function MemoryHome() {
           )}
         </div>
       </div>
+
+      {snapshotError && <div className="card memory-error" role="alert"><span>{snapshotError}</span><button type="button" className="memory-inline-button" onClick={() => setSnapshotReloadKey((value) => value + 1)}>再読み込み</button></div>}
 
       <div className="memory-sync-line" aria-live="polite">
         <span className={`memory-sync-dot ${syncStatus}`} aria-hidden="true" />
