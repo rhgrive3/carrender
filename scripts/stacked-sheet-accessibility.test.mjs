@@ -19,4 +19,13 @@ assert.match(source, /<h2 className="sheet-title" id=\{titleId\}>\{title\}<\/h2>
 assert.doesNotMatch(source, /<div className="sheet-title" id=\{titleId\}>/);
 assert.match(source, /<div className="sheet-grabber" aria-hidden="true" \/>/);
 
-console.log('✅ Stacked sheets expose only the topmost dialog, retain scroll lock, and expose a semantic heading');
+assert.match(source, /let portalBackgroundStates: Array<\{ element: HTMLElement; hadInert: boolean; ariaHidden: string \| null \}> = \[\]/);
+assert.match(source, /\[\.\.\.document\.body\.children\]/);
+assert.match(source, /element !== appRoot && element !== backdrop && !element\.classList\.contains\('sheet-backdrop'\)/);
+assert.match(source, /portalBackgroundStates\.forEach\(\(\{ element \}\) => \{[\s\S]*element\.setAttribute\('inert', ''\);[\s\S]*element\.setAttribute\('aria-hidden', 'true'\)/);
+assert.match(source, /function restorePortalBackground\(\)/);
+assert.match(source, /if \(!hadInert\) element\.removeAttribute\('inert'\)/);
+assert.match(source, /if \(ariaHidden === null\) element\.removeAttribute\('aria-hidden'\)/);
+assert.match(source, /restorePortalBackground\(\)/);
+
+console.log('✅ Stacked sheets isolate every background portal, expose only the topmost dialog, retain scroll lock, and expose a semantic heading');
