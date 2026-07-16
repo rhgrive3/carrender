@@ -7,7 +7,8 @@ const memoryFeature = await readFile(new URL('../src/features/memory/ui/MemoryFe
 assert.match(source, /function NavigationAnnouncement\(\)/, 'navigation announcement component must exist');
 assert.match(source, /\.bottom-nav \[aria-current="page"\]/, 'the active bottom-navigation item must be observed');
 assert.match(source, /\[data-app-screen-label\]/, 'nested immersive screens must be able to expose their current label');
-assert.match(source, /!element\.closest\('\[hidden\]'\)/, 'labels inside inactive tab panels must be ignored');
+assert.match(source, /!element\.parentElement\?\.closest\('\[hidden\]'\)/, 'only labels inside inactive tab ancestors must be ignored');
+assert.doesNotMatch(source, /!element\.closest\('\[hidden\]'\)/, 'the hidden label marker itself must remain selectable');
 assert.match(source, /contextualLabel \|\| current/, 'nested screen labels must take precedence over the parent navigation tab');
 assert.match(source, /new MutationObserver\(announceCurrentScreen\)/, 'screen changes must be observed without continuous polling');
 assert.match(source, /observer\.observe\(document\.body,/, 'the observer must include body-level portal navigation');
@@ -24,6 +25,7 @@ assert.match(source, /const APP_TITLE = 'StudyCommander 学習司令塔'/, 'the 
 assert.match(source, /document\.title = `\$\{label\} \| \$\{APP_TITLE\}`/, 'the document title must follow the active screen');
 
 assert.match(memoryFeature, /const MEMORY_SCREEN_LABELS/, 'memory views must define stable screen labels');
+assert.match(memoryFeature, /<span hidden data-app-screen-label=\{MEMORY_SCREEN_LABELS\[view\.name\]\}/, 'memory labels remain non-visual markers');
 assert.match(memoryFeature, /data-app-screen-label=\{MEMORY_SCREEN_LABELS\[view\.name\]\}/, 'every memory view must publish its current screen label');
 assert.match(memoryFeature, /study: '暗記学習'/, 'immersive study mode must have a specific screen label');
 assert.match(memoryFeature, /result: '暗記学習結果'/, 'study results must have a specific screen label');

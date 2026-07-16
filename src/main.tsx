@@ -29,8 +29,11 @@ function NavigationAnnouncement() {
   React.useEffect(() => {
     const announceCurrentScreen = () => {
       const contextualLabels = [...document.querySelectorAll<HTMLElement>('[data-app-screen-label]')];
-      const contextualLabel = contextualLabels.find((element) => !element.closest('[hidden]'))
-        ?.dataset.appScreenLabel?.trim();
+      const contextualLabel = contextualLabels.find((element) => {
+        // ラベル要素自体は表示を持たないhiddenマーカーとして置かれる。
+        // 非表示タブだけを除外するため、要素自身ではなく祖先のhiddenを確認する。
+        return !element.parentElement?.closest('[hidden]');
+      })?.dataset.appScreenLabel?.trim();
       const current = document.querySelector('.bottom-nav [aria-current="page"]');
       const label = contextualLabel || current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
       if (!label || label === lastLabelRef.current) return;
