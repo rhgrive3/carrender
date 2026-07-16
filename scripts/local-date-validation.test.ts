@@ -46,5 +46,15 @@ assert.throws(
   /INVALID_LOCAL_TIME/,
   '日付をまたぐ24時を受け入れない',
 );
+assert.throws(
+  () => localDateTimeToISOString('2026-03-08', '02:30', 'America/New_York'),
+  /INVALID_LOCAL_TIME/,
+  'DST開始で存在しない現地時刻を別時刻へ暗黙補正しない',
+);
+assert.equal(
+  localDateTimeToISOString('2026-03-08', '03:30', 'America/New_York'),
+  '2026-03-08T07:30:00.000Z',
+  'DST開始後の存在する現地時刻はUTCへ変換できる',
+);
 
 console.log('✅ local calendar date/time validation regressions passed');
