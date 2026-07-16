@@ -27,7 +27,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AppErrorBoundary>
       <DayRolloverBoundary>
-        {(dayKey) => <App key={dayKey} />}
+        {(dayKey) => (
+          <>
+            <a className="skip-link" href="#app-main-content">本文へ移動</a>
+            <main id="app-main-content" tabIndex={-1}>
+              <App key={dayKey} />
+            </main>
+          </>
+        )}
       </DayRolloverBoundary>
     </AppErrorBoundary>
   </React.StrictMode>,
