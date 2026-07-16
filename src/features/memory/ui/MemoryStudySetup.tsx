@@ -123,13 +123,15 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         </fieldset>
 
         <div className="memory-start-summary" aria-live="polite">
-          {eligibilityError
-            ? <span role="alert">カード件数を読み込めませんでした。通信状態を確認して、セットを選び直してください。</span>
-            : !eligibilityReady
-              ? 'カード件数を確認中…'
-              : eligibleCount === 0
-                ? '出題できるカードがありません'
-                : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}
+          {selectedSetIds.length === 0
+            ? '学習するセットを選んでください'
+            : eligibilityError
+              ? <span role="alert">カード件数を読み込めませんでした。通信状態を確認して、セットを選び直してください。</span>
+              : !eligibilityReady
+                ? 'カード件数を確認中…'
+                : eligibleCount === 0
+                  ? '出題できるカードがありません'
+                  : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}
         </div>
         <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || !eligibilityReady || plannedCount === 0 || Boolean(eligibilityError)} onClick={() => void start()}><Play size={20} fill="currentColor" />{starting ? '準備中…' : '学習を始める'}</button>
       </div>
