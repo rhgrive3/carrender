@@ -35,7 +35,10 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const ignoreNextClick = useRef(false);
   const mounted = useRef(true);
 
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!repository) return;
@@ -121,17 +124,19 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     setBusy(true);
     try {
       const restored = await undoMemoryAnswer(repository, session);
-      if (!mounted.current) return;
-      if (!restored) toast('取り消せる回答はありません');
-      else {
-        await refresh();
-        void requestSync(false);
-        if (!mounted.current) return;
-        setRevealed(false);
-        setFlipDirection(undefined);
-        setSession(restored.session);
-        toast('最後の回答を取り消しました');
+      if (!restored) {
+        if (mounted.current) toast('取り消せる回答はありません');
+        return;
       }
+      // 取り消し自体は既にIndexedDBへ保存済み。画面を閉じた直後でも、
+      // Contextの集計更新と端末間同期は最後まで要求する。
+      await refresh();
+      void requestSync(false);
+      if (!mounted.current) return;
+      setRevealed(false);
+      setFlipDirection(undefined);
+      setSession(restored.session);
+      toast('最後の回答を取り消しました');
     } catch (caught) {
       if (mounted.current) toast(caught instanceof Error ? caught.message : '回答の取り消しを保存できませんでした');
     } finally {
