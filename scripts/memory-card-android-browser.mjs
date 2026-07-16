@@ -33,15 +33,17 @@ try {
         </div>
       </div>
       <script>
+        const shell = document.querySelector('.memory-study-flip-shell');
         const card = document.querySelector('.memory-study-card');
         const inner = document.querySelector('.memory-study-card-inner');
-        document.querySelector('.memory-study-card-front').addEventListener('click', () => {
-          card.classList.remove('flip-to-question');
-          card.classList.add('revealed', 'flip-to-answer');
-        });
-        document.querySelector('.memory-study-card-back').addEventListener('click', () => {
-          card.classList.remove('revealed', 'flip-to-answer');
-          card.classList.add('flip-to-question');
+        shell.addEventListener('click', () => {
+          const nextRevealed = !card.classList.contains('revealed');
+          card.classList.remove('flip-to-answer', 'flip-to-question');
+          if (nextRevealed) card.classList.add('revealed', 'flip-to-answer');
+          else {
+            card.classList.remove('revealed');
+            card.classList.add('flip-to-question');
+          }
         });
         inner.addEventListener('animationend', (event) => {
           if (event.animationName.startsWith('memory-card-android-flip-')) {
@@ -64,8 +66,9 @@ try {
     };
   });
 
+  const shell = page.locator('.memory-study-flip-shell');
   const before = await readFrame();
-  await page.locator('.memory-study-card-front').click();
+  await shell.click();
   await page.waitForTimeout(170);
   const forwardMiddle = await readFrame();
   await page.waitForTimeout(520);
@@ -78,9 +81,8 @@ try {
   assert.ok(Math.abs(forwardMiddle.m11) < 0.95, `Android renders an intermediate forward frame: ${forwardMiddle.transform}`);
   assert.ok(answer.m11 < -0.95, `answer finishes at 180 degrees: ${answer.transform}`);
 
-  // 3D裏面の実ブラウザ hit testing はエンジン差があるため、ここでは
-  // DOMイベントを直接送って戻り方向のアニメーション契約だけを検証する。
-  await page.locator('.memory-study-card-back').dispatchEvent('click');
+  // 3D面のhit testingへ依存せず、固定シェルへの実クリックで裏から表へ戻す。
+  await shell.click();
   await page.waitForTimeout(170);
   const reverseMiddle = await readFrame();
   await page.waitForTimeout(520);
@@ -91,7 +93,7 @@ try {
   assert.ok(frontAgain.m11 > 0.95, `question finishes back at zero degrees: ${frontAgain.transform}`);
 
   await context.close();
-  console.log('✅ Android memory-card flip uses explicit forward and reverse keyframes');
+  console.log('✅ Android memory-card flip returns through the stable shell hit target');
 } finally {
   await browser.close();
 }
