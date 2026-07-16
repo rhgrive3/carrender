@@ -1,11 +1,10 @@
 /*
  * Android Chromium 3D-card compositor safeguards.
  *
- * The base card used to switch its own `animation` to `none` when the answer
- * side was revealed. Android Chromium can rebuild the parent compositing layer
- * at that exact moment and snap the child's transform instead of interpolating
- * it. Keep the parent animation identity stable and explicitly promote the 3D
- * layers so the flip has intermediate frames on Android as it does on iOS.
+ * Keep the parent layer stable, explicitly promote the 3D faces, and use
+ * direction-specific keyframes on coarse-pointer devices. Some real Android
+ * Chromium compositors can skip a CSS transition even though desktop Chromium
+ * with an Android user agent reports intermediate transform values.
  */
 .memory-simple-study .memory-study-card.revealed {
   animation: memory-card-in 220ms ease both;
@@ -45,8 +44,49 @@
   transform: translateZ(0.1px) rotateY(180deg);
 }
 
+@keyframes memory-card-android-flip-to-answer {
+  from {
+    -webkit-transform: translateZ(0) rotateY(0deg);
+    transform: translateZ(0) rotateY(0deg);
+  }
+  to {
+    -webkit-transform: translateZ(0) rotateY(180deg);
+    transform: translateZ(0) rotateY(180deg);
+  }
+}
+
+@keyframes memory-card-android-flip-to-question {
+  from {
+    -webkit-transform: translateZ(0) rotateY(180deg);
+    transform: translateZ(0) rotateY(180deg);
+  }
+  to {
+    -webkit-transform: translateZ(0) rotateY(0deg);
+    transform: translateZ(0) rotateY(0deg);
+  }
+}
+
+/*
+ * Real Android devices use the explicit keyframe path instead of relying only
+ * on a transition whose start frame can be dropped during compositor updates.
+ */
+@media (hover: none) and (pointer: coarse) and (prefers-reduced-motion: no-preference) {
+  .memory-study-card.flip-to-answer .memory-study-card-inner {
+    animation: memory-card-android-flip-to-answer 520ms cubic-bezier(0.2, 0.72, 0.18, 1) both;
+  }
+
+  .memory-study-card.flip-to-question .memory-study-card-inner {
+    animation: memory-card-android-flip-to-question 520ms cubic-bezier(0.2, 0.72, 0.18, 1) both;
+  }
+}
+
 /* Preserve the existing accessibility fallback instead of forcing 3D motion. */
 @media (prefers-reduced-motion: reduce) {
+  .memory-study-card.flip-to-answer .memory-study-card-inner,
+  .memory-study-card.flip-to-question .memory-study-card-inner {
+    animation: none !important;
+  }
+
   .memory-study-card-front,
   .memory-study-card-back {
     -webkit-transform: none !important;
