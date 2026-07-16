@@ -10,6 +10,36 @@ interface SheetProps {
   children: ReactNode;
 }
 
+let modalDepth = 0;
+let appRootState: { hadInert: boolean; ariaHidden: string | null } | null = null;
+
+function isolateAppRoot() {
+  const appRoot = document.getElementById('root');
+  if (!appRoot) return () => undefined;
+
+  if (modalDepth === 0) {
+    appRootState = {
+      hadInert: appRoot.hasAttribute('inert'),
+      ariaHidden: appRoot.getAttribute('aria-hidden'),
+    };
+    // aria-modalだけではiOS/iPadOS VoiceOverの仮想カーソルが背面へ移動できる場合がある。
+    // portal先のシート以外をinert化し、視覚・キーボード・支援技術の操作対象を一致させる。
+    appRoot.setAttribute('inert', '');
+    appRoot.setAttribute('aria-hidden', 'true');
+  }
+  modalDepth += 1;
+
+  return () => {
+    modalDepth = Math.max(0, modalDepth - 1);
+    if (modalDepth !== 0 || !appRootState) return;
+
+    if (!appRootState.hadInert) appRoot.removeAttribute('inert');
+    if (appRootState.ariaHidden === null) appRoot.removeAttribute('aria-hidden');
+    else appRoot.setAttribute('aria-hidden', appRootState.ariaHidden);
+    appRootState = null;
+  };
+}
+
 function isVisibleFocusable(element: HTMLElement, root: HTMLElement) {
   if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
   if (element.closest('fieldset[disabled]')) return false;
@@ -29,6 +59,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
+    const restoreAppRoot = isolateAppRoot();
     document.body.style.overflow = 'hidden';
     // フォーカスをシートへ移し、閉じたら開いた元のボタンへ戻す
     const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -70,6 +101,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener('keydown', onKey);
+      restoreAppRoot();
       prevFocus?.focus();
     };
   }, [open, onClose]);
