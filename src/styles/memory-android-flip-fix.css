@@ -2,9 +2,9 @@
  * Android Chromium 3D-card compositor safeguards.
  *
  * Keep the parent layer stable, explicitly promote the 3D faces, and use
- * direction-specific keyframes on coarse-pointer devices. Some real Android
- * Chromium compositors can skip a CSS transition even though desktop Chromium
- * with an Android user agent reports intermediate transform values.
+ * direction-specific keyframes. Some real Android Chromium compositors can
+ * skip a CSS transition even though desktop Chromium with an Android user
+ * agent reports intermediate transform values.
  */
 .memory-simple-study .memory-study-card.revealed {
   animation: memory-card-in 220ms ease both;
@@ -67,17 +67,16 @@
 }
 
 /*
- * Real Android devices use the explicit keyframe path instead of relying only
- * on a transition whose start frame can be dropped during compositor updates.
+ * The React component adds one of these transient direction classes only when
+ * a user flips the card. Apply keyframes directly instead of relying on media
+ * feature detection, which is not reported consistently by every Android PWA.
  */
-@media (hover: none) and (pointer: coarse) and (prefers-reduced-motion: no-preference) {
-  .memory-study-card.flip-to-answer .memory-study-card-inner {
-    animation: memory-card-android-flip-to-answer 520ms cubic-bezier(0.2, 0.72, 0.18, 1) both;
-  }
+.memory-study-card.flip-to-answer .memory-study-card-inner {
+  animation: memory-card-android-flip-to-answer 520ms cubic-bezier(0.2, 0.72, 0.18, 1) both;
+}
 
-  .memory-study-card.flip-to-question .memory-study-card-inner {
-    animation: memory-card-android-flip-to-question 520ms cubic-bezier(0.2, 0.72, 0.18, 1) both;
-  }
+.memory-study-card.flip-to-question .memory-study-card-inner {
+  animation: memory-card-android-flip-to-question 520ms cubic-bezier(0.2, 0.72, 0.18, 1) both;
 }
 
 /* Preserve the existing accessibility fallback instead of forcing 3D motion. */
