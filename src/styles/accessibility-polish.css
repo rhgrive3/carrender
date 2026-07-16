@@ -33,6 +33,22 @@
 }
 
 /*
+ * 現在地を色だけへ依存させない。アイコン背面の形状を変えることで、
+ * 色覚差・低コントラスト・屋外表示でも選択中のタブを判別できる。
+ * 固定サイズのため選択切替時にナビ全体のレイアウトは動かさない。
+ */
+.bottom-nav .nav-icon {
+  width: 40px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.bottom-nav button[aria-current='page'] .nav-icon {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/*
  * Small iPhones can be narrower than the tablet breakpoint even in
  * landscape. Keep primary screen content out of the notch/home-indicator
  * side regions instead of relying on the >= 768px tablet rule in global.css.
@@ -76,6 +92,11 @@
   .bottom-nav button[aria-current='page'] {
     outline: 2px solid Highlight;
     outline-offset: -3px;
+  }
+
+  .bottom-nav button[aria-current='page'] .nav-icon {
+    background: Canvas;
+    box-shadow: inset 0 0 0 2px Highlight;
   }
 
   .progress-track,

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const contractCss = readFileSync(new URL('../src/styles/layoutContracts.css', import.meta.url), 'utf8');
+const accessibilityCss = readFileSync(new URL('../src/styles/accessibility-polish.css', import.meta.url), 'utf8');
 
 for (const label of ['今日', '計画', '教材', '記録', '分析']) {
   assert.match(appSource, new RegExp(`label: '${label}'`), `主要ナビに「${label}」を残す`);
@@ -33,5 +34,21 @@ assert.match(
   'iOS/iPadOSのホームインジケータ領域をナビの操作面から除外する',
 );
 assert.doesNotMatch(contractCss, /position:\s*(?:sticky|absolute|static)/, '固定契約内で別positionへ変更しない');
+
+assert.match(
+  accessibilityCss,
+  /\.bottom-nav button\[aria-current='page'\] \.nav-icon\s*\{[\s\S]*?background:\s*var\(--accent-soft\);[\s\S]*?box-shadow:/,
+  '選択中タブは色だけでなくアイコン背景の形状と境界でも現在地を示す',
+);
+assert.match(
+  accessibilityCss,
+  /\.bottom-nav \.nav-icon\s*\{[\s\S]*?width:\s*40px;[\s\S]*?height:\s*28px;/,
+  '選択インジケータはタブ切替時にレイアウトシフトしない固定寸法にする',
+);
+assert.match(
+  accessibilityCss,
+  /@media \(forced-colors: active\)[\s\S]*?button\[aria-current='page'\] \.nav-icon[\s\S]*?Highlight/,
+  '強制カラーモードでも選択中タブの非色依存インジケータを維持する',
+);
 
 console.log('✅ permanent bottom navigation layout contract passed');
