@@ -40,6 +40,8 @@ assert.match(study, /SWIPE_THRESHOLD_PX/u, '左右スワイプでカードをめ
 assert.match(study, /setFlipDirection\(next \? 'to-answer' : 'to-question'\)/u, 'タップとスワイプの方向を明示的な反転状態へ変換する');
 assert.match(study, /flip-\$\{flipDirection\}/u, 'Android向けの反転方向クラスをカードへ付与する');
 assert.match(study, /animationName\.startsWith\('memory-card-android-flip-'\)/u, '反転完了後に一時クラスを解除する');
+assert.match(study, /undoMemoryAnswer[\s\S]*requestSync\(false\)/u, '回答取り消しも端末間同期を要求する');
+assert.match(study, /catch \(caught\)[\s\S]*回答の取り消しを保存できませんでした/u, '回答取り消しの保存失敗を利用者へ通知する');
 assert.doesNotMatch(study, /<main className="memory-study-stage">/u, 'アプリ全体のmain内へ学習画面のmainランドマークを重ねない');
 assert.match(study, /<div className="memory-study-stage">/u, '学習画面の視覚レイアウトはランドマークを増やさず維持する');
 assert.match(cardUx, /perspective:\s*1500px/u, '3Dカード空間を定義する');
