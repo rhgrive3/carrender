@@ -12,22 +12,35 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   const [attempts, setAttempts] = useState<MemoryAttempt[]>([]);
   const [bundle, setBundle] = useState<MemorySetBundle>();
   const [undoing, setUndoing] = useState(false);
+  const [loadError, setLoadError] = useState<string>();
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!repository) return;
+    let cancelled = false;
+    setSession(undefined);
+    setAttempts([]);
+    setBundle(undefined);
+    setLoadError(undefined);
     void (async () => {
       const loaded = await repository.getSession(sessionId);
-      if (!loaded) return;
+      if (!loaded) throw new Error('学習結果が見つかりません');
       const [rows, content] = await Promise.all([
         repository.getSessionAttempts(sessionId),
         repository.loadSetBundle(loaded.selectedSetIds),
       ]);
+      if (cancelled) return;
       setSession(loaded);
       setAttempts(rows);
       setBundle(content);
-      void requestSync(true);
-    })();
-  }, [repository, requestSync, sessionId]);
+      void requestSync(true).catch(() => {
+        // 結果表示は端末データで継続し、同期状態は暗記ホームで再確認できる。
+      });
+    })().catch((caught) => {
+      if (!cancelled) setLoadError(caught instanceof Error ? caught.message : '学習結果を読み込めませんでした');
+    });
+    return () => { cancelled = true; };
+  }, [reloadKey, repository, requestSync, sessionId]);
 
   const counts = useMemo(() => ({
     remembered: attempts.filter((attempt) => attempt.assessment === 'correct').length,
@@ -59,7 +72,19 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     }
   };
 
-  if (!session || !bundle) return <div className="card memory-loading">学習結果をまとめています…</div>;
+  if (loadError) {
+    return (
+      <div className="card memory-error" role="alert">
+        <h2>学習結果を開けませんでした</h2>
+        <p>{loadError}</p>
+        <div className="row" style={{ gap: 8 }}>
+          <button type="button" className="btn btn-secondary" onClick={() => setReloadKey((value) => value + 1)}>再読み込み</button>
+          <button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'home' })}>暗記ホームへ戻る</button>
+        </div>
+      </div>
+    );
+  }
+  if (!session || !bundle) return <div className="card memory-loading" role="status" aria-live="polite">学習結果をまとめています…</div>;
 
   return (
     <section className="memory-result memory-simple-result">
