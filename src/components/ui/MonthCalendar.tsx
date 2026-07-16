@@ -42,18 +42,31 @@ export function MonthCalendar({
             selectedDate === d ? 'selected' : '',
             d < t ? 'past' : '',
           ].join(' ');
+          const content = (
+            <>
+              <span className={`cal-daynum ${wd === 0 ? 'cal-sun' : wd === 6 ? 'cal-sat' : ''}`}>{Number(d.slice(8))}</span>
+              {renderDay(d)}
+            </>
+          );
+
+          if (!onSelectDay) {
+            // 閲覧専用カレンダーをdisabledボタンにすると、VoiceOverや外付け
+            // キーボードへ操作不能なコントロールを大量に公開してしまう。
+            // 表示専用セルでは通常要素を使い、日付と内容をそのまま読み上げる。
+            return <div key={d} className={cls} style={cellStyle?.(d)}>{content}</div>;
+          }
+
           return (
             <button
               key={d}
+              type="button"
               className={cls}
               style={cellStyle?.(d)}
-              onClick={() => onSelectDay?.(d)}
+              onClick={() => onSelectDay(d)}
               aria-label={`${Number(month.slice(5))}月${Number(d.slice(8))}日${d === t ? ' 今日' : ''}`}
-              aria-pressed={onSelectDay ? selectedDate === d : undefined}
-              disabled={!onSelectDay}
+              aria-pressed={selectedDate === d}
             >
-              <span className={`cal-daynum ${wd === 0 ? 'cal-sun' : wd === 6 ? 'cal-sat' : ''}`}>{Number(d.slice(8))}</span>
-              {renderDay(d)}
+              {content}
             </button>
           );
         })}
