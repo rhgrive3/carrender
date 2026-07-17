@@ -263,6 +263,7 @@ export function validateAppStatePayload(value: unknown, options: AppStateValidat
         return { ok: false, error: 'fixedEvents の有効期間が不正です' };
       }
       if (!hasDate && !hasWeekday && !hasStartDate) return { ok: false, error: 'fixedEvents に対象日がありません' };
+      if (hasDate && (hasWeekday || hasStartDate)) return { ok: false, error: 'fixedEvents の対象日指定が競合しています' };
     }
   }
 
