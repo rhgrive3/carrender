@@ -56,7 +56,10 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
 
   const needsReview = session?.needsReviewTargetIds.map((targetId) => {
     const attempt = [...attempts].reverse().find((value) => value.targetId === targetId);
-    return bundle?.items.find((item) => item.id === attempt?.itemId)?.label ?? targetId;
+    return {
+      targetId,
+      label: bundle?.items.find((item) => item.id === attempt?.itemId)?.label ?? targetId,
+    };
   }) ?? [];
 
   const undoLast = async () => {
@@ -113,7 +116,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
       {needsReview.length > 0 && (
         <div className="card memory-needs-review">
           <h3>次回も優先するカード</h3>
-          <div>{needsReview.map((label) => <span key={label}>{label}</span>)}</div>
+          <div>{needsReview.map(({ targetId, label }) => <span key={targetId}>{label}</span>)}</div>
         </div>
       )}
 
