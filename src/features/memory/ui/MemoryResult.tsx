@@ -58,7 +58,8 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     const attempt = [...attempts].reverse().find((value) => value.targetId === targetId);
     return {
       targetId,
-      label: bundle?.items.find((item) => item.id === attempt?.itemId)?.label ?? targetId,
+      // 同期や編集後に元カードが消えていても、内部IDを利用者へ露出させない。
+      label: bundle?.items.find((item) => item.id === attempt?.itemId)?.label ?? '削除済みカード',
     };
   }) ?? [];
 
