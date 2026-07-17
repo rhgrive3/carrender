@@ -4,6 +4,16 @@
  * unlayered feature/global styles in the normal author cascade.
  */
 
+/*
+ * iOS Safari can enlarge text after an orientation change even when the
+ * responsive layout already accounts for the narrower landscape viewport.
+ * Keep authored type metrics stable without disabling pinch zoom or Dynamic Type.
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 .skip-link {
   position: fixed;
   z-index: 10000;
