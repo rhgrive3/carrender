@@ -54,14 +54,15 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     missed: attempts.filter((attempt) => attempt.assessment === 'incorrect' || attempt.assessment === 'skipped').length,
   }), [attempts]);
 
-  const needsReview = session?.needsReviewTargetIds.map((targetId) => {
+  // 旧端末データや競合解決後に同じtargetIdが重複していても、結果画面では1件として扱う。
+  const needsReview = [...new Set(session?.needsReviewTargetIds ?? [])].map((targetId) => {
     const attempt = [...attempts].reverse().find((value) => value.targetId === targetId);
     return {
       targetId,
       // 同期や編集後に元カードが消えていても、内部IDを利用者へ露出させない。
       label: bundle?.items.find((item) => item.id === attempt?.itemId)?.label ?? '削除済みカード',
     };
-  }) ?? [];
+  });
 
   const undoLast = async () => {
     if (!repository || !session || undoing) return;
@@ -113,7 +114,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
         <div className="card" role="listitem"><small>覚えた</small><b>{counts.remembered}</b></div>
         <div className="card" role="listitem"><small>あやしい</small><b>{counts.unsure}</b></div>
         <div className="card" role="listitem"><small>まだ</small><b>{counts.missed}</b></div>
-        <div className="card" role="listitem"><small>次回も優先</small><b>{session.needsReviewTargetIds.length}</b></div>
+        <div className="card" role="listitem"><small>次回も優先</small><b>{needsReview.length}</b></div>
       </div>
 
       {needsReview.length > 0 && (
