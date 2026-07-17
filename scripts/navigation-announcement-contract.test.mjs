@@ -28,6 +28,15 @@ assert.match(source, /\$\{label\}画面を表示しました/, 'the message must
 assert.match(source, /const APP_TITLE = 'StudyCommander 学習司令塔'/, 'the stable app title must be defined once');
 assert.match(source, /document\.title = `\$\{label\} \| \$\{APP_TITLE\}`/, 'the document title must follow the active screen');
 
+assert.match(source, /function ShellNavigationSemanticsGuard\(\)/, 'shell navigation semantics guard must exist');
+assert.match(source, /button\.type = 'button'/, 'bottom navigation controls must never become implicit submit buttons');
+assert.match(source, /button\.setAttribute\('aria-controls', panelId\)/, 'each navigation item must identify its destination panel');
+assert.match(source, /panel\.setAttribute\('role', 'region'\)/, 'each shell screen must expose a navigable region');
+assert.match(source, /panel\.setAttribute\('aria-labelledby', controlId\)/, 'each shell screen must inherit its accessible name from the matching navigation item');
+assert.match(source, /document\.querySelectorAll<HTMLButtonElement>\('\.bottom-nav > button'\)/, 'the guard must target direct bottom-navigation controls only');
+assert.match(source, /document\.querySelectorAll<HTMLElement>\('\.shell-tab-panel'\)/, 'the guard must connect every shell panel');
+assert.match(source, /observer\.observe\(document\.body, \{ childList: true, subtree: true \}\)/, 'the guard must handle portal navigation appearing after the app panels');
+
 assert.match(memoryFeature, /const MEMORY_SCREEN_LABELS/, 'memory views must define stable screen labels');
 assert.match(memoryFeature, /<span hidden data-app-screen-label=\{MEMORY_SCREEN_LABELS\[view\.name\]\}/, 'memory labels remain non-visual markers');
 assert.match(memoryFeature, /data-app-screen-label=\{MEMORY_SCREEN_LABELS\[view\.name\]\}/, 'every memory view must publish its current screen label');
