@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components/ui/Sheet.tsx', import.meta.url), 'utf8');
+const timer = readFileSync(new URL('../src/components/timer/TimerOverlay.tsx', import.meta.url), 'utf8');
 
 assert.match(source, /const modalStack: HTMLElement\[\] = \[\]/);
 assert.match(source, /const isTopmost = index === modalStack\.length - 1/);
@@ -28,4 +29,17 @@ assert.match(source, /if \(!hadInert\) element\.removeAttribute\('inert'\)/);
 assert.match(source, /if \(ariaHidden === null\) element\.removeAttribute\('aria-hidden'\)/);
 assert.match(source, /restorePortalBackground\(\)/);
 
-console.log('✅ Stacked sheets isolate every background portal, expose only the topmost dialog, retain scroll lock, and expose a semantic heading');
+assert.match(source, /export function acquireModalIsolation\(backdrop: HTMLElement\)/, 'modal isolation must be reusable by full-screen overlays');
+assert.match(source, /export function trapModalTabKey\(e: KeyboardEvent, root: HTMLElement\)/, 'modal focus trapping must be shared rather than duplicated');
+assert.match(source, /const restoreModalIsolation = acquireModalIsolation\(backdropRef\.current\)/, 'sheets must use the shared modal stack');
+assert.match(source, /trapModalTabKey\(e, sheetRef\.current\)/, 'sheets must use the shared focus trap');
+
+assert.match(timer, /import \{ Sheet, acquireModalIsolation, trapModalTabKey \} from '\.\.\/ui\/Sheet'/, 'the timer must reuse the common modal accessibility contract');
+assert.match(timer, /createPortal\([\s\S]*document\.body/, 'the fixed timer must be portalled outside the inert app root');
+assert.match(timer, /role="dialog" aria-modal="true" aria-label="学習タイマー"/, 'the full-screen timer must expose a true modal dialog');
+assert.match(timer, /const restoreModalIsolation = acquireModalIsolation\(root\)/, 'the timer must isolate the app and body-level navigation');
+assert.match(timer, /if \(root\.hasAttribute\('inert'\)\) return;[\s\S]*trapModalTabKey\(event, root\)/, 'only the topmost timer modal may trap focus');
+assert.match(timer, /<Sheet open=\{confirmDiscard\}[\s\S]*title="タイマーを破棄しますか\?"/, 'discard confirmation must join the shared stacked-modal system');
+assert.doesNotMatch(timer, /role="alertdialog"/, 'discard confirmation must not remain an unisolated inline modal');
+
+console.log('✅ Sheets and the full-screen timer share background isolation, stacked-modal ordering, focus trapping, scroll lock, and semantic dialog naming');
