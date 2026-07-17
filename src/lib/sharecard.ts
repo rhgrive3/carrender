@@ -9,6 +9,9 @@ import { addDays, diffDays, formatMinutes } from './date';
 const W = 1080;
 const H = 1350;
 
+type ShareStudyCardResult = 'shared' | 'downloaded' | 'cancelled' | 'failed';
+let shareInFlight: Promise<ShareStudyCardResult> | null = null;
+
 function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -140,7 +143,7 @@ function buildShareCard(state: AppState, ref: ISODate): Blob | null {
   return new Blob([bytes], { type: 'image/png' });
 }
 
-export async function shareStudyCard(state: AppState, ref: ISODate): Promise<'shared' | 'downloaded' | 'cancelled' | 'failed'> {
+async function performShareStudyCard(state: AppState, ref: ISODate): Promise<ShareStudyCardResult> {
   try {
     // Canvas生成・PNG変換は端末のメモリ不足や実装制限で例外になることがある。
     // 呼び出し側へ例外を漏らさず、必ず利用者向けの失敗表示へ変換する。
@@ -168,4 +171,13 @@ export async function shareStudyCard(state: AppState, ref: ISODate): Promise<'sh
   } catch {
     return 'failed';
   }
+}
+
+export function shareStudyCard(state: AppState, ref: ISODate): Promise<ShareStudyCardResult> {
+  // 共有シート表示中の連打でCanvas生成や共有要求を重複させず、進行中の結果を共有する。
+  if (shareInFlight) return shareInFlight;
+  shareInFlight = performShareStudyCard(state, ref).finally(() => {
+    shareInFlight = null;
+  });
+  return shareInFlight;
 }
