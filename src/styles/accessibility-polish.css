@@ -49,6 +49,24 @@
 }
 
 /*
+ * 計画画面の表示切替・月移動・日別見出しは、見た目より実際の操作領域が
+ * 小さくなりやすい。iPhone/iPadの指操作で隣接項目を誤タップしないよう、
+ * coarse pointer環境ではAppleの44pt基準を下限として固定する。
+ */
+@media (pointer: coarse) {
+  .segmented button,
+  .period-nav button,
+  .day-column-header {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .segmented button {
+    padding-inline: 12px;
+  }
+}
+
+/*
  * Small iPhones can be narrower than the tablet breakpoint even in
  * landscape. Keep primary screen content out of the notch/home-indicator
  * side regions instead of relying on the >= 768px tablet rule in global.css.
