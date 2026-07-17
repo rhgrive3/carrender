@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { buildProgressChartDates } from '../src/lib/progressChart';
 import { legacyProgressBaselineRanges, plannedMaterialAmountThrough } from '../src/lib/taskFilters';
 import type { Material, StudySession, StudyTask } from '../src/types';
 
@@ -148,5 +149,17 @@ const noDoubleCount = plannedMaterialAmountThrough(
   overlappingActual,
 );
 assert.equal(noDoubleCount, 10, '実績と予定が重複しても100%を超えて水増ししない');
+
+const longTermMaterial = {
+  ...material,
+  id: 'mat_long_term',
+  startDate: '2024-01-15',
+  targetDate: '2026-07-20',
+};
+const longTermDates = buildProgressChartDates([longTermMaterial], '2026-07-18', [], []);
+assert(longTermDates.includes('2024-02-01'), '2年超の表示でも開始後の月初を保持する');
+assert(longTermDates.includes('2025-01-01'), '年をまたぐ長期表示でも各月の基準点を保持する');
+assert(longTermDates.includes('2026-07-01'), '終了月の月初も範囲内なら保持する');
+assert(!longTermDates.includes('2024-01-01'), '表示開始より前の月初は追加しない');
 
 console.log('✅ progress chart target regressions passed');
