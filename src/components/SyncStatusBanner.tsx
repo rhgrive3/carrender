@@ -38,6 +38,9 @@ export function SyncStatusBanner({ onOpenSettings }: { onOpenSettings: () => voi
   if (!notice) return null;
   const Icon = notice.icon;
   const canRetry = !localSaveError && syncStatus !== 'conflict';
+  const noticeId = `sync-status-${notice.tone}`;
+  const titleId = `${noticeId}-title`;
+  const detailId = `${noticeId}-detail`;
 
   return (
     <div className="sync-status-slot">
@@ -45,19 +48,22 @@ export function SyncStatusBanner({ onOpenSettings }: { onOpenSettings: () => voi
         className={`sync-status-banner sync-status-${notice.tone}`}
         role={notice.tone === 'error' ? 'alert' : 'status'}
         aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
+        aria-atomic="true"
+        aria-labelledby={titleId}
+        aria-describedby={detailId}
       >
         <span className="sync-status-icon"><Icon size={17} strokeWidth={2.3} aria-hidden="true" /></span>
         <span className="sync-status-copy">
-          <b>{notice.title}</b>
-          <small>{notice.detail}</small>
+          <b id={titleId}>{notice.title}</b>
+          <small id={detailId}>{notice.detail}</small>
         </span>
-        <span className="sync-status-actions">
+        <span className="sync-status-actions" role="group" aria-label="同期状態の操作">
           {canRetry && (
             <button type="button" onClick={retrySync} aria-label="クラウド同期を再試行">
               <RefreshCw size={14} strokeWidth={2.4} aria-hidden="true" /> 再試行
             </button>
           )}
-          <button type="button" onClick={onOpenSettings}>確認</button>
+          <button type="button" onClick={onOpenSettings} aria-label="同期設定を確認">確認</button>
         </span>
       </section>
     </div>
