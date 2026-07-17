@@ -15,6 +15,9 @@ assert.equal(source.includes("type ShareStudyCardResult = 'shared' | 'downloaded
 assert.equal(source.includes("if ((e as Error).name === 'AbortError') return 'cancelled';"), true, '利用者キャンセルを共有成功として扱わない');
 assert.equal(source.includes("if ((e as Error).name === 'AbortError') return 'shared';"), false, '共有キャンセルを成功結果へ戻さない');
 
+assert.equal(source.includes("const examLabel = daysToExam > 0 ? `あと${daysToExam}日` : daysToExam === 0 ? '今日' : `${Math.abs(daysToExam)}日経過`;"), true, '試験日前・当日・経過後を自然な文言へ分ける');
+assert.equal(source.includes('`あと${diffDays(ref, state.goal.examDate)}日`'), false, '期限切れ目標を負の残日数で表示しない');
+
 assert.equal(source.includes('let shareInFlight: Promise<ShareStudyCardResult> | null = null;'), true, '進行中の共有処理を保持する');
 assert.equal(source.includes('if (shareInFlight) return shareInFlight;'), true, '連打時は新しいCanvas生成や共有要求を開始しない');
 assert.match(source, /shareInFlight = performShareStudyCard\(state, ref\)\.finally\(\(\) => \{[\s\S]*?shareInFlight = null;/u, '完了後は次の共有操作を受け付ける');
