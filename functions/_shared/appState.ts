@@ -116,6 +116,7 @@ export function validateAppStatePayload(value: unknown, options: AppStateValidat
   const sessions = value.sessions as Record<string, unknown>[];
   const subjectIds = new Set(subjects.map((entry) => entry.id as string));
   const materialIds = new Set(materials.map((entry) => entry.id as string));
+  const taskIds = new Set(tasks.map((entry) => entry.id as string));
 
   for (const subject of subjects) {
     if (!nonEmptyString(subject.name)) return { ok: false, error: 'subjects に不正な名前があります' };
@@ -177,6 +178,9 @@ export function validateAppStatePayload(value: unknown, options: AppStateValidat
 
   for (const session of sessions) {
     if (!subjectIds.has(String(session.subjectId))) return { ok: false, error: 'sessions に存在しないsubjectIdがあります' };
+    if (session.taskId !== null && session.taskId !== undefined && !taskIds.has(String(session.taskId))) {
+      return { ok: false, error: 'sessions に存在しないtaskIdがあります' };
+    }
     if (!validISODate(session.date) || !validISODateTime(session.startedAt) || !finiteNumber(session.minutes) || session.minutes <= 0) {
       return { ok: false, error: 'sessions の日付・開始日時またはminutesが不正です' };
     }
