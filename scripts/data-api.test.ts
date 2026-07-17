@@ -136,7 +136,8 @@ const structured = {
     estimatedMinutes: 20, amount: 2, status: 'planned', scheduledStart: '18:00', scheduledEnd: '18:20',
   }],
   sessions: [{
-    id: 'session', subjectId: 'subject', materialId: 'material', date: '2026-07-14', minutes: 20, amountDone: 2,
+    id: 'session', subjectId: 'subject', materialId: 'material', date: '2026-07-14',
+    startedAt: '2026-07-14T09:00:00.000Z', minutes: 20, amountDone: 2,
   }],
   availability: [{ weekday: 1, minutes: 120, windows: [{ start: '18:00', end: '20:00' }] }],
   dayPlans: [{ date: '2026-07-15', availabilityWindows: null }],
