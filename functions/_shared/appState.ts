@@ -17,6 +17,12 @@ function validISODate(value: unknown): value is string {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
+function validISODateTime(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
 function validTime(value: unknown): value is string {
   return typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(value);
 }
@@ -171,8 +177,8 @@ export function validateAppStatePayload(value: unknown, options: AppStateValidat
 
   for (const session of sessions) {
     if (!subjectIds.has(String(session.subjectId))) return { ok: false, error: 'sessions に存在しないsubjectIdがあります' };
-    if (!validISODate(session.date) || !finiteNumber(session.minutes) || session.minutes <= 0) {
-      return { ok: false, error: 'sessions の日付またはminutesが不正です' };
+    if (!validISODate(session.date) || !validISODateTime(session.startedAt) || !finiteNumber(session.minutes) || session.minutes <= 0) {
+      return { ok: false, error: 'sessions の日付・開始日時またはminutesが不正です' };
     }
     if (!finiteNumber(session.amountDone) || session.amountDone < 0) return { ok: false, error: 'sessions のamountDoneが不正です' };
   }
