@@ -63,6 +63,22 @@ assert.match(
 assert.doesNotMatch(contractCss, /position:\s*(?:sticky|absolute|static)/, '固定契約内で別positionへ変更しない');
 
 assert.match(
+  contractCss,
+  /\.plan-history-launcher\.floating\s*\{[\s\S]*?bottom:\s*calc\(var\(--bottom-nav-content-size\)[\s\S]*?safe-area-inset-bottom[\s\S]*?14px\)\s*!important;/,
+  '計画履歴ボタンを文字拡大後のナビ上端より上へ保つ',
+);
+assert.match(
+  contractCss,
+  /\.plan-history-launcher\.floating\s*\{[\s\S]*?right:\s*max\(14px,\s*env\(safe-area-inset-right,\s*0px\)\)\s*!important;/,
+  '横向きのノッチ・角丸領域から計画履歴ボタンを退避する',
+);
+assert.match(
+  contractCss,
+  /\.plan-history-launcher\.floating\s*\{[\s\S]*?z-index:\s*60\s*!important;/,
+  '計画履歴ボタンを下部ナビの背面へ沈めない',
+);
+
+assert.match(
   accessibilityCss,
   /\.bottom-nav button\[aria-current='page'\]::before\s*\{[\s\S]*?background:\s*transparent;/,
   '旧active疑似要素を消し、選択中タブの背景を二重表示しない',
