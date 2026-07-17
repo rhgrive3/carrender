@@ -20,6 +20,21 @@ assert.match(
 );
 assert.match(
   source,
+  /const install = \(\) => \{[\s\S]*?void promptInstall\(\)\.catch\(\(\) => \{[\s\S]*?\}\);[\s\S]*?\};/,
+  'ネイティブプロンプト失敗を未処理Promise rejectionにしない',
+);
+assert.match(
+  source,
+  /onClick=\{install\}/,
+  'インストール操作は失敗処理を持つハンドラ経由で実行する',
+);
+assert.doesNotMatch(
+  source,
+  /onClick=\{\(\) => promptInstall\(\)\}/,
+  'catchなしの直接呼び出しへ戻さない',
+);
+assert.match(
+  source,
   /<button[\s\S]*?type="button"[\s\S]*?aria-label="インストール案内を閉じる"[\s\S]*?aria-describedby=\{BANNER_DESCRIPTION_ID\}/,
   '閉じる操作の対象を単独フォーカス時にも判別できる名前にする',
 );
