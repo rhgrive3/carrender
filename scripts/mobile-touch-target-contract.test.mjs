@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 const globalCss = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8');
 const toastCss = readFileSync(new URL('../src/components/ui/Toast.css', import.meta.url), 'utf8');
 const syncCss = readFileSync(new URL('../src/components/SyncStatusBanner.css', import.meta.url), 'utf8');
+const iosFormCss = readFileSync(new URL('../src/styles/ios-form-controls.css', import.meta.url), 'utf8');
 
 function rule(css, selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -22,5 +23,21 @@ assertTouchHeight(globalCss, '.task-line-actions .btn');
 assertTouchHeight(globalCss, '.line-icon-btn');
 assertTouchHeight(toastCss, '.app-toast-link,\n.app-toast-action,\n.app-toast-close');
 assertTouchHeight(syncCss, '.sync-status-actions button');
+
+assert.match(
+  iosFormCss,
+  /input:not\(\[type='checkbox'\]\)[\s\S]*select,[\s\S]*textarea\s*\{[\s\S]*min-height:\s*44px/,
+  'テキスト入力系フォームを44pt以上にする',
+);
+assert.match(
+  iosFormCss,
+  /\[role='button'\],[\s\S]*summary\s*\{[\s\S]*min-width:\s*44px;[\s\S]*min-height:\s*44px/,
+  '独自ボタンとsummaryを44x44pt以上にする',
+);
+assert.doesNotMatch(
+  iosFormCss,
+  /input:not\([^{]*type='checkbox'[^\n]*\{[\s\S]*min-height:\s*44px/,
+  'チェックボックス等のネイティブ小型部品を不用意に拡大しない',
+);
 
 console.log('mobile touch target contract test passed');
