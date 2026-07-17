@@ -90,31 +90,43 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
 
   if (loadError) {
     return (
-      <div className="card memory-error" role="alert">
-        <h2>学習結果を開けませんでした</h2>
-        <p>{loadError}</p>
-        <div className="row" style={{ gap: 8 }}>
+      <div
+        className="card memory-error"
+        role="alert"
+        aria-atomic="true"
+        aria-labelledby="memory-result-error-title"
+        aria-describedby="memory-result-error-detail"
+      >
+        <h2 id="memory-result-error-title">学習結果を開けませんでした</h2>
+        <p id="memory-result-error-detail">{loadError}</p>
+        <div className="row" role="group" aria-label="読込エラーの操作" style={{ gap: 8 }}>
           <button type="button" className="btn btn-secondary" onClick={() => setReloadKey((value) => value + 1)}>再読み込み</button>
           <button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'home' })}>暗記ホームへ戻る</button>
         </div>
       </div>
     );
   }
-  if (!session || !bundle) return <div className="card memory-loading" role="status" aria-live="polite">学習結果をまとめています…</div>;
+  if (!session || !bundle) {
+    return (
+      <div className="card memory-loading" role="status" aria-live="polite" aria-atomic="true" aria-busy="true">
+        学習結果をまとめています…
+      </div>
+    );
+  }
 
   return (
-    <section className="memory-result memory-simple-result" aria-labelledby="memory-result-title">
+    <section className="memory-result memory-simple-result" aria-labelledby="memory-result-title" aria-describedby="memory-result-summary">
       <div className="memory-result-hero">
         <span aria-hidden="true">✓</span>
         <h2 id="memory-result-title">学習完了</h2>
-        <p>カード {session.initialTargetIds.length}件・回答 {session.answerCount}回</p>
+        <p id="memory-result-summary">カード {session.initialTargetIds.length}件・回答 {session.answerCount}回</p>
       </div>
 
       <div className="memory-simple-result-grid" role="list" aria-label="学習結果の集計">
-        <div className="card" role="listitem"><small>覚えた</small><b>{counts.remembered}</b></div>
-        <div className="card" role="listitem"><small>あやしい</small><b>{counts.unsure}</b></div>
-        <div className="card" role="listitem"><small>まだ</small><b>{counts.missed}</b></div>
-        <div className="card" role="listitem"><small>次回も優先</small><b>{needsReview.length}</b></div>
+        <div className="card" role="listitem" aria-label={`覚えた ${counts.remembered}件`}><small>覚えた</small><b>{counts.remembered}</b></div>
+        <div className="card" role="listitem" aria-label={`あやしい ${counts.unsure}件`}><small>あやしい</small><b>{counts.unsure}</b></div>
+        <div className="card" role="listitem" aria-label={`まだ ${counts.missed}件`}><small>まだ</small><b>{counts.missed}</b></div>
+        <div className="card" role="listitem" aria-label={`次回も優先 ${needsReview.length}件`}><small>次回も優先</small><b>{needsReview.length}</b></div>
       </div>
 
       {needsReview.length > 0 && (
