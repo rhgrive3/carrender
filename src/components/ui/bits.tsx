@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useId, useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { Subject, StudyTask } from '../../types';
 
@@ -36,10 +36,18 @@ export function TaskTypeChip({ type }: { type: StudyTask['type'] }) {
   return <span className={`task-type-chip ${type === 'review' ? 'review' : ''}`}>{TASK_TYPE_LABEL[type]}</span>;
 }
 
-export function ProgressBar({ value, color }: { value: number; color?: string }) {
+export function ProgressBar({ value, color, label = '進捗' }: { value: number; color?: string; label?: string }) {
   const pct = Math.max(0, Math.min(100, Math.round(value * 100)));
   return (
-    <div className="progress-track" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+    <div
+      className="progress-track"
+      role="progressbar"
+      aria-label={label}
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuetext={`${pct}%`}
+    >
       <div
         className="progress-fill"
         style={{ width: `${pct}%`, background: color ?? 'var(--accent-grad)' }}
@@ -135,6 +143,20 @@ export function Rating({
   icon?: ReactNode;
   label: string;
 }) {
+  const selected = value ?? 1;
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, current: number) => {
+    let next: number | null = null;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') next = current === 5 ? 1 : current + 1;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') next = current === 1 ? 5 : current - 1;
+    if (event.key === 'Home') next = 1;
+    if (event.key === 'End') next = 5;
+    if (next === null) return;
+    event.preventDefault();
+    onChange(next as 1 | 2 | 3 | 4 | 5);
+    const target = event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-rating-value="${next}"]`);
+    target?.focus();
+  };
+
   return (
     <div className="rating" role="radiogroup" aria-label={label}>
       {[1, 2, 3, 4, 5].map((n) => (
@@ -142,10 +164,13 @@ export function Rating({
           key={n}
           type="button"
           role="radio"
+          data-rating-value={n}
           aria-checked={value === n}
           aria-label={`${label} ${n}`}
+          tabIndex={selected === n ? 0 : -1}
           className={value !== null && value >= n ? 'active' : ''}
           onClick={() => onChange(n as 1 | 2 | 3 | 4 | 5)}
+          onKeyDown={(event) => handleKeyDown(event, n)}
         >
           {icon}
         </button>
@@ -241,9 +266,19 @@ export function Disclosure({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const disclosureId = useId();
+  const buttonId = `${disclosureId}-button`;
+  const panelId = `${disclosureId}-panel`;
   return (
     <div className={`disclosure ${open ? 'open' : ''}`}>
-      <button type="button" className="disclosure-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button
+        id={buttonId}
+        type="button"
+        className="disclosure-head"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((o) => !o)}
+      >
         {icon && (
           <span className="disclosure-icon" aria-hidden="true" style={iconColor ? { color: iconColor } : undefined}>
             {icon}
@@ -255,7 +290,11 @@ export function Disclosure({
           <ChevronDown size={16} strokeWidth={2.2} />
         </span>
       </button>
-      {open && <div className="disclosure-body">{children}</div>}
+      {open && (
+        <div id={panelId} className="disclosure-body" role="region" aria-labelledby={buttonId}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
