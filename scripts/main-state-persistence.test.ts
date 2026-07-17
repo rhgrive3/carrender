@@ -114,6 +114,14 @@ check(
   'owner変更ごとに新しいbaselineオブジェクトを割り当てる',
   /const ownerBaseline: StoredStateBaseline = \{ current: null \};[\s\S]*persistenceBaselineRef\.current = ownerBaseline;/.test(persistenceSource),
 );
+check(
+  'pagehide時の同期メタデータ保存失敗を処理する',
+  /if \(metadata\) \{[\s\S]*void repository\.saveSyncMetadata\(metadata\)\.catch\(\(caught\) => \{[\s\S]*pagehide時の同期世代保存に失敗しました/.test(persistenceSource),
+);
+check(
+  'pagehide時の同期メタデータ保存を投げっぱなしに戻さない',
+  !/if \(metadata\) void repository\.saveSyncMetadata\(metadata\);/.test(persistenceSource),
+);
 
 console.log(failures === 0 ? '\n🎉 ALL PASS (main state persistence)' : `\n💥 ${failures} FAILURES (main state persistence)`);
 process.exit(failures === 0 ? 0 : 1);

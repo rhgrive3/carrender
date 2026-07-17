@@ -229,7 +229,11 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
         console.error('pagehide時のIndexedDB保存に失敗しました', caught);
       });
       const metadata = getMainSyncMetadata(owner);
-      if (metadata) void repository.saveSyncMetadata(metadata);
+      if (metadata) {
+        void repository.saveSyncMetadata(metadata).catch((caught) => {
+          console.error('pagehide時の同期世代保存に失敗しました', caught);
+        });
+      }
     };
     window.addEventListener('pagehide', persist);
     return () => window.removeEventListener('pagehide', persist);
