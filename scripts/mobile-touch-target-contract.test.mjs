@@ -26,18 +26,13 @@ assertTouchHeight(syncCss, '.sync-status-actions button');
 
 assert.match(
   iosFormCss,
-  /input:not\(\[type='checkbox'\]\)[\s\S]*select,[\s\S]*textarea\s*\{[\s\S]*min-height:\s*44px/,
-  'テキスト入力系フォームを44pt以上にする',
+  /input:not\(\[type='checkbox'\]\):not\(\[type='radio'\]\):not\(\[type='range'\]\):not\(\[type='color'\]\):not\(\[type='hidden'\]\),[\s\S]*select,[\s\S]*textarea\s*\{[\s\S]*min-height:\s*44px/,
+  '小型ネイティブ部品を除外し、テキスト入力系フォームを44pt以上にする',
 );
 assert.match(
   iosFormCss,
   /\[role='button'\],[\s\S]*summary\s*\{[\s\S]*min-width:\s*44px;[\s\S]*min-height:\s*44px/,
   '独自ボタンとsummaryを44x44pt以上にする',
-);
-assert.doesNotMatch(
-  iosFormCss,
-  /input:not\([^{]*type='checkbox'[^\n]*\{[\s\S]*min-height:\s*44px/,
-  'チェックボックス等のネイティブ小型部品を不用意に拡大しない',
 );
 
 console.log('mobile touch target contract test passed');
