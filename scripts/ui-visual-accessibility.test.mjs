@@ -104,7 +104,7 @@ assert.match(layoutContract, /bottom:\s*0\s*!important/);
 const polish = read('src/styles/accessibility-polish.css');
 const landscapeBlock = cssBlock(polish, '@media (orientation: landscape)');
 const landscapeScreenBlock = cssBlock(landscapeBlock, '.screen');
-const coarsePointerBlock = cssBlock(polish, '@media (pointer: coarse)');
+const coarsePointerBlock = cssBlock(polish, '@media (any-pointer: coarse)');
 const touchTargetBlock = cssBlock(coarsePointerBlock, '.segmented button,');
 const timerBlock = cssBlock(polish, '.timer-overlay');
 const sheetBlock = cssBlock(polish, '.sheet-backdrop');
@@ -113,6 +113,7 @@ assert.match(landscapeScreenBlock, /padding-right:\s*max\([^\n]*safe-area-inset-
 assert.match(coarsePointerBlock, /\.noise-toggle/, 'タイマーの環境音切替も44pt操作領域へ含める');
 assert.match(touchTargetBlock, /min-height:\s*44px/, '指操作の高さを44pt以上にする');
 assert.match(touchTargetBlock, /min-width:\s*44px/, '指操作の幅を44pt以上にする');
+assert.doesNotMatch(polish, /@media\s*\(pointer:\s*coarse\)/, 'iPadのトラックパッド接続でタッチ保護を失わない');
 assert.match(timerBlock, /safe-area-inset-left/);
 assert.match(timerBlock, /safe-area-inset-right/);
 assert.match(sheetBlock, /safe-area-inset-left/);
@@ -128,6 +129,12 @@ assert.match(cssBlock(reducedMotionBlock, '.screen'), /animation:\s*none/, '画�
 assert.match(cssBlock(reducedMotionBlock, '.bottom-nav button,'), /transition:\s*none/, '下部ナビの状態遷移を停止する');
 assert.match(cssBlock(reducedMotionBlock, '.bottom-nav button.active .nav-icon'), /transform:\s*none/, '選択アイコンを拡大・移動しない');
 assert.match(polish, /forced-colors:\s*active/);
+
+const iosFormControls = read('src/styles/ios-form-controls.css');
+const iosTouchBlock = cssBlock(iosFormControls, '@media (any-pointer: coarse)');
+assert.match(iosTouchBlock, /input,[\s\S]*select,[\s\S]*textarea/, 'iOSの全フォーム入力を自動ズーム防止へ含める');
+assert.match(iosTouchBlock, /font-size:\s*max\(1rem,\s*16px\)/, 'iOSフォーム文字を16px以上に保つ');
+assert.doesNotMatch(iosFormControls, /hover:\s*none|\(pointer:\s*coarse\)/, 'トラックパッド併用iPadでもフォーム保護を維持する');
 
 const app = read('src/App.tsx');
 assert.match(app, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\s*\?\s*'auto'\s*:\s*'smooth'/);
