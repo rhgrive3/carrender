@@ -49,11 +49,25 @@ function writeJSON(key: string, value: unknown): boolean {
   }
 }
 
+function isIsoTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
+
+function isEntityHashSnapshot(value: unknown): value is MainStateEntityHashSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.values(value).every((section) => {
+    if (!section || typeof section !== 'object' || Array.isArray(section)) return false;
+    return Object.values(section).every((hash) => typeof hash === 'string' && /^[0-9a-f]{8}$/.test(hash));
+  });
+}
+
 function validatedMetadata(value: Partial<MainSyncMetadata> | null): MainSyncMetadata | null {
   if (!value || typeof value.owner !== 'string' || !value.owner || typeof value.dirty !== 'boolean') return null;
-  if (value.baseUpdatedAt !== null && typeof value.baseUpdatedAt !== 'string') return null;
-  if (typeof value.localChangedAt !== 'string') return null;
-  if (value.baseEntityHashes !== undefined && (!value.baseEntityHashes || typeof value.baseEntityHashes !== 'object')) return null;
+  if (value.baseUpdatedAt !== null && !isIsoTimestamp(value.baseUpdatedAt)) return null;
+  if (!isIsoTimestamp(value.localChangedAt)) return null;
+  if (value.baseEntityHashes !== undefined && !isEntityHashSnapshot(value.baseEntityHashes)) return null;
   return value as MainSyncMetadata;
 }
 
