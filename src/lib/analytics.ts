@@ -26,9 +26,9 @@ export function computeAnalytics(state: AppState, ref: ISODate): AnalyticsSummar
   let streak = 0;
   {
     let d = ref;
-    // 今日まだ勉強していなくても昨日まで続いていればストリーク維持
-    if (!minutesByDate.has(d)) d = addDays(d, -1);
-    while (minutesByDate.has(d) && (minutesByDate.get(d) ?? 0) > 0) {
+    // 今日が未学習（0分の旧データだけを含む場合も含む）でも、昨日までの連続記録は維持する。
+    if ((minutesByDate.get(d) ?? 0) <= 0) d = addDays(d, -1);
+    while ((minutesByDate.get(d) ?? 0) > 0) {
       streak += 1;
       d = addDays(d, -1);
     }
