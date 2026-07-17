@@ -11,15 +11,8 @@ assert.match(source, /\[role="dialog"\]\[aria-modal="true"\]/, 'the topmost moda
 assert.match(source, /dialogs\.reverse\(\)\.find\(\(element\) => !element\.closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)\)/, 'only the topmost exposed modal may be announced without requiring post-ES2020 APIs');
 assert.match(source, /activeDialog\?\.getAttribute\('aria-label'\)/, 'modal aria-label must be supported');
 assert.match(source, /document\.getElementById\(labelledBy\)\?\.textContent/, 'modal aria-labelledby text must be supported');
-
-const contextualStart = source.indexOf('const contextualLabels');
-const contextualEnd = source.indexOf('const current', contextualStart);
-assert.notEqual(contextualStart, -1, 'the contextual-label selection block must exist');
-assert.notEqual(contextualEnd, -1, 'the contextual-label selection block must end before bottom navigation lookup');
-const contextualSource = source.slice(contextualStart, contextualEnd);
-assert.match(contextualSource, /!element\.parentElement\?\.closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)/, 'labels behind inactive tabs or modal isolation must be ignored');
-assert.doesNotMatch(contextualSource, /return !element\.closest\(/, 'the hidden label marker itself must remain selectable');
-
+assert.match(source, /!element\.parentElement\?\.closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)/, 'labels behind inactive tabs or modal isolation must be ignored');
+assert.doesNotMatch(source, /const contextualLabel = contextualLabels\.find\(\(element\) => !element\.closest\(/, 'the hidden label marker itself must remain selectable');
 assert.match(source, /dialogLabel \|\| contextualLabel \|\| current/, 'the modal must take precedence over nested and parent navigation labels');
 assert.match(source, /new MutationObserver\(announceCurrentScreen\)/, 'screen changes must be observed without continuous polling');
 assert.match(source, /observer\.observe\(document\.body,/, 'the observer must include body-level portal navigation and modals');
