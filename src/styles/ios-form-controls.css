@@ -4,11 +4,27 @@
  * iPhone/iPadで次の操作へ移りにくい。タッチ入力を1つでも持つ端末で16pxを下限にする。
  * any-pointerを使い、iPadへトラックパッドを接続して主ポインタがfineになっても
  * 画面への直接タッチ時の自動ズーム防止を維持する。
+ *
+ * 同じ条件で、画面固有CSSから漏れやすいフォーム入力・独自role=button・detailsの
+ * summaryにも44pt操作領域を保証する。チェックボックス等の小型ネイティブ部品は
+ * ラベル側で操作する前提のため、テキスト入力系だけを対象にする。
  */
 @media (any-pointer: coarse) {
   input,
   select,
   textarea {
     font-size: max(1rem, 16px);
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='hidden']),
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  [role='button'],
+  summary {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
