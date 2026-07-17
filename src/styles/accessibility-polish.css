@@ -118,6 +118,20 @@
     scroll-behavior: auto !important;
   }
 
+  /*
+   * 個別コンポーネントの追加後も設定漏れを起こさない最終防衛線。
+   * ほぼゼロ時間にすることでanimationend/transitionend依存を壊さず、
+   * iOS/iPadOSの「視差効果を減らす」をアプリ全体へ一貫して適用する。
+   */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
   .skip-link {
     transition: none;
   }
