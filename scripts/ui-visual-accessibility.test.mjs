@@ -113,6 +113,10 @@ assert.match(timerBlock, /safe-area-inset-right/);
 assert.match(sheetBlock, /safe-area-inset-left/);
 assert.match(sheetBlock, /safe-area-inset-right/);
 assert.match(polish, /prefers-reduced-motion:\s*reduce[\s\S]*scroll-behavior:\s*auto/);
+const reducedMotionBlock = cssBlock(polish, '@media (prefers-reduced-motion: reduce)');
+assert.match(cssBlock(reducedMotionBlock, '.screen'), /animation:\s*none/, '画面切替の移動・フェードを停止する');
+assert.match(cssBlock(reducedMotionBlock, '.bottom-nav button,'), /transition:\s*none/, '下部ナビの状態遷移を停止する');
+assert.match(cssBlock(reducedMotionBlock, '.bottom-nav button.active .nav-icon'), /transform:\s*none/, '選択アイコンを拡大・移動しない');
 assert.match(polish, /forced-colors:\s*active/);
 
 const app = read('src/App.tsx');
