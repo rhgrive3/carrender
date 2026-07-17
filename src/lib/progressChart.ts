@@ -1,5 +1,5 @@
 import type { ISODate, Material, StudySession, StudyTask } from '../types';
-import { addDays, diffDays } from './date';
+import { addDays, addMonths, diffDays, monthKeyOf } from './date';
 
 function materialStartDate(material: Material): ISODate {
   return material.startDate || material.createdAt.slice(0, 10);
@@ -44,6 +44,11 @@ export function buildProgressChartDates(
   const step = span > 730 ? 7 : span > 365 ? 2 : 1;
   const dates = new Set<ISODate>();
   for (let index = 0; index <= span; index += step) dates.add(addDays(start, index));
+  // 長期表示で週単位へ間引いても、月ごとの進捗を追えるよう月初は基準点として残す。
+  for (let month = monthKeyOf(start); month <= monthKeyOf(end); month = addMonths(month, 1)) {
+    const monthStart = `${month}-01`;
+    if (monthStart >= start && monthStart <= end) dates.add(monthStart);
+  }
   for (const date of allDates) dates.add(date);
   return [...dates].sort();
 }
