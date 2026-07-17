@@ -110,7 +110,7 @@ const timerBlock = cssBlock(polish, '.timer-overlay');
 const sheetBlock = cssBlock(polish, '.sheet-backdrop');
 assert.match(landscapeScreenBlock, /padding-left:\s*max\([^\n]*safe-area-inset-left/);
 assert.match(landscapeScreenBlock, /padding-right:\s*max\([^\n]*safe-area-inset-right/);
-assert.match(touchTargetBlock, /\.noise-toggle/, 'タイマーの環境音切替も44pt操作領域へ含める');
+assert.match(coarsePointerBlock, /\.noise-toggle/, 'タイマーの環境音切替も44pt操作領域へ含める');
 assert.match(touchTargetBlock, /min-height:\s*44px/, '指操作の高さを44pt以上にする');
 assert.match(touchTargetBlock, /min-width:\s*44px/, '指操作の幅を44pt以上にする');
 assert.match(timerBlock, /safe-area-inset-left/);
