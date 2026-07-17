@@ -48,3 +48,15 @@ body > .bottom-nav[data-layout-contract='fixed-bottom-navigation'] > button {
 .screen {
   padding-bottom: calc(var(--bottom-nav-content-size) + env(safe-area-inset-bottom, 0px) + 28px);
 }
+
+/*
+ * 計画履歴のフローティング操作も同じナビ高を真実源にする。
+ * 旧76px固定値では文字拡大時のナビへ重なり、横向きではノッチ側へ入り、
+ * z-index 18ではナビ(z-index 50)の背面に沈むため、操作不能になり得る。
+ */
+.plan-history-launcher.floating {
+  right: max(14px, env(safe-area-inset-right, 0px)) !important;
+  bottom: calc(var(--bottom-nav-content-size) + env(safe-area-inset-bottom, 0px) + 14px) !important;
+  left: auto !important;
+  z-index: 60 !important;
+}
