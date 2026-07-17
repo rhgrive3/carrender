@@ -4,6 +4,7 @@ import { emptyState } from '../src/state/AppContext';
 import {
   clearMainSyncMetadata,
   decideInitialSync,
+  getCurrentMainSyncMetadata,
   getMainSyncConflictBackup,
   getMainSyncMetadata,
   markMainSyncClean,
@@ -91,6 +92,30 @@ check('cleanな端末は次回起動時にクラウド版を採用', decideIniti
   hasRemoteState: true,
   hasLocalState: true,
 }) === 'useRemote');
+
+console.log('--- Main sync: malformed metadata ---');
+localStorage.setItem('studycommander_main_sync_meta_v1', JSON.stringify({
+  owner,
+  dirty: true,
+  baseUpdatedAt: 'not-a-date',
+  localChangedAt: v1,
+}));
+check('不正なbaseUpdatedAtを同期判断へ流さない', getCurrentMainSyncMetadata() === null);
+localStorage.setItem('studycommander_main_sync_meta_v1', JSON.stringify({
+  owner,
+  dirty: true,
+  baseUpdatedAt: v1,
+  localChangedAt: '2026-07-14',
+}));
+check('非正規のlocalChangedAtを同期判断へ流さない', getCurrentMainSyncMetadata() === null);
+localStorage.setItem('studycommander_main_sync_meta_v1', JSON.stringify({
+  owner,
+  dirty: true,
+  baseUpdatedAt: v1,
+  localChangedAt: v2,
+  baseEntityHashes: { sessions: { session1: 'invalid-hash' } },
+}));
+check('壊れたentity hashをマージ基準へ使わない', getCurrentMainSyncMetadata() === null);
 
 console.log('--- Main sync: conflict recovery backup ---');
 const localState = { ...emptyState(), onboarded: true };
