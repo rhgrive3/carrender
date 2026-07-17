@@ -67,14 +67,15 @@
 }
 
 /*
- * 計画画面の表示切替・月移動・日別見出しは、見た目より実際の操作領域が
- * 小さくなりやすい。iPhone/iPadの指操作で隣接項目を誤タップしないよう、
- * coarse pointer環境ではAppleの44pt基準を下限として固定する。
+ * 計画画面の表示切替・月移動・日別見出しとタイマーの環境音切替は、
+ * 見た目より実際の操作領域が小さくなりやすい。iPhone/iPadの指操作で
+ * 隣接項目を誤タップしないよう、coarse pointer環境では44ptを下限にする。
  */
 @media (pointer: coarse) {
   .segmented button,
   .period-nav button,
-  .day-column-header {
+  .day-column-header,
+  .noise-toggle {
     min-width: 44px;
     min-height: 44px;
   }
