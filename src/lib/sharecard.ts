@@ -141,24 +141,30 @@ function buildShareCard(state: AppState, ref: ISODate): Blob | null {
 }
 
 export async function shareStudyCard(state: AppState, ref: ISODate): Promise<'shared' | 'downloaded' | 'failed'> {
-  const blob = buildShareCard(state, ref);
-  if (!blob) return 'failed';
-  const file = new File([blob], `studycommander-${ref}.png`, { type: 'image/png' });
   try {
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'StudyCommander 学習記録' });
-      return 'shared';
+    // Canvas生成・PNG変換は端末のメモリ不足や実装制限で例外になることがある。
+    // 呼び出し側へ例外を漏らさず、必ず利用者向けの失敗表示へ変換する。
+    const blob = buildShareCard(state, ref);
+    if (!blob) return 'failed';
+    const file = new File([blob], `studycommander-${ref}.png`, { type: 'image/png' });
+    try {
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'StudyCommander 学習記録' });
+        return 'shared';
+      }
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return 'shared';
+      // 共有失敗時はダウンロードへ
     }
-  } catch (e) {
-    if ((e as Error).name === 'AbortError') return 'shared';
-    // 共有失敗時はダウンロードへ
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `studycommander-${ref}.png`;
+    a.click();
+    // iOS Safariではclick直後のURL解放でダウンロード開始前に参照が失われる場合がある。
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    return 'downloaded';
+  } catch {
+    return 'failed';
   }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `studycommander-${ref}.png`;
-  a.click();
-  // iOS Safariではclick直後のURL解放でダウンロード開始前に参照が失われる場合がある。
-  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-  return 'downloaded';
 }
