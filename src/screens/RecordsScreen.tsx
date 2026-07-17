@@ -112,6 +112,8 @@ export function RecordsScreen() {
   const partial = elapsedDays < days.length;
   const prevActual = sumRange(minutesByDay, partial ? prevDays.slice(0, elapsedDays) : prevDays);
   const dailyAvg = elapsedDays > 0 ? totalActual / elapsedDays : 0;
+  // 進行中の週・月では未来日を未学習日として数えず、日平均と同じ経過日数基準で表示する。
+  const studyDayDenominator = partial ? elapsedDays : days.length;
   const delta = deltaLabel(totalActual, prevActual);
 
   const sessions = useMemo(
@@ -196,7 +198,7 @@ export function RecordsScreen() {
       <div className="day-stats mt-12">
         <div><b>{formatMinutesTile(totalActual)}</b><span>合計</span></div>
         <div><b>{formatMinutesTile(Math.round(dailyAvg))}</b><span>日平均</span></div>
-        <div><b>{studyDays}/{days.length}日</b><span>学習日</span></div>
+        <div><b>{studyDays}/{studyDayDenominator}日</b><span>学習日</span></div>
         <div>
           <b style={{ color: delta.positive ? 'var(--ok)' : 'var(--danger)' }}>{delta.text}</b>
           <span>{period === 'week' ? (partial ? '前週同時点' : '前週比') : partial ? '前月同時点' : '前月比'}</span>
