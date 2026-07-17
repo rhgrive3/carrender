@@ -35,6 +35,38 @@ function uniqueIds(name: string, values: unknown[]): string | null {
   return null;
 }
 
+/** completedRanges の重複・隣接を統合した実完了量。null は範囲自体が不正。 */
+function completedRangeAmount(value: unknown, totalAmount: number): number | null {
+  if (!Array.isArray(value)) return null;
+  const ranges: { start: number; end: number }[] = [];
+  for (const range of value) {
+    if (!isRecord(range)
+      || !Number.isInteger(range.start)
+      || !Number.isInteger(range.end)
+      || (range.start as number) < 1
+      || (range.end as number) < (range.start as number)
+      || (range.end as number) > totalAmount) return null;
+    ranges.push({ start: range.start as number, end: range.end as number });
+  }
+  ranges.sort((a, b) => a.start - b.start || a.end - b.end);
+  let amount = 0;
+  let current: { start: number; end: number } | null = null;
+  for (const range of ranges) {
+    if (!current) {
+      current = { ...range };
+      continue;
+    }
+    if (range.start <= current.end + 1) {
+      current.end = Math.max(current.end, range.end);
+      continue;
+    }
+    amount += current.end - current.start + 1;
+    current = { ...range };
+  }
+  if (current) amount += current.end - current.start + 1;
+  return amount;
+}
+
 export interface AppStateValidationResult {
   ok: boolean;
   error?: string;
@@ -113,16 +145,10 @@ export function validateAppStatePayload(value: unknown, options: AppStateValidat
       return { ok: false, error: 'materials の目標完了日が試験日より後です' };
     }
     if (material.completedRanges !== undefined) {
-      if (!Array.isArray(material.completedRanges)) return { ok: false, error: 'materials のcompletedRangesが不正です' };
-      for (const range of material.completedRanges) {
-        if (!isRecord(range)
-          || !Number.isInteger(range.start)
-          || !Number.isInteger(range.end)
-          || (range.start as number) < 1
-          || (range.end as number) < (range.start as number)
-          || (range.end as number) > (material.totalAmount as number)) {
-          return { ok: false, error: 'materials のcompletedRangesが総量外です' };
-        }
+      const rangeAmount = completedRangeAmount(material.completedRanges, material.totalAmount);
+      if (rangeAmount === null) return { ok: false, error: 'materials のcompletedRangesが総量外です' };
+      if (rangeAmount !== material.doneAmount) {
+        return { ok: false, error: 'materials のdoneAmountとcompletedRangesが一致しません' };
       }
     }
   }
