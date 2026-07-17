@@ -14,4 +14,8 @@ const guardAt = source.indexOf('if (!mounted.current) return;', syncAt);
 const navigateAt = source.indexOf("navigate({ name: 'study'", guardAt);
 assert.equal(refreshAt < syncAt && syncAt < guardAt && guardAt < navigateAt, true);
 
+assert.equal(source.includes('return {\n      targetId,\n      label:'), true, '表示名と安定した学習対象IDを組で保持する');
+assert.equal(source.includes('needsReview.map(({ targetId, label }) => <span key={targetId}>{label}</span>)'), true, '同名カードでもtargetIdをReact keyに使う');
+assert.equal(source.includes('needsReview.map((label) => <span key={label}>'), false, '重複しうる表示名をkeyへ戻さない');
+
 console.log('memory result undo race contract passed');
