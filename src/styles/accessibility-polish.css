@@ -28,8 +28,17 @@
   outline-offset: 3px;
 }
 
-#app-main-content:focus {
+/*
+ * マウスやタッチによる一時的なプログラムフォーカスでは輪郭を出さず、
+ * キーボードで本文スキップを実行した時だけ移動先を明示する。
+ */
+#app-main-content:focus:not(:focus-visible) {
   outline: none;
+}
+
+#app-main-content:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
 }
 
 /*
@@ -119,6 +128,10 @@
   .bottom-nav button[aria-current='page'] {
     outline: 2px solid Highlight;
     outline-offset: -3px;
+  }
+
+  #app-main-content:focus-visible {
+    outline-color: Highlight;
   }
 
   .bottom-nav button[aria-current='page'] .nav-icon {
