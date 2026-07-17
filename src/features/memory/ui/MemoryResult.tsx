@@ -124,7 +124,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
 
       <div className="memory-result-actions" role="group" aria-label="学習結果の操作">
         <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'home' })}><Home size={18} aria-hidden="true" />暗記ホーム</button>
-        <button type="button" className="btn btn-ghost" disabled={undoing} onClick={() => void undoLast()}><RotateCcw size={18} aria-hidden="true" />最後を取り消す</button>
+        <button type="button" className="btn btn-ghost" disabled={undoing || attempts.length === 0} onClick={() => void undoLast()}><RotateCcw size={18} aria-hidden="true" />最後を取り消す</button>
         <button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'studySetup', setIds: session.selectedSetIds })}><RotateCw size={18} aria-hidden="true" />もう一度</button>
       </div>
     </section>
