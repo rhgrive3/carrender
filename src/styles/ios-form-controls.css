@@ -1,0 +1,12 @@
+/*
+ * iOS Safariは16px未満のフォーム入力へフォーカスすると画面を自動拡大する。
+ * 入力後も拡大状態が残ると、Sheetや計画画面の横幅・下部ナビの見え方が崩れ、
+ * iPhone/iPadで次の操作へ移りにくい。タッチ主体の端末だけ16pxを下限にする。
+ */
+@media (hover: none) and (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: max(1rem, 16px);
+  }
+}
