@@ -89,7 +89,11 @@ function buildShareCard(state: AppState, ref: ISODate): Blob | null {
     [`🔥 ${streak}日`, '連続学習'],
     [formatMinutes(weekMin), '直近7日'],
   ];
-  if (state.goal) stats.push([`あと${diffDays(ref, state.goal.examDate)}日`, state.goal.name]);
+  if (state.goal) {
+    const daysToExam = diffDays(ref, state.goal.examDate);
+    const examLabel = daysToExam > 0 ? `あと${daysToExam}日` : daysToExam === 0 ? '今日' : `${Math.abs(daysToExam)}日経過`;
+    stats.push([examLabel, state.goal.name]);
+  }
   const cardW = (W - 72 * 2 - 24 * (stats.length - 1)) / stats.length;
   stats.forEach(([v, label], i) => {
     const x = 72 + i * (cardW + 24);
