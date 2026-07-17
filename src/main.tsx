@@ -15,6 +15,7 @@ import './styles/memory-android-flip-fix.css';
 import './styles/memory-compact-fixes.css';
 import './styles/record-chart-fixes.css';
 import './styles/accessibility-polish.css';
+import './styles/ios-form-controls.css';
 import { registerSW } from 'virtual:pwa-register';
 import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 import { DayRolloverBoundary } from './components/DayRolloverBoundary';
