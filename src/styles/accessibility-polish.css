@@ -43,6 +43,15 @@
   border-radius: 999px;
 }
 
+/*
+ * design-system.cssの旧active疑似要素とaria-current側のピルを同時表示すると、
+ * 34pxと40pxの背景が重なって二重の選択インジケータになる。現在地の真実源を
+ * aria-currentへ一本化し、VoiceOverの状態と視覚表現を常に一致させる。
+ */
+.bottom-nav button[aria-current='page']::before {
+  background: transparent;
+}
+
 .bottom-nav button[aria-current='page'] .nav-icon {
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px currentColor;
