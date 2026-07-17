@@ -140,7 +140,7 @@ function buildShareCard(state: AppState, ref: ISODate): Blob | null {
   return new Blob([bytes], { type: 'image/png' });
 }
 
-export async function shareStudyCard(state: AppState, ref: ISODate): Promise<'shared' | 'downloaded' | 'failed'> {
+export async function shareStudyCard(state: AppState, ref: ISODate): Promise<'shared' | 'downloaded' | 'cancelled' | 'failed'> {
   try {
     // Canvas生成・PNG変換は端末のメモリ不足や実装制限で例外になることがある。
     // 呼び出し側へ例外を漏らさず、必ず利用者向けの失敗表示へ変換する。
@@ -153,7 +153,8 @@ export async function shareStudyCard(state: AppState, ref: ISODate): Promise<'sh
         return 'shared';
       }
     } catch (e) {
-      if ((e as Error).name === 'AbortError') return 'shared';
+      // 利用者による共有シートのキャンセルは成功でも障害でもないため、独立した結果として返す。
+      if ((e as Error).name === 'AbortError') return 'cancelled';
       // 共有失敗時はダウンロードへ
     }
     const url = URL.createObjectURL(blob);
