@@ -69,9 +69,11 @@
 /*
  * 計画画面の表示切替・月移動・日別見出しとタイマーの環境音切替は、
  * 見た目より実際の操作領域が小さくなりやすい。iPhone/iPadの指操作で
- * 隣接項目を誤タップしないよう、coarse pointer環境では44ptを下限にする。
+ * 隣接項目を誤タップしないよう、タッチ入力を1つでも持つ端末では44ptを下限にする。
+ * any-pointerを使うことで、iPadへトラックパッドを接続して主ポインタがfineに
+ * 変わった場合も、画面への直接タッチ用の操作領域を失わない。
  */
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   .segmented button,
   .period-nav button,
   .day-column-header,
@@ -116,10 +118,10 @@
 
 /*
  * iOSでは全要素のタップハイライトを無効化しているため、独自の:active表現を
- * 持たない操作要素は指を置いた瞬間の反応が見えない。粗いポインタ環境だけで
- * 共通の押下フィードバックを与え、誤タップや二重タップを減らす。
+ * 持たない操作要素は指を置いた瞬間の反応が見えない。タッチ入力を持つ端末で
+ * 共通の押下フィードバックを与え、トラックパッド併用中も直接タッチを見失わない。
  */
-@media (hover: none) and (pointer: coarse) {
+@media (any-pointer: coarse) {
   button:not(:disabled):active,
   [role='button']:not([aria-disabled='true']):active {
     opacity: 0.72;
