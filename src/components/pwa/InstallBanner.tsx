@@ -33,6 +33,12 @@ export function InstallBanner() {
     }
   };
 
+  const install = () => {
+    void promptInstall().catch(() => {
+      // ブラウザ側のプロンプト失敗は未処理rejectionにせず、案内を残して再試行可能にする。
+    });
+  };
+
   return (
     <section
       className="install-banner"
@@ -54,7 +60,7 @@ export function InstallBanner() {
         type="button"
         className="btn btn-primary btn-sm"
         aria-describedby={BANNER_DESCRIPTION_ID}
-        onClick={() => promptInstall()}
+        onClick={install}
       >
         <Download size={14} strokeWidth={2.4} aria-hidden="true" /> インストール
       </button>
