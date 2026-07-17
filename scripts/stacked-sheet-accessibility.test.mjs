@@ -34,6 +34,14 @@ assert.match(source, /export function trapModalTabKey\(e: KeyboardEvent, root: H
 assert.match(source, /const restoreModalIsolation = acquireModalIsolation\(backdropRef\.current\)/, 'sheets must use the shared modal stack');
 assert.match(source, /trapModalTabKey\(e, sheetRef\.current\)/, 'sheets must use the shared focus trap');
 
+assert.match(source, /backdropPointerRef = useRef<\{ pointerId: number; x: number; y: number \} \| null>/, 'backdrop dismissal must track a complete pointer gesture');
+assert.match(source, /event\.isPrimary[\s\S]*event\.button === 0[\s\S]*event\.target === event\.currentTarget/, 'only a primary left/touch pointer that starts on the backdrop may dismiss');
+assert.match(source, /event\.pointerId !== start\.pointerId \|\| event\.target !== event\.currentTarget/, 'the same pointer must finish on the backdrop');
+assert.match(source, /Math\.hypot\(event\.clientX - start\.x, event\.clientY - start\.y\)/, 'backdrop dismissal must measure movement');
+assert.match(source, /if \(moved <= 10\) onClose\(\)/, 'drag and scroll gestures must not close the sheet');
+assert.match(source, /onPointerCancel=\{\(\) => \{[\s\S]*backdropPointerRef\.current = null/, 'cancelled gestures must not retain stale dismissal state');
+assert.doesNotMatch(source, /onClick=\{\(e\) => \{[\s\S]*e\.target === e\.currentTarget[\s\S]*onClose\(\)/, 'click-only backdrop dismissal must not return');
+
 assert.match(timer, /import \{ Sheet, acquireModalIsolation, trapModalTabKey \} from '\.\.\/ui\/Sheet'/, 'the timer must reuse the common modal accessibility contract');
 assert.match(timer, /createPortal\([\s\S]*document\.body/, 'the fixed timer must be portalled outside the inert app root');
 assert.match(timer, /role="dialog" aria-modal="true" aria-label="学習タイマー"/, 'the full-screen timer must expose a true modal dialog');
@@ -42,4 +50,4 @@ assert.match(timer, /if \(root\.hasAttribute\('inert'\)\) return;[\s\S]*trapModa
 assert.match(timer, /<Sheet open=\{confirmDiscard\}[\s\S]*title="タイマーを破棄しますか\?"/, 'discard confirmation must join the shared stacked-modal system');
 assert.doesNotMatch(timer, /role="alertdialog"/, 'discard confirmation must not remain an unisolated inline modal');
 
-console.log('✅ Sheets and the full-screen timer share background isolation, stacked-modal ordering, focus trapping, scroll lock, and semantic dialog naming');
+console.log('✅ Sheets and the full-screen timer share background isolation, stacked-modal ordering, focus trapping, scroll lock, semantic dialog naming, and safe backdrop dismissal');

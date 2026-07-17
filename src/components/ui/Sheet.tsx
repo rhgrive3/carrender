@@ -146,6 +146,7 @@ export function trapModalTabKey(e: KeyboardEvent, root: HTMLElement) {
 export function Sheet({ open, onClose, title, children }: SheetProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const backdropPointerRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const titleId = useId();
 
   useEffect(() => {
@@ -180,8 +181,22 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     <div
       className="sheet-backdrop"
       ref={backdropRef}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+      onPointerDown={(event) => {
+        backdropPointerRef.current = event.isPrimary
+          && event.button === 0
+          && event.target === event.currentTarget
+          ? { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+          : null;
+      }}
+      onPointerUp={(event) => {
+        const start = backdropPointerRef.current;
+        backdropPointerRef.current = null;
+        if (!start || !event.isPrimary || event.pointerId !== start.pointerId || event.target !== event.currentTarget) return;
+        const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+        if (moved <= 10) onClose();
+      }}
+      onPointerCancel={() => {
+        backdropPointerRef.current = null;
       }}
     >
       <div className="sheet" ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : 'ダイアログ'}>
