@@ -46,10 +46,10 @@ export function MonthCalendar({
 
     event.preventDefault();
     const nextDate = days[Math.max(0, Math.min(days.length - 1, nextIndex))];
+    const calendar = event.currentTarget.closest('[data-month-calendar]');
     onSelectDay?.(nextDate);
     requestAnimationFrame(() => {
-      event.currentTarget
-        .closest('[data-month-calendar]')
+      calendar
         ?.querySelector<HTMLButtonElement>(`button[data-date="${nextDate}"]`)
         ?.focus();
     });
