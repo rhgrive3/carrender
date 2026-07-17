@@ -121,6 +121,23 @@
   .skip-link {
     transition: none;
   }
+
+  /*
+   * iOS/iPadOSの「視差効果を減らす」では、タブ切替時の縦移動・フェードと
+   * 選択アイコンの拡大も止める。状態変化は色と形状だけで即時に伝える。
+   */
+  .screen {
+    animation: none;
+  }
+
+  .bottom-nav button,
+  .bottom-nav button .nav-icon {
+    transition: none;
+  }
+
+  .bottom-nav button.active .nav-icon {
+    transform: none;
+  }
 }
 
 @media (forced-colors: active) {
