@@ -11,7 +11,8 @@ assert.match(source, /\[role="dialog"\]\[aria-modal="true"\]/, 'the topmost moda
 assert.match(source, /dialogs\.reverse\(\)\.find\(\(element\) => !element\.closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)\)/, 'only the topmost exposed modal may be announced without requiring post-ES2020 APIs');
 assert.match(source, /activeDialog\?\.getAttribute\('aria-label'\)/, 'modal aria-label must be supported');
 assert.match(source, /document\.getElementById\(labelledBy\)\?\.textContent/, 'modal aria-labelledby text must be supported');
-assert.match(source, /return !element\.parentElement\?\.closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)/, 'hidden screen-label markers must stay selectable while labels behind inactive ancestors are ignored');
+assert.match(source, /!element\.parentElement\?\.closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)/, 'labels behind inactive tabs or modal isolation must be ignored');
+assert.doesNotMatch(source, /const contextualLabel = contextualLabels\.find\(\(element\) => !element\.closest\(/, 'the hidden label marker itself must remain selectable');
 assert.match(source, /dialogLabel \|\| contextualLabel \|\| current/, 'the modal must take precedence over nested and parent navigation labels');
 assert.match(source, /new MutationObserver\(announceCurrentScreen\)/, 'screen changes must be observed without continuous polling');
 assert.match(source, /observer\.observe\(document\.body,/, 'the observer must include body-level portal navigation and modals');
