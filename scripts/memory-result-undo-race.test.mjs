@@ -18,4 +18,8 @@ assert.equal(source.includes('return {\n      targetId,\n      label:'), true, '
 assert.equal(source.includes('needsReview.map(({ targetId, label }) => <span key={targetId} role="listitem">{label}</span>)'), true, '同名カードでもtargetIdをReact keyに使い、一覧項目として伝える');
 assert.equal(source.includes('needsReview.map((label) => <span key={label}>'), false, '重複しうる表示名をkeyへ戻さない');
 
+assert.equal(source.includes('aria-busy={undoing}'), true, '取り消し処理中であることをボタン自身へ公開する');
+assert.equal(source.includes("{undoing ? '取り消し中…' : '最後を取り消す'}"), true, '処理中はボタン表示を進捗表示へ切り替える');
+assert.equal(source.includes('role="status" aria-live="polite">{undoing ? \'最後の回答を取り消しています\' : \'\'}</span>'), true, 'VoiceOverへ取り消し開始を通知する');
+
 console.log('memory result undo race contract passed');
