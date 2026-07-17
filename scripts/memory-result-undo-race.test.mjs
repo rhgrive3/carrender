@@ -16,6 +16,8 @@ assert.equal(refreshAt < syncAt && syncAt < guardAt && guardAt < navigateAt, tru
 assert.equal(source.includes('void requestSync(true);', refreshAt), false, '取り消し後の同期失敗を未処理のPromise rejectionにしない');
 assert.equal(source.includes('取り消し結果は端末へ保存済み。同期失敗は次回の自動同期へ委ねる。'), true, '同期失敗時の継続方針を明記する');
 
+assert.match(source, /new Set\(session\?\.needsReviewTargetIds \?\? \[\]\)/u, '重複した復習対象IDを結果画面で1件へ正規化する');
+assert.equal(source.includes('<small>次回も優先</small><b>{needsReview.length}</b>'), true, '表示件数も重複除外後の一覧と一致させる');
 assert.match(source, /return \{[\s\S]*?targetId,[\s\S]*?label:/u, '表示名と安定した学習対象IDを組で保持する');
 assert.equal(source.includes('needsReview.map(({ targetId, label }) => <span key={targetId} role="listitem">{label}</span>)'), true, '同名カードでもtargetIdをReact keyに使い、一覧項目として伝える');
 assert.equal(source.includes('needsReview.map((label) => <span key={label}>'), false, '重複しうる表示名をkeyへ戻さない');
