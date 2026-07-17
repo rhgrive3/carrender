@@ -39,7 +39,7 @@ function isolatePortalBackground(backdrop: HTMLElement, appRoot: HTMLElement | n
     }));
 
   portalBackgroundStates.forEach(({ element }) => {
-    // 下部ナビなどbody直下へportalされたUIも、シート表示中は背面操作・読み上げ対象から外す。
+    // 下部ナビなどbody直下へportalされたUIも、モーダル表示中は背面操作・読み上げ対象から外す。
     element.setAttribute('inert', '');
     element.setAttribute('aria-hidden', 'true');
   });
@@ -55,7 +55,11 @@ function restorePortalBackground() {
   portalBackgroundStates = [];
 }
 
-function isolateModal(backdrop: HTMLElement) {
+/**
+ * body直下へportalされたモーダルを共有スタックへ登録する。
+ * Sheetだけでなく全画面タイマーも同じ背景隔離・多重モーダル契約を使う。
+ */
+export function acquireModalIsolation(backdrop: HTMLElement) {
   const appRoot = document.getElementById('root');
 
   if (modalStack.length === 0) {
@@ -69,7 +73,7 @@ function isolateModal(backdrop: HTMLElement) {
         ariaHidden: appRoot.getAttribute('aria-hidden'),
       };
       // aria-modalだけではiOS/iPadOS VoiceOverの仮想カーソルが背面へ移動できる場合がある。
-      // portal先のシート以外をinert化し、視覚・キーボード・支援技術の操作対象を一致させる。
+      // portal先のモーダル以外をinert化し、視覚・キーボード・支援技術の操作対象を一致させる。
       appRoot.setAttribute('inert', '');
       appRoot.setAttribute('aria-hidden', 'true');
     }
@@ -110,6 +114,34 @@ function isVisibleFocusable(element: HTMLElement, root: HTMLElement) {
   return element.getClientRects().length > 0;
 }
 
+/** Tab / Shift+Tabを最前面モーダル内へ閉じ込める。 */
+export function trapModalTabKey(e: KeyboardEvent, root: HTMLElement) {
+  if (e.key !== 'Tab') return;
+  const focusable = [...root.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => isVisibleFocusable(element, root));
+  if (focusable.length === 0) {
+    e.preventDefault();
+    root.focus();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  const focusIsOutside = !(active instanceof Node) || !root.contains(active);
+
+  // モーダル本体を初期フォーカスにしているため、最初のTab/Shift+Tabも
+  // ブラウザ既定動作へ任せず、必ず先頭・末尾の操作要素へ送る。
+  if (e.shiftKey && (active === first || active === root || focusIsOutside)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (active === last || active === root || focusIsOutside)) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 /** モバイル向けボトムシート */
 export function Sheet({ open, onClose, title, children }: SheetProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -118,7 +150,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
 
   useEffect(() => {
     if (!open || !backdropRef.current) return;
-    const restoreModalIsolation = isolateModal(backdropRef.current);
+    const restoreModalIsolation = acquireModalIsolation(backdropRef.current);
     // フォーカスをシートへ移し、閉じたら開いた元のボタンへ戻す
     const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     sheetRef.current?.focus();
@@ -131,30 +163,8 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         onClose();
         return;
       }
-      if (e.key !== 'Tab' || !sheetRef.current) return;
-      const root = sheetRef.current;
-      const focusable = [...root.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
-      )].filter((element) => isVisibleFocusable(element, root));
-      if (focusable.length === 0) {
-        e.preventDefault();
-        root.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      const focusIsOutside = !(active instanceof Node) || !root.contains(active);
-
-      // シート本体を初期フォーカスにしているため、最初のTab/Shift+Tabも
-      // ブラウザ既定動作へ任せず、必ず先頭・末尾の操作要素へ送る。
-      if (e.shiftKey && (active === first || active === root || focusIsOutside)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || active === root || focusIsOutside)) {
-        e.preventDefault();
-        first.focus();
-      }
+      if (!sheetRef.current) return;
+      trapModalTabKey(e, sheetRef.current);
     };
     window.addEventListener('keydown', onKey);
     return () => {
