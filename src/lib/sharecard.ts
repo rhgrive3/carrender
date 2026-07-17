@@ -158,6 +158,7 @@ export async function shareStudyCard(state: AppState, ref: ISODate): Promise<'sh
   a.href = url;
   a.download = `studycommander-${ref}.png`;
   a.click();
-  URL.revokeObjectURL(url);
+  // iOS Safariではclick直後のURL解放でダウンロード開始前に参照が失われる場合がある。
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
   return 'downloaded';
 }
