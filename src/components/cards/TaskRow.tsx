@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Check, CircleCheck, Play, SkipForward, Unlock } from 'lucide-react';
 import type { StudyTask } from '../../types';
 import { useApp } from '../../state/AppContext';
@@ -19,6 +19,9 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
   const timer = useTimer();
   const toast = useToast();
   const [recordOpen, setRecordOpen] = useState(false);
+  const titleId = useId();
+  const detailsId = useId();
+  const statusId = useId();
 
   const subject = state.subjects.find((s) => s.id === task.subjectId);
   const isDone = task.status === 'done';
@@ -44,46 +47,55 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
 
   return (
     <>
-      <div className={`task-card ${isDone ? 'done' : ''}`}>
-        <div className="subject-bar" style={{ background: subject?.color ?? 'var(--accent)' }} />
+      <article
+        className={`task-card ${isDone ? 'done' : ''}`}
+        aria-labelledby={titleId}
+        aria-describedby={`${detailsId} ${statusId}`}
+      >
+        <div className="subject-bar" style={{ background: subject?.color ?? 'var(--accent)' }} aria-hidden="true" />
         <div className="task-main">
           <div className="task-meta-row">
             <SubjectChip subject={subject} />
             <TaskTypeChip type={task.type} />
             <span className="task-time">{lock === 'time' ? '時刻固定' : lock === 'date' ? '日付固定' : '自動'}</span>
-            {showDate && <span className="task-time">{task.scheduledDate.slice(5).replace('-', '/')}</span>}
+            {showDate && (
+              <time className="task-time" dateTime={task.scheduledDate}>
+                {task.scheduledDate.slice(5).replace('-', '/')}
+              </time>
+            )}
           </div>
-          <div className="task-title">{task.title}</div>
-          <div className="task-range">
+          <div className="task-title" id={titleId} role="heading" aria-level={3}>{task.title}</div>
+          <div className="task-range" id={detailsId}>
             {task.rangeLabel}
             <span className="task-time"> ・{task.estimatedMinutes}分</span>
             {task.scheduledStart && <span className="task-time"> ・{task.scheduledStart}〜</span>}
           </div>
+          <span className="sr-only" id={statusId}>{isDone ? '完了済み' : '未完了'}</span>
         </div>
         {!isDone && (
-          <div className="task-actions">
+          <div className="task-actions" role="group" aria-label={`${task.title}の操作`}>
             {lock !== 'none' && (
-              <button className="task-action-btn" aria-label={`${task.title}のロックを解除`} onClick={() => dispatch({ type: 'UNLOCK_TASK', taskId: task.id })}>
+              <button type="button" className="task-action-btn" aria-label={`${task.title}のロックを解除`} onClick={() => dispatch({ type: 'UNLOCK_TASK', taskId: task.id })}>
                 <span className="ta-icon" aria-hidden="true"><Unlock size={15} strokeWidth={2.4} /></span>
                 <span className="ta-label">解除</span>
               </button>
             )}
-            <button className="task-action-btn" aria-label={`${task.title}を延期`} onClick={postpone}>
+            <button type="button" className="task-action-btn" aria-label={`${task.title}を延期`} onClick={postpone}>
               <span className="ta-icon" aria-hidden="true"><SkipForward size={15} strokeWidth={2.4} /></span>
               <span className="ta-label">延期</span>
             </button>
-            <button className="task-action-btn" aria-label={`${task.title}を完了として記録`} onClick={() => setRecordOpen(true)}>
+            <button type="button" className="task-action-btn" aria-label={`${task.title}を完了として記録`} onClick={() => setRecordOpen(true)}>
               <span className="ta-icon" aria-hidden="true"><Check size={15} strokeWidth={2.8} /></span>
               <span className="ta-label">完了</span>
             </button>
-            <button className="task-action-btn primary" aria-label={`${task.title}のタイマーを開始`} onClick={startTimer}>
+            <button type="button" className="task-action-btn primary" aria-label={`${task.title}のタイマーを開始`} onClick={startTimer}>
               <span className="ta-icon" aria-hidden="true"><Play size={15} strokeWidth={2.4} fill="currentColor" /></span>
               <span className="ta-label">開始</span>
             </button>
           </div>
         )}
-        {isDone && <CircleCheck size={22} strokeWidth={2.2} aria-label="完了済み" style={{ color: 'var(--ok)', flexShrink: 0 }} />}
-      </div>
+        {isDone && <CircleCheck size={22} strokeWidth={2.2} aria-hidden="true" style={{ color: 'var(--ok)', flexShrink: 0 }} />}
+      </article>
 
       {recordOpen && (
         <RecordSheet
