@@ -11,6 +11,9 @@ assert.ok(shareFunctionAt >= 0, 'シェア処理を公開する');
 assert.ok(outerTryAt >= 0 && outerTryAt < buildAt, 'Canvas生成より前から例外を捕捉する');
 assert.ok(failedCatchAt > buildAt, '画像生成やダウンロード準備の例外をfailedへ変換する');
 assert.equal(source.includes('端末のメモリ不足や実装制限で例外になることがある。'), true, '失敗経路を残す理由を明記する');
+assert.equal(source.includes("Promise<'shared' | 'downloaded' | 'cancelled' | 'failed'>"), true, '共有キャンセルを独立した結果として型へ含める');
+assert.equal(source.includes("if ((e as Error).name === 'AbortError') return 'cancelled';"), true, '利用者キャンセルを共有成功として扱わない');
+assert.equal(source.includes("if ((e as Error).name === 'AbortError') return 'shared';"), false, '共有キャンセルを成功結果へ戻さない');
 
 const clickAt = source.indexOf('a.click();');
 const delayedRevokeAt = source.indexOf('window.setTimeout(() => URL.revokeObjectURL(url), 1_000);');
