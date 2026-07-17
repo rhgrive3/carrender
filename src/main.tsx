@@ -122,6 +122,39 @@ function MainLandmarkGuard() {
   return null;
 }
 
+function ShellNavigationSemanticsGuard() {
+  React.useEffect(() => {
+    const connectNavigationToPanels = () => {
+      const buttons = [...document.querySelectorAll<HTMLButtonElement>('.bottom-nav > button')];
+      const panels = [...document.querySelectorAll<HTMLElement>('.shell-tab-panel')];
+
+      buttons.forEach((button, index) => {
+        const panel = panels[index];
+        if (!panel) return;
+        const controlId = `shell-nav-${index}`;
+        const panelId = `shell-panel-${index}`;
+
+        // ナビはフォーム外でもtypeを固定し、将来のレイアウト変更でsubmit化しないようにする。
+        button.type = 'button';
+        button.id = controlId;
+        button.setAttribute('aria-controls', panelId);
+
+        // 各画面を名前付きregionとして公開し、ナビ項目から移動先を追跡できるようにする。
+        panel.id = panelId;
+        panel.setAttribute('role', 'region');
+        panel.setAttribute('aria-labelledby', controlId);
+      });
+    };
+
+    connectNavigationToPanels();
+    const observer = new MutationObserver(connectNavigationToPanels);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return null;
+}
+
 preserveUnreadableState();
 registerSW({ immediate: true });
 
@@ -133,6 +166,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <>
             <NavigationAnnouncement />
             <MainLandmarkGuard />
+            <ShellNavigationSemanticsGuard />
             <a className="skip-link" href="#app-main-content">本文へ移動</a>
             <main id="app-main-content" tabIndex={-1}>
               <App key={dayKey} />
