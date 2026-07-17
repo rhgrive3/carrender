@@ -74,6 +74,21 @@ assert.equal(logOptions[1].deleted, true);
 const recordsScreen = readFileSync(new URL('../src/screens/RecordsScreen.tsx', import.meta.url), 'utf8');
 assert.match(recordsScreen, /recordLogSubjectOptions\(state\.sessions, state\.subjects\)/, '学習ログの科目フィルターへ削除済み科目を渡す');
 assert.match(recordsScreen, /logSubjectOptions\.map\(\(subject\)/, '重複を除いた候補だけをフィルターに描画する');
+assert.match(
+  recordsScreen,
+  /const studyDayDenominator = partial \? elapsedDays : days\.length;/,
+  '進行中の週・月では未来日を学習日数の分母へ含めない',
+);
+assert.match(
+  recordsScreen,
+  /\{studyDays\}\/\{studyDayDenominator\}日/,
+  '学習日表示は経過日数基準の分母を使用する',
+);
+assert.doesNotMatch(
+  recordsScreen,
+  /\{studyDays\}\/\{days\.length\}日/,
+  '期間途中の未来日を未学習日として表示する旧実装へ戻さない',
+);
 
 const chartFixCss = readFileSync(new URL('../src/styles/record-chart-fixes.css', import.meta.url), 'utf8');
 const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
