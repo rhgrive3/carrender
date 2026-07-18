@@ -33,5 +33,20 @@ assert.match(
   /await deleteMemorySet[\s\S]*try \{[\s\S]*await refresh\(\);[\s\S]*\} catch \(caught\)[\s\S]*requestSyncSafely\(\);[\s\S]*navigate\(\{ name: 'home' \}\)/u,
   'セット削除後の一覧更新失敗でも同期とホーム遷移を続ける',
 );
+assert.match(
+  source,
+  /const actionInFlightRef = useRef\(false\)/u,
+  'セット詳細の変更操作を再描画前から排他制御する',
+);
+assert.match(
+  source,
+  /const runAction = async[\s\S]*if \(actionInFlightRef\.current\) return;[\s\S]*actionInFlightRef\.current = true;[\s\S]*finally \{[\s\S]*actionInFlightRef\.current = false;/u,
+  'カード除外・確認済み化・セット更新・セット削除を同期的なsingle-flightロックで保護する',
+);
+assert.doesNotMatch(
+  source,
+  /const runAction = async[\s\S]*if \(actionBusy\) return;/u,
+  'React stateだけを多重実行防止に使う旧実装へ戻さない',
+);
 
 console.log('memory set detail post-save resilience regression passed');
