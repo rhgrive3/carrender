@@ -17,10 +17,12 @@ assert.equal(source.includes('if (mounted.current && activeSessionId.current ===
 assert.equal(source.includes('setUndoing(false);\n    undoInFlightSessionId.current = undefined;'), true, 'セッション切替時は前セッションの処理中表示と同期ロックをリセットする');
 
 const refreshAt = source.indexOf('await refresh();');
+const refreshCatchAt = source.indexOf("console.warn('暗記結果の取り消し後に一覧を更新できませんでした'", refreshAt);
 const syncAt = source.indexOf('void requestSync(true).catch(() => {', refreshAt);
 const guardAt = source.indexOf('if (!mounted.current || activeSessionId.current !== actionSessionId) return;', syncAt);
 const navigateAt = source.indexOf("navigate({ name: 'study'", guardAt);
-assert.equal(refreshAt < syncAt && syncAt < guardAt && guardAt < navigateAt, true);
+assert.equal(refreshAt < refreshCatchAt && refreshCatchAt < syncAt && syncAt < guardAt && guardAt < navigateAt, true);
+assert.match(source, /try \{\s*await refresh\(\);\s*\} catch \(caught\) \{[\s\S]*?console\.warn\('暗記結果の取り消し後に一覧を更新できませんでした', caught\);\s*\}/u, '保存済みの回答取り消しを一覧更新失敗として扱わない');
 assert.equal(source.includes('void requestSync(true);', refreshAt), false, '取り消し後の同期失敗を未処理のPromise rejectionにしない');
 assert.equal(source.includes('取り消し結果は端末へ保存済み。同期失敗は次回の自動同期へ委ねる。'), true, '同期失敗時の継続方針を明記する');
 
