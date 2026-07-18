@@ -186,6 +186,7 @@ export function Stepper({
   min = 0,
   max = 99999,
   suffix = '',
+  label = '値',
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -193,17 +194,34 @@ export function Stepper({
   min?: number;
   max?: number;
   suffix?: string;
+  label?: string;
 }) {
+  const valueId = `${useId()}-value`;
+  const atMin = value <= min;
+  const atMax = value >= max;
+  const formattedValue = `${value}${suffix}`;
   return (
-    <div className="stepper">
-      <button type="button" aria-label="減らす" onClick={() => onChange(Math.max(min, value - step))}>
+    <div className="stepper" role="group" aria-label={label}>
+      <button
+        type="button"
+        aria-label={`${label}を${step}${suffix}減らす`}
+        aria-controls={valueId}
+        disabled={atMin}
+        onClick={() => onChange(Math.max(min, value - step))}
+      >
         −
       </button>
-      <div className="stepper-value">
+      <output id={valueId} className="stepper-value" aria-live="polite" aria-atomic="true" aria-label={`${label} ${formattedValue}`}>
         {value}
         {suffix && <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-sub)', marginLeft: 3 }}>{suffix}</span>}
-      </div>
-      <button type="button" aria-label="増やす" onClick={() => onChange(Math.min(max, value + step))}>
+      </output>
+      <button
+        type="button"
+        aria-label={`${label}を${step}${suffix}増やす`}
+        aria-controls={valueId}
+        disabled={atMax}
+        onClick={() => onChange(Math.min(max, value + step))}
+      >
         ＋
       </button>
     </div>
