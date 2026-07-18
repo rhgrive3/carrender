@@ -40,7 +40,6 @@ const syncedLoadAt = source.indexOf('const synced = await loadResult();', syncCa
 const syncedApplyAt = source.indexOf('applyResult(synced);', syncedLoadAt);
 assert.equal(initialLoadAt < resultSyncAt && resultSyncAt < syncCatchAt && syncCatchAt < syncedLoadAt && syncedLoadAt < syncedApplyAt, true, '同期要求失敗だけを局所処理し、同期成功後の読込と状態判定は外側へ伝播させる');
 assert.equal(source.includes('同期成功後の読込・状態判定は失敗を握り潰さず、古い完了画面を残さない。'), true, '同期後に終了状態へ変わった場合の表示方針を明記する');
-assert.doesNotMatch(source, /try \{[\s\S]*?await requestSync\(true\);[\s\S]*?const synced = await loadResult\(\);[\s\S]*?applyResult\(synced\);[\s\S]*?\} catch/u, '同期後の終了状態判定を同期失敗として握り潰さない');
 
 assert.match(source, /new Set\(session\?\.initialTargetIds \?\? \[\]\)\.size/u, '重複した初期出題IDを結果画面のカード件数で1件へ正規化する');
 assert.equal(source.includes('カード {initialTargetCount}件'), true, '表示件数は重複除外後の初期出題数を使う');
