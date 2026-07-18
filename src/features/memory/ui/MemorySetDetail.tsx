@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CheckCircle2, Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import type { MemorySetBundle, MemoryStat } from '../domain/types';
 import { normalizeSearchText } from '../domain/normalization';
@@ -20,6 +20,7 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   const [loadError, setLoadError] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
   const [actionBusy, setActionBusy] = useState(false);
+  const actionInFlightRef = useRef(false);
 
   const reload = async () => {
     if (!repository) return;
@@ -65,6 +66,11 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     return () => { cancelled = true; };
   }, [reloadKey, repository, setId]);
 
+  useEffect(() => {
+    actionInFlightRef.current = false;
+    setActionBusy(false);
+  }, [setId]);
+
   const targets = useMemo(() => bundle ? generateLearningTargets({ content: bundle, setMembers: bundle.setMembers, selectedSetIds: [setId], direction: 'output', includeUnverifiedAi: false })
     .filter((target) => !target.exerciseId && target.mode === 'output') : [], [bundle, setId]);
   const summary = useMemo(() => summarizeLearningTargetStats(targets, stats), [stats, targets]);
@@ -87,13 +93,15 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   const set = bundle?.sets[0];
 
   const runAction = async (operation: () => Promise<void>, fallback: string) => {
-    if (actionBusy) return;
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     setActionBusy(true);
     try {
       await operation();
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : fallback);
     } finally {
+      actionInFlightRef.current = false;
       setActionBusy(false);
     }
   };
