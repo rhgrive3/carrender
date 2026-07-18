@@ -73,5 +73,20 @@ assert.doesNotMatch(
   /const runAction = async[\s\S]*if \(actionBusy\) return;/u,
   'React stateだけを多重実行防止に使う旧実装へ戻さない',
 );
+assert.match(
+  source,
+  /const targets = useMemo\([\s\S]*includeUnverifiedAi: false[\s\S]*\.filter\(\(target\) => !target\.exerciseId && target\.mode === 'output'\)/u,
+  'セット詳細でも通常学習へ実際に出題できる対象を算出する',
+);
+assert.match(
+  source,
+  /disabled=\{targets\.length === 0 \|\| actionBusy\}[\s\S]*targets\.length === 0 \? '出題できるカードなし' : '学習を始める'/u,
+  '通常学習対象が0件なら開始操作を無効化して理由を表示する',
+);
+assert.doesNotMatch(
+  source,
+  /disabled=\{bundle\.senses\.length === 0 \|\| actionBusy\}[\s\S]*学習を始める/u,
+  '生カード件数だけで学習可否を決める旧実装へ戻さない',
+);
 
 console.log('memory set detail post-save resilience regression passed');
