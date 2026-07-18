@@ -35,7 +35,11 @@ function CreateSetDialog({ onClose }: { onClose: () => void }) {
     setSaving(true);
     try {
       await createMemorySet(repository, { name });
-      await refresh();
+      try {
+        await refresh();
+      } catch (caught) {
+        console.error('暗記セット作成後の一覧更新に失敗しました', caught);
+      }
       void requestSync(true).catch(() => undefined);
       onClose();
     } catch (caught) {
