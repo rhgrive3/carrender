@@ -25,7 +25,7 @@ assert.match(
 );
 assert.match(
   source,
-  /if \(!repository \|\| starting \|\| !eligibilityReady \|\| plannedCount === 0 \|\| eligibilityError\) return/,
+  /if \(!repository \|\| (?:starting|startInFlight\.current) \|\| !eligibilityReady \|\| plannedCount === 0 \|\| eligibilityError\) return/,
   'UIのdisabled属性だけに頼らず開始処理でも未確認条件を拒否する',
 );
 assert.match(
