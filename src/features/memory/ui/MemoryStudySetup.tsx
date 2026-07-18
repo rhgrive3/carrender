@@ -24,6 +24,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   const [eligibleCount, setEligibleCount] = useState(0);
   const [resolvedEligibilityKey, setResolvedEligibilityKey] = useState<string>();
   const [eligibilityError, setEligibilityError] = useState<string>();
+  const [eligibilityRetry, setEligibilityRetry] = useState(0);
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
@@ -68,7 +69,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
       setEligibilityError(caught instanceof Error ? caught.message : 'カード件数を読み込めませんでした');
     });
     return () => { cancelled = true; };
-  }, [direction, eligibilityKey, repository, selectedSetIds]);
+  }, [direction, eligibilityKey, eligibilityRetry, repository, selectedSetIds]);
 
   const plannedCount = useMemo(
     () => resolveQuestionCount(eligibleCount, questionCount(countChoice)),
@@ -136,7 +137,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
           {selectedSetIds.length === 0
             ? '学習するセットを選んでください'
             : eligibilityError
-              ? <span role="alert">カード件数を読み込めませんでした。通信状態を確認して、セットを選び直してください。</span>
+              ? <span role="alert">カード件数を読み込めませんでした。<button type="button" className="btn btn-secondary" onClick={() => setEligibilityRetry((current) => current + 1)}>再読み込み</button></span>
               : !eligibilityReady
                 ? 'カード件数を確認中…'
                 : eligibleCount === 0
