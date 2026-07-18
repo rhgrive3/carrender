@@ -30,6 +30,8 @@ assert.match(source, /role="alert"[\s\S]*?aria-atomic="true"[\s\S]*?aria-labelle
 assert.equal(source.includes('role="group" aria-label="読込エラーの操作"'), true, '読込失敗時の再試行と離脱を一組の操作として伝える');
 assert.match(source, /role="status" aria-live="polite" aria-atomic="true" aria-busy="true"/u, '読込中の状態を一まとまりの進行中通知として伝える');
 assert.equal(source.includes('aria-describedby="memory-result-summary"'), true, '結果画面とカード数・回答数の要約を関連付ける');
+assert.equal(source.includes('回答 {attempts.length}回'), true, '回答件数は集計カードと同じ実際の回答行から表示する');
+assert.equal(source.includes('回答 {session.answerCount}回'), false, '同期競合でずれうるセッション集計値を結果要約へ戻さない');
 assert.equal(source.includes('aria-label={`覚えた ${counts.remembered}件`}'), true, '集計カードの名称と件数を単独でも理解できる読み上げへまとめる');
 assert.equal(source.includes('aria-label={`次回も優先 ${needsReview.length}件`}'), true, '復習優先件数も単独で意味が伝わるようにする');
 

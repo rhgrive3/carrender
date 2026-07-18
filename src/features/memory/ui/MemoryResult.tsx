@@ -119,7 +119,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
       <div className="memory-result-hero">
         <span aria-hidden="true">✓</span>
         <h2 id="memory-result-title">学習完了</h2>
-        <p id="memory-result-summary">カード {session.initialTargetIds.length}件・回答 {session.answerCount}回</p>
+        <p id="memory-result-summary">カード {session.initialTargetIds.length}件・回答 {attempts.length}回</p>
       </div>
 
       <div className="memory-simple-result-grid" role="list" aria-label="学習結果の集計">
