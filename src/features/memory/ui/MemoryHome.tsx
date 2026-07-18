@@ -53,7 +53,7 @@ function CreateSetDialog({ onClose }: { onClose: () => void }) {
 }
 
 export function MemoryHome() {
-  const { repository, ready, error, activeSession, syncStatus, syncError, pendingCount, conflictCount, navigate, refresh, requestSync } = useMemory();
+  const { repository, ready, error, sets, activeSession, syncStatus, syncError, pendingCount, conflictCount, navigate, refresh, requestSync } = useMemory();
   const toast = useToast();
   const [snapshot, setSnapshot] = useState<MemoryLocalSnapshot | null>(null);
   const [snapshotError, setSnapshotError] = useState<string>();
@@ -75,7 +75,7 @@ export function MemoryHome() {
       if (!cancelled) setSnapshotError(caught instanceof Error ? caught.message : '暗記データを読み込めませんでした');
     });
     return () => { cancelled = true; };
-  }, [pendingCount, ready, repository, snapshotReloadKey]);
+  }, [pendingCount, ready, repository, sets, snapshotReloadKey]);
 
   const summaries = useMemo(() => snapshot ? summariesOf(snapshot) : [], [snapshot]);
   const normalized = query.normalize('NFKC').trim().toLocaleLowerCase('ja-JP');
