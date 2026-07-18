@@ -63,14 +63,15 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
 
       try {
         await requestSync(true);
-        if (cancelled) return;
-        // 別端末の回答や取り消しが同期された場合、画面を開き直さなくても最新状態へ更新する。
-        const synced = await loadResult();
-        if (cancelled) return;
-        applyResult(synced);
       } catch {
-        // 結果表示は端末データで継続し、同期状態は暗記ホームで再確認できる。
+        // 同期要求自体の失敗だけは端末データで継続し、暗記ホームから再試行できる。
+        return;
       }
+      if (cancelled) return;
+      // 同期成功後の読込・状態判定は失敗を握り潰さず、古い完了画面を残さない。
+      const synced = await loadResult();
+      if (cancelled) return;
+      applyResult(synced);
     })().catch((caught) => {
       if (!cancelled) setLoadError(caught instanceof Error ? caught.message : '学習結果を読み込めませんでした');
     });
