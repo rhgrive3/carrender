@@ -114,12 +114,16 @@ function isVisibleFocusable(element: HTMLElement, root: HTMLElement) {
   return element.getClientRects().length > 0;
 }
 
+function getFocusableElements(root: HTMLElement) {
+  return [...root.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => isVisibleFocusable(element, root));
+}
+
 /** Tab / Shift+Tabを最前面モーダル内へ閉じ込める。 */
 export function trapModalTabKey(e: KeyboardEvent, root: HTMLElement) {
   if (e.key !== 'Tab') return;
-  const focusable = [...root.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
-  )].filter((element) => isVisibleFocusable(element, root));
+  const focusable = getFocusableElements(root);
   if (focusable.length === 0) {
     e.preventDefault();
     root.focus();
@@ -148,13 +152,19 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const backdropPointerRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const titleId = useId();
+  const dialogName = title?.trim() || '操作パネル';
 
   useEffect(() => {
     if (!open || !backdropRef.current) return;
     const restoreModalIsolation = acquireModalIsolation(backdropRef.current);
-    // フォーカスをシートへ移し、閉じたら開いた元のボタンへ戻す
+    // フォーカスを最初の操作要素へ移し、操作要素がなければシート本体へ移す。
     const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    sheetRef.current?.focus();
+    const frame = window.requestAnimationFrame(() => {
+      const sheet = sheetRef.current;
+      if (!sheet) return;
+      const firstFocusable = getFocusableElements(sheet)[0];
+      (firstFocusable ?? sheet).focus();
+    });
     const onKey = (e: KeyboardEvent) => {
       if (backdropRef.current?.hasAttribute('inert')) return;
       if (e.key === 'Escape') {
@@ -169,9 +179,13 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => {
+      window.cancelAnimationFrame(frame);
       window.removeEventListener('keydown', onKey);
       restoreModalIsolation();
-      prevFocus?.focus();
+      // 開いた元の要素が削除・非表示・inert化されている場合は、無効な場所へフォーカスを戻さない。
+      if (prevFocus?.isConnected && !prevFocus.closest('[inert], [hidden], [aria-hidden="true"]')) {
+        prevFocus.focus();
+      }
     };
   }, [open, onClose]);
 
@@ -199,11 +213,11 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         backdropPointerRef.current = null;
       }}
     >
-      <div className="sheet" ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : 'ダイアログ'}>
+      <div className="sheet" ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : dialogName}>
         <div className="sheet-grabber" aria-hidden="true" />
         <div className="sheet-title-row">
           {title && <h2 className="sheet-title" id={titleId}>{title}</h2>}
-          <button className="sheet-close" type="button" aria-label="閉じる" onClick={onClose}>
+          <button className="sheet-close" type="button" aria-label={`${dialogName}を閉じる`} onClick={onClose}>
             <X size={18} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
