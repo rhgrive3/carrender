@@ -44,21 +44,30 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
         return { loaded, rows, content };
       };
 
+      const applyResult = (result: Awaited<ReturnType<typeof loadResult>>) => {
+        if (result.loaded.status === 'active') {
+          navigate({ name: 'study', sessionId: result.loaded.id });
+          return false;
+        }
+        if (result.loaded.status !== 'completed') {
+          throw new Error('この学習セッションは終了済みです');
+        }
+        setSession(result.loaded);
+        setAttempts(result.rows);
+        setBundle(result.content);
+        return true;
+      };
+
       const initial = await loadResult();
-      if (cancelled) return;
-      setSession(initial.loaded);
-      setAttempts(initial.rows);
-      setBundle(initial.content);
+      if (cancelled || !applyResult(initial)) return;
 
       try {
         await requestSync(true);
         if (cancelled) return;
-        // 別端末の回答や取り消しが同期された場合、画面を開き直さなくても最新集計へ更新する。
+        // 別端末の回答や取り消しが同期された場合、画面を開き直さなくても最新状態へ更新する。
         const synced = await loadResult();
         if (cancelled) return;
-        setSession(synced.loaded);
-        setAttempts(synced.rows);
-        setBundle(synced.content);
+        applyResult(synced);
       } catch {
         // 結果表示は端末データで継続し、同期状態は暗記ホームで再確認できる。
       }
@@ -66,7 +75,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
       if (!cancelled) setLoadError(caught instanceof Error ? caught.message : '学習結果を読み込めませんでした');
     });
     return () => { cancelled = true; };
-  }, [reloadKey, repository, requestSync, sessionId]);
+  }, [navigate, reloadKey, repository, requestSync, sessionId]);
 
   const counts = useMemo(() => ({
     remembered: attempts.filter((attempt) => attempt.assessment === 'correct').length,
