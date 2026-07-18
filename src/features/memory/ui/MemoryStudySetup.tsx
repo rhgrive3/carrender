@@ -134,14 +134,14 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   };
 
   return (
-    <section className="memory-study-setup memory-simple-setup">
+    <section className="memory-study-setup memory-simple-setup" aria-busy={starting}>
       <div className="memory-page-header">
-        <button type="button" className="icon-btn" aria-label="暗記ホームへ戻る" onClick={() => navigate({ name: 'home' })}><ArrowLeft size={21} /></button>
+        <button type="button" className="icon-btn" aria-label="暗記ホームへ戻る" disabled={starting} onClick={() => navigate({ name: 'home' })}><ArrowLeft size={21} aria-hidden="true" /></button>
         <div><h2>学習設定</h2><p>必要な項目だけ選んで、すぐ始める</p></div>
       </div>
 
       <div className="card memory-setup-card">
-        <fieldset>
+        <fieldset disabled={starting}>
           <legend>セット</legend>
           <div className="memory-set-chips">
             {sets.map((set) => {
@@ -151,7 +151,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
           </div>
         </fieldset>
 
-        <fieldset>
+        <fieldset disabled={starting}>
           <legend>出題方向</legend>
           <div className="memory-simple-direction" role="radiogroup" aria-label="出題方向">
             <button type="button" role="radio" aria-checked={direction === 'output'} tabIndex={direction === 'output' ? 0 : -1} data-radio-value="output" className={direction === 'output' ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, DIRECTION_CHOICES, direction, setDirection)} onClick={() => setDirection('output')}><b>日本語 → 英語</b><span>英語を自力で思い出す</span></button>
@@ -159,7 +159,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
           </div>
         </fieldset>
 
-        <fieldset>
+        <fieldset disabled={starting}>
           <legend>問題数</legend>
           <div className="memory-option-grid three" role="radiogroup" aria-label="問題数">
             {COUNT_CHOICES.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={countChoice === value} tabIndex={countChoice === value ? 0 : -1} data-radio-value={value} className={countChoice === value ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, COUNT_CHOICES.map(([choice]) => choice), countChoice, setCountChoice)} onClick={() => setCountChoice(value)}>{label}</button>)}
@@ -170,14 +170,14 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
           {selectedSetIds.length === 0
             ? '学習するセットを選んでください'
             : eligibilityError
-              ? <span role="alert">カード件数を読み込めませんでした。<button type="button" className="btn btn-secondary" onClick={() => setEligibilityRetry((current) => current + 1)}>再読み込み</button></span>
+              ? <span role="alert">カード件数を読み込めませんでした。<button type="button" className="btn btn-secondary" disabled={starting} onClick={() => setEligibilityRetry((current) => current + 1)}>再読み込み</button></span>
               : !eligibilityReady
                 ? 'カード件数を確認中…'
                 : eligibleCount === 0
                   ? '出題できるカードがありません'
                   : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}
         </div>
-        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || !eligibilityReady || plannedCount === 0 || Boolean(eligibilityError)} onClick={() => void start()}><Play size={20} fill="currentColor" />{starting ? '準備中…' : '学習を始める'}</button>
+        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || !eligibilityReady || plannedCount === 0 || Boolean(eligibilityError)} aria-busy={starting} onClick={() => void start()}><Play size={20} fill="currentColor" aria-hidden="true" />{starting ? '準備中…' : '学習を始める'}</button>
       </div>
     </section>
   );
