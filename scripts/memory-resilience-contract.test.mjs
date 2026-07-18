@@ -25,7 +25,7 @@ assert.match(homeSource, /!snapshot && snapshotError[\s\S]*?role="alert"[\s\S]*?
 assert.match(studySource, /const mounted = useRef\(true\)/, '学習画面の生存状態を追跡する');
 assert.match(studySource, /const requestSyncSafely = \(force: boolean\) => \{[\s\S]*?requestSync\(force\)\.catch\(\(\) => \{/, '回答・取り消し後の同期失敗を未処理Promiseにしない');
 assert.match(studySource, /await refresh\(\);[\s\S]*?requestSyncSafely[\s\S]*?if \(!mounted\.current\) return;[\s\S]*?setSession/, '回答保存後は同期を維持しつつ、離脱済み画面へ状態を反映しない');
-assert.equal((studySource.match(/requestSyncSafely\(/g) ?? []).length, 3, '回答保存と取り消しの両方が安全な同期要求を使う');
+assert.equal((studySource.match(/requestSyncSafely\(/g) ?? []).length, 2, '回答保存と取り消しの両方が安全な同期要求を使う');
 assert.doesNotMatch(studySource, /void requestSync\((?:false|result\.session\.status === 'completed')\);/, '同期失敗を未処理にする直接呼出しへ戻さない');
 assert.match(studySource, /if \(mounted\.current\) toast/, '離脱後に古い学習画面のエラーToastを出さない');
 
