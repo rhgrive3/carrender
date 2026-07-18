@@ -90,7 +90,11 @@ export function MemoryHome() {
         selectedSetIds: [summary.set.id],
         config: { questionCount: { type: 'weak', count: 10 }, direction: 'output', includeUnverifiedAi: false, preferredExerciseType: 'flashcard' },
       });
-      await refresh();
+      try {
+        await refresh();
+      } catch (caught) {
+        console.error('暗記学習開始後の一覧更新に失敗しました', caught);
+      }
       navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) { toast(caught instanceof Error ? caught.message : '学習を開始できませんでした'); }
     finally {
