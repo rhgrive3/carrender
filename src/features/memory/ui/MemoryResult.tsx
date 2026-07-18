@@ -29,19 +29,34 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     setBundle(undefined);
     setLoadError(undefined);
     void (async () => {
-      const loaded = await repository.getSession(sessionId);
-      if (!loaded) throw new Error('学習結果が見つかりません');
-      const [rows, content] = await Promise.all([
-        repository.getSessionAttempts(sessionId),
-        repository.loadSetBundle(loaded.selectedSetIds),
-      ]);
+      const loadResult = async () => {
+        const loaded = await repository.getSession(sessionId);
+        if (!loaded) throw new Error('学習結果が見つかりません');
+        const [rows, content] = await Promise.all([
+          repository.getSessionAttempts(sessionId),
+          repository.loadSetBundle(loaded.selectedSetIds),
+        ]);
+        return { loaded, rows, content };
+      };
+
+      const initial = await loadResult();
       if (cancelled) return;
-      setSession(loaded);
-      setAttempts(rows);
-      setBundle(content);
-      void requestSync(true).catch(() => {
+      setSession(initial.loaded);
+      setAttempts(initial.rows);
+      setBundle(initial.content);
+
+      try {
+        await requestSync(true);
+        if (cancelled) return;
+        // 別端末の回答や取り消しが同期された場合、画面を開き直さなくても最新集計へ更新する。
+        const synced = await loadResult();
+        if (cancelled) return;
+        setSession(synced.loaded);
+        setAttempts(synced.rows);
+        setBundle(synced.content);
+      } catch {
         // 結果表示は端末データで継続し、同期状態は暗記ホームで再確認できる。
-      });
+      }
     })().catch((caught) => {
       if (!cancelled) setLoadError(caught instanceof Error ? caught.message : '学習結果を読み込めませんでした');
     });
