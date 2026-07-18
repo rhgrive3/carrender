@@ -21,21 +21,24 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [actionBusy, setActionBusy] = useState(false);
   const actionInFlightRef = useRef(false);
+  const actionTokenRef = useRef(0);
+  const activeSetIdRef = useRef(setId);
 
-  const reload = async () => {
+  const reload = async (shouldApply: () => boolean = () => true) => {
     if (!repository) return;
     const next = await repository.loadSetBundle([setId]);
     if (!next.sets[0]) throw new Error('暗記セットが見つかりません');
     const nextStats = await repository.getStats(new Set(next.senses.map((sense) => sense.id)));
+    if (!shouldApply()) return;
     setBundle(next);
     setStats(nextStats);
   };
 
-  const refreshAfterMutation = async (label: string) => {
-    const [detailResult, contextResult] = await Promise.allSettled([reload(), refresh()]);
+  const refreshAfterMutation = async (label: string, isCurrent: () => boolean) => {
+    const [detailResult, contextResult] = await Promise.allSettled([reload(isCurrent), refresh()]);
     if (detailResult.status === 'rejected') {
       console.error(`${label}後のセット再読込に失敗しました`, detailResult.reason);
-      setReloadKey((value) => value + 1);
+      if (isCurrent()) setReloadKey((value) => value + 1);
     }
     if (contextResult.status === 'rejected') {
       console.error(`${label}後の暗記一覧更新に失敗しました`, contextResult.reason);
@@ -67,6 +70,8 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   }, [reloadKey, repository, setId]);
 
   useEffect(() => {
+    activeSetIdRef.current = setId;
+    actionTokenRef.current += 1;
     actionInFlightRef.current = false;
     setActionBusy(false);
   }, [setId]);
@@ -92,17 +97,22 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   const filtered = normalizeSearchText(query) ? rows.filter((row) => row.search.includes(normalizeSearchText(query))) : rows;
   const set = bundle?.sets[0];
 
-  const runAction = async (operation: () => Promise<void>, fallback: string) => {
+  const runAction = async (operation: (isCurrent: () => boolean) => Promise<void>, fallback: string) => {
     if (actionInFlightRef.current) return;
     actionInFlightRef.current = true;
+    const actionSetId = setId;
+    const actionToken = ++actionTokenRef.current;
+    const isCurrent = () => activeSetIdRef.current === actionSetId && actionTokenRef.current === actionToken;
     setActionBusy(true);
     try {
-      await operation();
+      await operation(isCurrent);
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : fallback);
+      if (isCurrent()) toast(caught instanceof Error ? caught.message : fallback);
     } finally {
-      actionInFlightRef.current = false;
-      setActionBusy(false);
+      if (isCurrent()) {
+        actionInFlightRef.current = false;
+        setActionBusy(false);
+      }
     }
   };
 
@@ -110,20 +120,20 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     if (!repository || !window.confirm('このカードをセットから外しますか？')) return;
     const member = bundle?.setMembers.find((value) => value.itemId === itemId);
     if (!member) return;
-    await runAction(async () => {
+    await runAction(async (isCurrent) => {
       await repository.saveSetMember({ ...member, deletedAt: new Date().toISOString() });
-      await refreshAfterMutation('カード除外');
+      await refreshAfterMutation('カード除外', isCurrent);
       requestSyncSafely();
     }, 'カードをセットから外せませんでした');
   };
 
   const verifyItem = async (itemId: string) => {
     if (!repository || !window.confirm('この内容を確認済みにして通常学習へ含めますか？')) return;
-    await runAction(async () => {
+    await runAction(async (isCurrent) => {
       const count = await verifyMemoryItem(repository, itemId);
-      await refreshAfterMutation('確認済み化');
+      await refreshAfterMutation('確認済み化', isCurrent);
       requestSyncSafely();
-      toast(`${count}件を確認済みにしました`);
+      if (isCurrent()) toast(`${count}件を確認済みにしました`);
     }, '内容を確認済みにできませんでした');
   };
 
@@ -136,17 +146,17 @@ export function MemorySetDetail({ setId }: { setId: string }) {
 
   const saveSetEdit = async () => {
     if (!repository || !set || !setName.trim()) return;
-    await runAction(async () => {
+    await runAction(async (isCurrent) => {
       await updateMemorySet(repository, set, { name: setName, description: setDescription, tags: set.tags });
-      setEditingSet(false);
-      await refreshAfterMutation('セット更新');
+      if (isCurrent()) setEditingSet(false);
+      await refreshAfterMutation('セット更新', isCurrent);
       requestSyncSafely();
     }, '暗記セットを更新できませんでした');
   };
 
   const removeSet = async () => {
     if (!repository || !set || !window.confirm('このセットを削除しますか？カード本体と成績は残ります。')) return;
-    await runAction(async () => {
+    await runAction(async (isCurrent) => {
       await deleteMemorySet(repository, set);
       try {
         await refresh();
@@ -154,7 +164,7 @@ export function MemorySetDetail({ setId }: { setId: string }) {
         console.error('暗記セット削除後の一覧更新に失敗しました', caught);
       }
       requestSyncSafely();
-      navigate({ name: 'home' });
+      if (isCurrent()) navigate({ name: 'home' });
     }, '暗記セットを削除できませんでした');
   };
 
