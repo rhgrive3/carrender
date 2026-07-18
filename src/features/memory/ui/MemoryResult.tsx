@@ -15,6 +15,8 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   const [loadError, setLoadError] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
   const mounted = useRef(true);
+  const activeSessionId = useRef(sessionId);
+  activeSessionId.current = sessionId;
 
   useEffect(() => {
     mounted.current = true;
@@ -28,6 +30,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     setAttempts([]);
     setBundle(undefined);
     setLoadError(undefined);
+    setUndoing(false);
     void (async () => {
       const loadResult = async () => {
         const loaded = await repository.getSession(sessionId);
@@ -82,11 +85,12 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
 
   const undoLast = async () => {
     if (!repository || !session || undoing) return;
+    const actionSessionId = session.id;
     setUndoing(true);
     try {
       const restored = await undoMemoryAnswer(repository, session);
       if (!restored) {
-        if (mounted.current) toast('取り消せる回答はありません');
+        if (mounted.current && activeSessionId.current === actionSessionId) toast('取り消せる回答はありません');
         return;
       }
       // 取り消しはIndexedDBへ保存済みなので、結果画面を離れた後も集計更新と
@@ -95,12 +99,14 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
       void requestSync(true).catch(() => {
         // 取り消し結果は端末へ保存済み。同期失敗は次回の自動同期へ委ねる。
       });
-      if (!mounted.current) return;
+      if (!mounted.current || activeSessionId.current !== actionSessionId) return;
       navigate({ name: 'study', sessionId: restored.session.id });
     } catch (caught) {
-      if (mounted.current) toast(caught instanceof Error ? caught.message : '回答を取り消せませんでした');
+      if (mounted.current && activeSessionId.current === actionSessionId) {
+        toast(caught instanceof Error ? caught.message : '回答を取り消せませんでした');
+      }
     } finally {
-      if (mounted.current) setUndoing(false);
+      if (mounted.current && activeSessionId.current === actionSessionId) setUndoing(false);
     }
   };
 
