@@ -86,7 +86,11 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         preferredExerciseType: 'flashcard',
       };
       const created = await createSimpleStudySession({ repository, selectedSetIds, config });
-      await refresh();
+      try {
+        await refresh();
+      } catch (caught) {
+        console.error('Failed to refresh memory state after creating a study session', caught);
+      }
       navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
