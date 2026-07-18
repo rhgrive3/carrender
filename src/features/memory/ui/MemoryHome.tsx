@@ -162,7 +162,7 @@ export function MemoryHome() {
                   <div><h3>{summary.set.name}</h3><p>{summary.cards}カード</p></div>
                   <div className="memory-simple-metrics"><span><b>{summary.weak}</b><small>苦手</small></span><span><b>{summary.newCount}</b><small>未学習</small></span></div>
                   <div className="memory-simple-set-actions">
-                    <button type="button" className="btn btn-primary" disabled={startingSetId === summary.set.id || summary.eligible === 0} onClick={() => void start(summary)}><Play size={18} fill="currentColor" />{startingSetId === summary.set.id ? '準備中…' : summary.eligible === 0 ? '出題できるカードなし' : '10問始める'}</button>
+                    <button type="button" className="btn btn-primary" disabled={startingSetId !== undefined || summary.eligible === 0} aria-busy={startingSetId === summary.set.id} onClick={() => void start(summary)}><Play size={18} fill="currentColor" aria-hidden="true" />{startingSetId === summary.set.id ? '準備中…' : summary.eligible === 0 ? '出題できるカードなし' : '10問始める'}</button>
                     <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'set', setId: summary.set.id })}>カードを見る</button>
                     <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'studySetup', setIds: [summary.set.id] })}>設定</button>
                   </div>
