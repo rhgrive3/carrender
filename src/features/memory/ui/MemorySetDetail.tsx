@@ -30,6 +30,21 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     setStats(nextStats);
   };
 
+  const refreshAfterMutation = async (label: string) => {
+    const [detailResult, contextResult] = await Promise.allSettled([reload(), refresh()]);
+    if (detailResult.status === 'rejected') {
+      console.error(`${label}後のセット再読込に失敗しました`, detailResult.reason);
+      setReloadKey((value) => value + 1);
+    }
+    if (contextResult.status === 'rejected') {
+      console.error(`${label}後の暗記一覧更新に失敗しました`, contextResult.reason);
+    }
+  };
+
+  const requestSyncSafely = () => {
+    void requestSync(true).catch(() => undefined);
+  };
+
   useEffect(() => {
     if (!repository) return;
     let cancelled = false;
@@ -89,8 +104,8 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     if (!member) return;
     await runAction(async () => {
       await repository.saveSetMember({ ...member, deletedAt: new Date().toISOString() });
-      await Promise.all([reload(), refresh()]);
-      void requestSync(true);
+      await refreshAfterMutation('カード除外');
+      requestSyncSafely();
     }, 'カードをセットから外せませんでした');
   };
 
@@ -98,8 +113,8 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     if (!repository || !window.confirm('この内容を確認済みにして通常学習へ含めますか？')) return;
     await runAction(async () => {
       const count = await verifyMemoryItem(repository, itemId);
-      await Promise.all([reload(), refresh()]);
-      void requestSync(true);
+      await refreshAfterMutation('確認済み化');
+      requestSyncSafely();
       toast(`${count}件を確認済みにしました`);
     }, '内容を確認済みにできませんでした');
   };
@@ -116,8 +131,8 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     await runAction(async () => {
       await updateMemorySet(repository, set, { name: setName, description: setDescription, tags: set.tags });
       setEditingSet(false);
-      await Promise.all([reload(), refresh()]);
-      void requestSync(true);
+      await refreshAfterMutation('セット更新');
+      requestSyncSafely();
     }, '暗記セットを更新できませんでした');
   };
 
@@ -125,8 +140,12 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     if (!repository || !set || !window.confirm('このセットを削除しますか？カード本体と成績は残ります。')) return;
     await runAction(async () => {
       await deleteMemorySet(repository, set);
-      await refresh();
-      void requestSync(true);
+      try {
+        await refresh();
+      } catch (caught) {
+        console.error('暗記セット削除後の一覧更新に失敗しました', caught);
+      }
+      requestSyncSafely();
       navigate({ name: 'home' });
     }, '暗記セットを削除できませんでした');
   };
