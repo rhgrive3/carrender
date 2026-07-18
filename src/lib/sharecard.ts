@@ -8,9 +8,18 @@ import { addDays, diffDays, formatMinutes } from './date';
 
 const W = 1080;
 const H = 1350;
+const SHARE_BUTTON_SELECTOR = 'button[aria-label="今日の記録をシェア画像にする"], button[aria-label="シェア画像を生成中"]';
 
 type ShareStudyCardResult = 'shared' | 'downloaded' | 'cancelled' | 'failed';
 let shareInFlight: Promise<ShareStudyCardResult> | null = null;
+
+function setShareButtonBusy(busy: boolean) {
+  for (const button of document.querySelectorAll<HTMLButtonElement>(SHARE_BUTTON_SELECTOR)) {
+    button.disabled = busy;
+    button.setAttribute('aria-busy', String(busy));
+    button.setAttribute('aria-label', busy ? 'シェア画像を生成中' : '今日の記録をシェア画像にする');
+  }
+}
 
 function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
@@ -41,7 +50,7 @@ function buildShareCard(state: AppState, ref: ISODate): Blob | null {
   let streak = 0;
   {
     let d = ref;
-    if (!minutesByDate.has(d)) d = addDays(d, -1);
+    if ((minutesByDate.get(d) ?? 0) <= 0) d = addDays(d, -1);
     while ((minutesByDate.get(d) ?? 0) > 0) {
       streak++;
       d = addDays(d, -1);
@@ -180,8 +189,10 @@ async function performShareStudyCard(state: AppState, ref: ISODate): Promise<Sha
 export function shareStudyCard(state: AppState, ref: ISODate): Promise<ShareStudyCardResult> {
   // 共有シート表示中の連打でCanvas生成や共有要求を重複させず、進行中の結果を共有する。
   if (shareInFlight) return shareInFlight;
+  setShareButtonBusy(true);
   shareInFlight = performShareStudyCard(state, ref).finally(() => {
     shareInFlight = null;
+    setShareButtonBusy(false);
   });
   return shareInFlight;
 }
