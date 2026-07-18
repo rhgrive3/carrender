@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowLeft, Play } from 'lucide-react';
 import type { MemoryQuestionCount, MemorySessionConfig } from '../domain/types';
 import { generateLearningTargets, resolveQuestionCount } from '../domain/targets';
@@ -56,6 +56,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   const [eligibilityError, setEligibilityError] = useState<string>();
   const [eligibilityRetry, setEligibilityRetry] = useState(0);
   const [starting, setStarting] = useState(false);
+  const startInFlight = useRef(false);
 
   useEffect(() => {
     if (!ready) return;
@@ -107,7 +108,8 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   );
 
   const start = async () => {
-    if (!repository || starting || !eligibilityReady || plannedCount === 0 || eligibilityError) return;
+    if (!repository || startInFlight.current || !eligibilityReady || plannedCount === 0 || eligibilityError) return;
+    startInFlight.current = true;
     setStarting(true);
     try {
       const config: MemorySessionConfig = {
@@ -126,6 +128,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
     } finally {
+      startInFlight.current = false;
       setStarting(false);
     }
   };
