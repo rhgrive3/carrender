@@ -10,7 +10,7 @@ import { useMemory } from './MemoryContext';
 import { MemoryDialog } from './MemoryDialog';
 import { MemoryConflictsDialog } from './MemoryConflictsDialog';
 
-interface SetSummary { set: MemorySet; cards: number; weak: number; newCount: number }
+interface SetSummary { set: MemorySet; cards: number; eligible: number; weak: number; newCount: number }
 
 function summariesOf(snapshot: MemoryLocalSnapshot): SetSummary[] {
   return snapshot.sets.map((set) => {
@@ -19,7 +19,7 @@ function summariesOf(snapshot: MemoryLocalSnapshot): SetSummary[] {
     const targets = generateLearningTargets({ content: snapshot, setMembers: snapshot.setMembers, selectedSetIds: [set.id], direction: 'output', includeUnverifiedAi: false })
       .filter((target) => !target.exerciseId && target.mode === 'output');
     const summary = summarizeLearningTargetStats(targets, snapshot.stats);
-    return { set, cards, weak: summary.weakSenseCount, newCount: summary.unattemptedSenseCount };
+    return { set, cards, eligible: targets.length, weak: summary.weakSenseCount, newCount: summary.unattemptedSenseCount };
   });
 }
 
@@ -73,7 +73,7 @@ export function MemoryHome() {
   const filtered = summaries.filter(({ set }) => !normalized || set.name.normalize('NFKC').toLocaleLowerCase('ja-JP').includes(normalized));
 
   const start = async (summary: SetSummary) => {
-    if (!repository || startingSetId || summary.cards === 0) return;
+    if (!repository || startingSetId || summary.eligible === 0) return;
     setStartingSetId(summary.set.id);
     try {
       const created = await createSimpleStudySession({
@@ -146,7 +146,7 @@ export function MemoryHome() {
                   <div><h3>{summary.set.name}</h3><p>{summary.cards}カード</p></div>
                   <div className="memory-simple-metrics"><span><b>{summary.weak}</b><small>苦手</small></span><span><b>{summary.newCount}</b><small>未学習</small></span></div>
                   <div className="memory-simple-set-actions">
-                    <button type="button" className="btn btn-primary" disabled={startingSetId === summary.set.id || summary.cards === 0} onClick={() => void start(summary)}><Play size={18} fill="currentColor" />{startingSetId === summary.set.id ? '準備中…' : '10問始める'}</button>
+                    <button type="button" className="btn btn-primary" disabled={startingSetId === summary.set.id || summary.eligible === 0} onClick={() => void start(summary)}><Play size={18} fill="currentColor" />{startingSetId === summary.set.id ? '準備中…' : summary.eligible === 0 ? '出題できるカードなし' : '10問始める'}</button>
                     <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'set', setId: summary.set.id })}>カードを見る</button>
                     <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'studySetup', setIds: [summary.set.id] })}>設定</button>
                   </div>
