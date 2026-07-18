@@ -35,7 +35,9 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const pointerStartX = useRef<number | null>(null);
   const ignoreNextClick = useRef(false);
   const mounted = useRef(true);
+  const activeSessionId = useRef(sessionId);
   const actionInFlight = useRef(false);
+  activeSessionId.current = sessionId;
 
   useEffect(() => {
     mounted.current = true;
@@ -113,6 +115,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
 
   const commit = async (assessment: 'correct' | 'partial' | 'incorrect') => {
     if (!repository || !session || !target || !beginAction()) return;
+    const actionSessionId = session.id;
     try {
       const result = await answerMemoryQuestion({
         repository,
@@ -126,16 +129,18 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       });
       await refresh();
       requestSyncSafely(result.session.status === 'completed');
-      // 保存中に利用者が暗記ホームへ戻った場合、完了後に古い学習画面へ
-      // 勝手に遷移させない。IndexedDBへの回答保存と同期要求はそのまま維持する。
-      if (!mounted.current) return;
+      // 保存中に利用者が暗記ホームや別セッションへ移動した場合、完了後に古い学習画面へ
+      // 勝手に状態反映・遷移させない。IndexedDBへの回答保存と同期要求はそのまま維持する。
+      if (!mounted.current || activeSessionId.current !== actionSessionId) return;
       setRevealed(false);
       setFlipDirection(undefined);
       questionStarted.current = performance.now();
       setSession(result.session);
       if (result.session.status === 'completed') navigate({ name: 'result', sessionId: result.session.id });
     } catch (caught) {
-      if (mounted.current) toast(caught instanceof Error ? caught.message : '回答を保存できませんでした');
+      if (mounted.current && activeSessionId.current === actionSessionId) {
+        toast(caught instanceof Error ? caught.message : '回答を保存できませんでした');
+      }
     } finally {
       finishAction();
     }
@@ -143,23 +148,26 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
 
   const undo = async () => {
     if (!repository || !session || !beginAction()) return;
+    const actionSessionId = session.id;
     try {
       const restored = await undoMemoryAnswer(repository, session);
       if (!restored) {
-        if (mounted.current) toast('取り消せる回答はありません');
+        if (mounted.current && activeSessionId.current === actionSessionId) toast('取り消せる回答はありません');
         return;
       }
       // 取り消し自体は既にIndexedDBへ保存済み。画面を閉じた直後でも、
       // Contextの集計更新と端末間同期は最後まで要求する。
       await refresh();
       requestSyncSafely(false);
-      if (!mounted.current) return;
+      if (!mounted.current || activeSessionId.current !== actionSessionId) return;
       setRevealed(false);
       setFlipDirection(undefined);
       setSession(restored.session);
       toast('最後の回答を取り消しました');
     } catch (caught) {
-      if (mounted.current) toast(caught instanceof Error ? caught.message : '回答の取り消しを保存できませんでした');
+      if (mounted.current && activeSessionId.current === actionSessionId) {
+        toast(caught instanceof Error ? caught.message : '回答の取り消しを保存できませんでした');
+      }
     } finally {
       finishAction();
     }
