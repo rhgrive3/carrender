@@ -45,8 +45,8 @@ assert.match(
 );
 assert.match(
   source,
-  /useLayoutEffect\(\(\) => \{[\s\S]*activeSetIdRef\.current = setId;[\s\S]*actionTokenRef\.current \+= 1;[\s\S]*setBundle\(null\);[\s\S]*setEditingSet\(false\);[\s\S]*\}, \[setId\]\)/u,
-  'セット切替時はブラウザ描画前に旧セット表示・編集状態・操作トークンを無効化する',
+  /useLayoutEffect\(\(\) => \{[\s\S]*activeSetIdRef\.current = setId;[\s\S]*actionTokenRef\.current \+= 1;[\s\S]*setBundle\(null\);[\s\S]*setEditingSet\(false\);[\s\S]*return \(\) => \{[\s\S]*activeSetIdRef\.current = '';[\s\S]*actionTokenRef\.current \+= 1;[\s\S]*actionInFlightRef\.current = false;[\s\S]*\};[\s\S]*\}, \[setId\]\)/u,
+  'セット切替・画面離脱時は旧表示と操作トークンを無効化し、完了後の通知や遷移を抑止する',
 );
 assert.match(
   source,
@@ -61,7 +61,7 @@ assert.match(
 assert.match(
   source,
   /if \(isCurrent\(\)\) toast\(caught instanceof Error \? caught\.message : fallback\)/u,
-  '古い操作の失敗通知を新しいセットへ表示しない',
+  '古い操作の失敗通知を新しいセットや離脱後の画面へ表示しない',
 );
 assert.match(
   source,

@@ -58,6 +58,11 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     setStats([]);
     setLoadError(undefined);
     setEditingSet(false);
+    return () => {
+      activeSetIdRef.current = '';
+      actionTokenRef.current += 1;
+      actionInFlightRef.current = false;
+    };
   }, [setId]);
 
   useLayoutEffect(() => {
