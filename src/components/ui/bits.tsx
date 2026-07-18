@@ -221,16 +221,33 @@ export function Segmented<T extends string>({
   onChange: (v: T) => void;
   ariaLabel: string;
 }) {
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % options.length;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + options.length) % options.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = options.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const next = options[nextIndex];
+    onChange(next.value);
+    const target = event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-segment-value="${next.value}"]`);
+    target?.focus();
+  };
+
   return (
-    <div className="segmented" role="radiogroup" aria-label={ariaLabel}>
-      {options.map((o) => (
+    <div className="segmented" role="radiogroup" aria-label={ariaLabel} aria-orientation="horizontal">
+      {options.map((o, index) => (
         <button
           key={o.value}
           type="button"
           role="radio"
+          data-segment-value={o.value}
           aria-checked={value === o.value}
+          tabIndex={value === o.value ? 0 : -1}
           className={value === o.value ? 'active' : ''}
           onClick={() => onChange(o.value)}
+          onKeyDown={(event) => handleKeyDown(event, index)}
         >
           {o.label}
         </button>
