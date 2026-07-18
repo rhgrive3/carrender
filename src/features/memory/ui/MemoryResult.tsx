@@ -55,6 +55,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   }), [attempts]);
 
   // 旧端末データや競合解決後に同じtargetIdが重複していても、結果画面では1件として扱う。
+  const initialTargetCount = new Set(session?.initialTargetIds ?? []).size;
   const needsReview = [...new Set(session?.needsReviewTargetIds ?? [])].map((targetId) => {
     const attempt = [...attempts].reverse().find((value) => value.targetId === targetId);
     return {
@@ -119,7 +120,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
       <div className="memory-result-hero">
         <span aria-hidden="true">✓</span>
         <h2 id="memory-result-title">学習完了</h2>
-        <p id="memory-result-summary">カード {session.initialTargetIds.length}件・回答 {attempts.length}回</p>
+        <p id="memory-result-summary">カード {initialTargetCount}件・回答 {attempts.length}回</p>
       </div>
 
       <div className="memory-simple-result-grid" role="list" aria-label="学習結果の集計">
