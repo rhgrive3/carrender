@@ -63,12 +63,20 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       const targets = Object.values(restoredQueue.targetsById);
       if (targets.some((target) => target.exerciseId || (target.mode !== 'input' && target.mode !== 'output'))) {
         await repository.saveSession({ ...loaded, status: 'abandoned', updatedAt: new Date().toISOString() });
-        await refresh();
+        try {
+          await refresh();
+        } catch (caught) {
+          console.warn('旧形式の暗記セッション終了後に一覧を更新できませんでした', caught);
+        }
         throw new Error('旧形式の問題セッションは廃止されました。新しいカード学習を開始してください');
       }
       if (!sessionContentIsRestorable(content, targets, false)) {
         await repository.saveSession({ ...loaded, status: 'abandoned', updatedAt: new Date().toISOString() });
-        await refresh();
+        try {
+          await refresh();
+        } catch (caught) {
+          console.warn('復元不能な暗記セッション終了後に一覧を更新できませんでした', caught);
+        }
         throw new Error('学習中のカードが編集または削除されました。新しい学習を開始してください');
       }
       if (!cancelled) {
