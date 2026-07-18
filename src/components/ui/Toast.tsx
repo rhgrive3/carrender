@@ -41,6 +41,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const dismiss = useCallback(() => setQueue({ type: 'advance' }), []);
   const active = queue.active;
+  const titleId = active ? `${active.id}-title` : undefined;
+  const detailId = active ? `${active.id}-detail` : undefined;
 
   useEffect(() => {
     setExpanded(false);
@@ -63,6 +65,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             role={active.tone === 'error' ? 'alert' : 'status'}
             aria-live={active.tone === 'error' ? 'assertive' : 'polite'}
             aria-atomic="true"
+            aria-labelledby={titleId}
+            aria-describedby={expanded && active.detail ? detailId : undefined}
             onMouseEnter={() => setPaused(true)}
             onMouseLeave={() => setPaused(false)}
             onFocusCapture={() => setPaused(true)}
@@ -74,11 +78,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <ToneIcon tone={active.tone} />
             </span>
             <div className="app-toast-body">
-              <div className="app-toast-title">{active.title}</div>
-              {expanded && active.detail && <div className="app-toast-detail">{active.detail}</div>}
-              <div className="app-toast-controls">
+              <div id={titleId} className="app-toast-title">{active.title}</div>
+              {expanded && active.detail && <div id={detailId} className="app-toast-detail">{active.detail}</div>}
+              <div className="app-toast-controls" role="group" aria-label={`${active.title}の操作`}>
                 {active.detail && (
-                  <button type="button" className="app-toast-link" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
+                  <button
+                    type="button"
+                    className="app-toast-link"
+                    onClick={() => setExpanded((value) => !value)}
+                    aria-expanded={expanded}
+                    aria-controls={detailId}
+                  >
                     {expanded ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
                     {expanded ? '詳細を閉じる' : '詳細'}
                   </button>
@@ -98,10 +108,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                     {active.action.label}
                   </button>
                 )}
-                {queue.queued.length > 0 && <span className="app-toast-queue-count">あと{queue.queued.length}件</span>}
+                {queue.queued.length > 0 && <span className="app-toast-queue-count" aria-label={`待機中の通知 ${queue.queued.length}件`}>あと{queue.queued.length}件</span>}
               </div>
             </div>
-            <button type="button" className="app-toast-close" aria-label="通知を閉じる" onClick={dismiss}>
+            <button type="button" className="app-toast-close" aria-label={`${active.title}の通知を閉じる`} onClick={dismiss}>
               <X size={16} strokeWidth={2.3} aria-hidden="true" />
             </button>
           </section>
