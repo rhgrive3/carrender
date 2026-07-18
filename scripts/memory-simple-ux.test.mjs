@@ -31,6 +31,10 @@ assert.match(setup, /if \(!ready\) return;[\s\S]*availableSetIds[\s\S]*current\.
 assert.match(setup, /eligibilityRetry[\s\S]*repository\.loadSetBundle[\s\S]*\[direction, eligibilityKey, eligibilityRetry, repository, selectedSetIds\]/u, 'カード件数の再読み込みで同じセットを再取得する');
 assert.match(setup, /カード件数を読み込めませんでした。[\s\S]*setEligibilityRetry\(\(current\) => current \+ 1\)[\s\S]*再読み込み/u, 'カード件数の読込失敗から直接再試行できる');
 assert.doesNotMatch(setup, /セットを選び直してください/u, '再試行のためにセット選択のやり直しを強制しない');
+assert.match(setup, /handleRadioKeyDown[\s\S]*ArrowLeft[\s\S]*ArrowRight[\s\S]*ArrowUp[\s\S]*ArrowDown[\s\S]*Home[\s\S]*End/u, 'ラジオ選択を矢印・Home・Endキーで操作できる');
+assert.match(setup, /tabIndex=\{direction === 'output' \? 0 : -1\}[\s\S]*tabIndex=\{direction === 'input' \? 0 : -1\}/u, '出題方向は選択中の項目だけをTab移動対象にする');
+assert.match(setup, /tabIndex=\{countChoice === value \? 0 : -1\}/u, '問題数は選択中の項目だけをTab移動対象にする');
+assert.match(setup, /requestAnimationFrame[\s\S]*data-radio-value/u, 'キー操作後に新しい選択項目へフォーカスを移す');
 assert.match(setup, /const created = await createSimpleStudySession[\s\S]*try \{[\s\S]*await refresh\(\);[\s\S]*\} catch \(caught\) \{[\s\S]*console\.error[\s\S]*\}[\s\S]*navigate\(\{ name: 'study', sessionId: created\.session\.id \}\)/u, 'セッション作成後の一覧更新失敗で学習画面への遷移を止めない');
 assert.doesNotMatch(setup, /const created = await createSimpleStudySession[^;]*;\s*await refresh\(\);\s*navigate\(\{ name: 'study'/u, '一覧更新をセッション作成全体の成功条件へ戻さない');
 assert.doesNotMatch(setup, /文中で使う|ミックス|AI未確認|回答方式/u, '学習設定から不要な選択肢を削除する');

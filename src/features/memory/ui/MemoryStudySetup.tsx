@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { ArrowLeft, Play } from 'lucide-react';
 import type { MemoryQuestionCount, MemorySessionConfig } from '../domain/types';
 import { generateLearningTargets, resolveQuestionCount } from '../domain/targets';
@@ -9,10 +9,40 @@ import { useMemory } from './MemoryContext';
 type CountChoice = 'weak10' | '20' | 'all';
 type DirectionChoice = 'output' | 'input';
 
+const DIRECTION_CHOICES = ['output', 'input'] as const;
+const COUNT_CHOICES = [
+  ['weak10', '苦手中心 10問'],
+  ['20', '20問'],
+  ['all', '全部'],
+] as const;
+
 function questionCount(choice: CountChoice): MemoryQuestionCount {
   if (choice === '20') return { type: 'count', count: 20 };
   if (choice === 'all') return { type: 'all' };
   return { type: 'weak', count: 10 };
+}
+
+function handleRadioKeyDown<T extends string>(
+  event: KeyboardEvent<HTMLButtonElement>,
+  choices: readonly T[],
+  current: T,
+  select: (value: T) => void,
+) {
+  const key = event.key;
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(key)) return;
+  event.preventDefault();
+  const currentIndex = Math.max(0, choices.indexOf(current));
+  const nextIndex = key === 'Home'
+    ? 0
+    : key === 'End'
+      ? choices.length - 1
+      : (currentIndex + (key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : 1) + choices.length) % choices.length;
+  const next = choices[nextIndex];
+  const group = event.currentTarget.parentElement;
+  select(next);
+  requestAnimationFrame(() => {
+    group?.querySelector<HTMLButtonElement>(`[data-radio-value="${next}"]`)?.focus();
+  });
 }
 
 export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] }) {
@@ -121,15 +151,15 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         <fieldset>
           <legend>出題方向</legend>
           <div className="memory-simple-direction" role="radiogroup" aria-label="出題方向">
-            <button type="button" role="radio" aria-checked={direction === 'output'} className={direction === 'output' ? 'active' : ''} onClick={() => setDirection('output')}><b>日本語 → 英語</b><span>英語を自力で思い出す</span></button>
-            <button type="button" role="radio" aria-checked={direction === 'input'} className={direction === 'input' ? 'active' : ''} onClick={() => setDirection('input')}><b>英語 → 日本語</b><span>意味を確認する</span></button>
+            <button type="button" role="radio" aria-checked={direction === 'output'} tabIndex={direction === 'output' ? 0 : -1} data-radio-value="output" className={direction === 'output' ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, DIRECTION_CHOICES, direction, setDirection)} onClick={() => setDirection('output')}><b>日本語 → 英語</b><span>英語を自力で思い出す</span></button>
+            <button type="button" role="radio" aria-checked={direction === 'input'} tabIndex={direction === 'input' ? 0 : -1} data-radio-value="input" className={direction === 'input' ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, DIRECTION_CHOICES, direction, setDirection)} onClick={() => setDirection('input')}><b>英語 → 日本語</b><span>意味を確認する</span></button>
           </div>
         </fieldset>
 
         <fieldset>
           <legend>問題数</legend>
           <div className="memory-option-grid three" role="radiogroup" aria-label="問題数">
-            {([['weak10', '苦手中心 10問'], ['20', '20問'], ['all', '全部']] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={countChoice === value} className={countChoice === value ? 'active' : ''} onClick={() => setCountChoice(value)}>{label}</button>)}
+            {COUNT_CHOICES.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={countChoice === value} tabIndex={countChoice === value ? 0 : -1} data-radio-value={value} className={countChoice === value ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, COUNT_CHOICES.map(([choice]) => choice), countChoice, setCountChoice)} onClick={() => setCountChoice(value)}>{label}</button>)}
           </div>
         </fieldset>
 
