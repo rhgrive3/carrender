@@ -23,18 +23,30 @@ import { preserveUnreadableState } from './lib/preserveUnreadableState';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
 
+function textFromIdRefs(value: string | null) {
+  if (!value) return '';
+  return value
+    .trim()
+    .split(/\s+/)
+    .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+    .filter(Boolean)
+    .join(' ');
+}
+
 function NavigationAnnouncement() {
   const [message, setMessage] = React.useState('');
   const lastLabelRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
+    let scheduledFrame = 0;
+
     const announceCurrentScreen = () => {
+      scheduledFrame = 0;
       const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];
       const activeDialog = dialogs.reverse().find((element) => !element.closest('[hidden], [inert], [aria-hidden="true"]'));
-      const labelledBy = activeDialog?.getAttribute('aria-labelledby');
       const dialogLabel = (
         activeDialog?.getAttribute('aria-label')
-        || (labelledBy ? document.getElementById(labelledBy)?.textContent : '')
+        || textFromIdRefs(activeDialog?.getAttribute('aria-labelledby') ?? null)
       )?.trim();
       const contextualLabels = [...document.querySelectorAll<HTMLElement>('[data-app-screen-label]')];
       const contextualLabel = contextualLabels.find((element) => {
@@ -59,23 +71,29 @@ function NavigationAnnouncement() {
       setMessage(`${label}画面を表示しました`);
     };
 
+    const scheduleAnnouncement = () => {
+      if (scheduledFrame) return;
+      scheduledFrame = requestAnimationFrame(announceCurrentScreen);
+    };
+
     announceCurrentScreen();
 
-    const root = document.getElementById('root');
-    if (!root) return undefined;
-
-    const observer = new MutationObserver(announceCurrentScreen);
+    const observer = new MutationObserver(scheduleAnnouncement);
     // 下部ナビとモーダルはfixedの包含ブロック問題を避けるためdocument.body直下へ
     // portalされる。#rootだけを監視すると現在画面の変更を取り逃すため、
     // アプリ本体とportal UIの共通祖先であるbodyを監視する。
     observer.observe(document.body, {
       subtree: true,
       childList: true,
+      characterData: true,
       attributes: true,
       attributeFilter: ['aria-current', 'aria-hidden', 'aria-label', 'aria-labelledby', 'aria-modal', 'data-app-screen-label', 'hidden', 'inert'],
     });
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (scheduledFrame) cancelAnimationFrame(scheduledFrame);
+    };
   }, []);
 
   return (
