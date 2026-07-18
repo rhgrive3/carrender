@@ -207,7 +207,7 @@ export function MemorySetDetail({ setId }: { setId: string }) {
         <span><b>{bundle.senses.length}</b><small>カード</small></span>
         <span><b>{summary.weakSenseCount}</b><small>苦手</small></span>
         <span><b>{summary.unattemptedSenseCount}</b><small>未学習</small></span>
-        <button type="button" className="btn btn-primary" disabled={bundle.senses.length === 0 || actionBusy} onClick={() => navigate({ name: 'studySetup', setIds: [setId] })}>学習を始める</button>
+        <button type="button" className="btn btn-primary" disabled={targets.length === 0 || actionBusy} onClick={() => navigate({ name: 'studySetup', setIds: [setId] })}>{targets.length === 0 ? '出題できるカードなし' : '学習を始める'}</button>
       </div>
 
       <label className="memory-search memory-search-wide"><Search size={17} /><span className="sr-only">カードを検索</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="日本語・英語を検索" /></label>
