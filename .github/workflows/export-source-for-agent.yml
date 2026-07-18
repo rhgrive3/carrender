@@ -1,0 +1,22 @@
+name: Export source for agent
+
+on:
+  push:
+    branches:
+      - fix/compact-backup-and-strict-plan-quality
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack source
+        run: tar --exclude=.git -czf /tmp/carrender-source.tgz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carrender-source
+          path: /tmp/carrender-source.tgz
+          retention-days: 1
