@@ -17,10 +17,13 @@ assert.equal(source.includes("if ((e as Error).name === 'AbortError') return 'sh
 
 assert.equal(source.includes("const examLabel = daysToExam > 0 ? `あと${daysToExam}日` : daysToExam === 0 ? '今日' : `${Math.abs(daysToExam)}日経過`;"), true, '試験日前・当日・経過後を自然な文言へ分ける');
 assert.equal(source.includes('`あと${diffDays(ref, state.goal.examDate)}日`'), false, '期限切れ目標を負の残日数で表示しない');
+assert.equal(source.includes("if ((minutesByDate.get(d) ?? 0) <= 0) d = addDays(d, -1);"), true, '今日が0分の記録だけでも昨日までの連続学習を共有画像へ残す');
+assert.equal(source.includes('if (!minutesByDate.has(d)) d = addDays(d, -1);'), false, '0分記録の存在だけで今日から連続判定を始めない');
 
 assert.equal(source.includes('let shareInFlight: Promise<ShareStudyCardResult> | null = null;'), true, '進行中の共有処理を保持する');
 assert.equal(source.includes('if (shareInFlight) return shareInFlight;'), true, '連打時は新しいCanvas生成や共有要求を開始しない');
-assert.match(source, /shareInFlight = performShareStudyCard\(state, ref\)\.finally\(\(\) => \{[\s\S]*?shareInFlight = null;/u, '完了後は次の共有操作を受け付ける');
+assert.match(source, /setShareButtonBusy\(true\);[\s\S]*shareInFlight = performShareStudyCard\(state, ref\)\.finally\(\(\) => \{[\s\S]*?shareInFlight = null;[\s\S]*?setShareButtonBusy\(false\);/u, '共有中は操作を無効化し、完了後に必ず戻す');
+assert.match(source, /button\.disabled = busy;[\s\S]*button\.setAttribute\('aria-busy', String\(busy\)\);[\s\S]*シェア画像を生成中/u, '共有ボタンへ視覚・読み上げ双方の処理中状態を反映する');
 assert.equal(source.includes('共有シート表示中の連打でCanvas生成や共有要求を重複させず'), true, '同時実行を防ぐ理由を明記する');
 
 const clickAt = source.indexOf('a.click();');
