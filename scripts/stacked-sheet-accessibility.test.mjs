@@ -20,6 +20,12 @@ assert.match(source, /<h2 className="sheet-title" id=\{titleId\}>\{title\}<\/h2>
 assert.doesNotMatch(source, /<div className="sheet-title" id=\{titleId\}>/);
 assert.match(source, /<div className="sheet-grabber" aria-hidden="true" \/>/);
 
+assert.match(source, /function getInitialFocusTarget\(root: HTMLElement\)/, 'sheets must choose an explicit initial focus target');
+assert.match(source, /focusable\.find\(\(element\) => !element\.classList\.contains\('sheet-close'\)\)/, 'initial focus must skip the dismiss control when a primary operation exists');
+assert.match(source, /\?\? focusable\[0\][\s\S]*\?\? root/, 'close button and sheet body must remain safe fallbacks');
+assert.match(source, /getInitialFocusTarget\(sheet\)\.focus\(\)/, 'opening a sheet must focus the primary operation instead of the close button');
+assert.doesNotMatch(source, /const firstFocusable = getFocusableElements\(sheet\)\[0\]/, 'raw DOM order must not make the close button the default initial focus again');
+
 assert.match(source, /let portalBackgroundStates: Array<\{ element: HTMLElement; hadInert: boolean; ariaHidden: string \| null \}> = \[\]/);
 assert.match(source, /\[\.\.\.document\.body\.children\]/);
 assert.match(source, /element !== appRoot && element !== backdrop && !element\.classList\.contains\('sheet-backdrop'\)/);
@@ -50,4 +56,4 @@ assert.match(timer, /if \(root\.hasAttribute\('inert'\)\) return;[\s\S]*trapModa
 assert.match(timer, /<Sheet open=\{confirmDiscard\}[\s\S]*title="タイマーを破棄しますか\?"/, 'discard confirmation must join the shared stacked-modal system');
 assert.doesNotMatch(timer, /role="alertdialog"/, 'discard confirmation must not remain an unisolated inline modal');
 
-console.log('✅ Sheets and the full-screen timer share background isolation, stacked-modal ordering, focus trapping, scroll lock, semantic dialog naming, and safe backdrop dismissal');
+console.log('✅ Sheets and the full-screen timer share background isolation, stacked-modal ordering, focus trapping, primary initial focus, scroll lock, semantic dialog naming, and safe backdrop dismissal');
