@@ -35,6 +35,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const pointerStartX = useRef<number | null>(null);
   const ignoreNextClick = useRef(false);
   const mounted = useRef(true);
+  const actionInFlight = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -98,9 +99,20 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     });
   };
 
-  const commit = async (assessment: 'correct' | 'partial' | 'incorrect') => {
-    if (!repository || !session || !target || busy) return;
+  const beginAction = () => {
+    if (actionInFlight.current) return false;
+    actionInFlight.current = true;
     setBusy(true);
+    return true;
+  };
+
+  const finishAction = () => {
+    actionInFlight.current = false;
+    if (mounted.current) setBusy(false);
+  };
+
+  const commit = async (assessment: 'correct' | 'partial' | 'incorrect') => {
+    if (!repository || !session || !target || !beginAction()) return;
     try {
       const result = await answerMemoryQuestion({
         repository,
@@ -125,13 +137,12 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     } catch (caught) {
       if (mounted.current) toast(caught instanceof Error ? caught.message : '回答を保存できませんでした');
     } finally {
-      if (mounted.current) setBusy(false);
+      finishAction();
     }
   };
 
   const undo = async () => {
-    if (!repository || !session || busy) return;
-    setBusy(true);
+    if (!repository || !session || !beginAction()) return;
     try {
       const restored = await undoMemoryAnswer(repository, session);
       if (!restored) {
@@ -150,7 +161,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     } catch (caught) {
       if (mounted.current) toast(caught instanceof Error ? caught.message : '回答の取り消しを保存できませんでした');
     } finally {
-      if (mounted.current) setBusy(false);
+      finishAction();
     }
   };
 
