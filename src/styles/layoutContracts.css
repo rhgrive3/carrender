@@ -37,11 +37,30 @@ body > .bottom-nav[data-layout-contract='fixed-bottom-navigation'] {
 }
 
 body > .bottom-nav[data-layout-contract='fixed-bottom-navigation'] > button {
+  flex: 1 1 0;
   min-width: 0;
   min-height: var(--bottom-nav-content-size);
   padding-block: 6px;
   font-size: max(0.75rem, 12px);
   line-height: 1.2;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body > .bottom-nav[data-layout-contract='fixed-bottom-navigation'] > button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -4px;
+  border-radius: 12px;
+}
+
+/*
+ * 固定ナビ直前の入力や操作へフォーカスが移ったとき、ブラウザの自動スクロールで
+ * 要素がナビ背面へ隠れないよう、全操作要素にナビ高ぶんの退避量を持たせる。
+ */
+:where(button, [href], input, select, textarea, [tabindex]):focus {
+  scroll-margin-bottom: calc(var(--bottom-nav-content-size) + env(safe-area-inset-bottom, 0px) + 16px);
 }
 
 /* ナビが文字拡大で高くなっても、最下部の本文をナビ背面へ隠さない。 */
