@@ -120,6 +120,13 @@ function getFocusableElements(root: HTMLElement) {
   )].filter((element) => isVisibleFocusable(element, root));
 }
 
+function getInitialFocusTarget(root: HTMLElement) {
+  const focusable = getFocusableElements(root);
+  return focusable.find((element) => !element.classList.contains('sheet-close'))
+    ?? focusable[0]
+    ?? root;
+}
+
 /** Tab / Shift+Tabを最前面モーダル内へ閉じ込める。 */
 export function trapModalTabKey(e: KeyboardEvent, root: HTMLElement) {
   if (e.key !== 'Tab') return;
@@ -135,7 +142,7 @@ export function trapModalTabKey(e: KeyboardEvent, root: HTMLElement) {
   const active = document.activeElement;
   const focusIsOutside = !(active instanceof Node) || !root.contains(active);
 
-  // モーダル本体を初期フォーカスにしているため、最初のTab/Shift+Tabも
+  // モーダル本体へフォールバックした場合も、最初のTab/Shift+Tabは
   // ブラウザ既定動作へ任せず、必ず先頭・末尾の操作要素へ送る。
   if (e.shiftKey && (active === first || active === root || focusIsOutside)) {
     e.preventDefault();
@@ -157,13 +164,12 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
   useEffect(() => {
     if (!open || !backdropRef.current) return;
     const restoreModalIsolation = acquireModalIsolation(backdropRef.current);
-    // フォーカスを最初の操作要素へ移し、操作要素がなければシート本体へ移す。
+    // 閉じるボタンを飛ばして主要操作へ移し、他に操作要素がなければ閉じるボタンか本体へフォールバックする。
     const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const frame = window.requestAnimationFrame(() => {
       const sheet = sheetRef.current;
       if (!sheet) return;
-      const firstFocusable = getFocusableElements(sheet)[0];
-      (firstFocusable ?? sheet).focus();
+      getInitialFocusTarget(sheet).focus();
     });
     const onKey = (e: KeyboardEvent) => {
       if (backdropRef.current?.hasAttribute('inert')) return;
