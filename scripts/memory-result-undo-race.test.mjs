@@ -16,6 +16,14 @@ assert.equal(refreshAt < syncAt && syncAt < guardAt && guardAt < navigateAt, tru
 assert.equal(source.includes('void requestSync(true);', refreshAt), false, '取り消し後の同期失敗を未処理のPromise rejectionにしない');
 assert.equal(source.includes('取り消し結果は端末へ保存済み。同期失敗は次回の自動同期へ委ねる。'), true, '同期失敗時の継続方針を明記する');
 
+assert.equal(source.includes('const loadResult = async () => {'), true, '初回表示と同期後更新で同じ結果読込処理を使う');
+const initialLoadAt = source.indexOf('const initial = await loadResult();');
+const resultSyncAt = source.indexOf('await requestSync(true);', initialLoadAt);
+const syncedLoadAt = source.indexOf('const synced = await loadResult();', resultSyncAt);
+assert.equal(initialLoadAt < resultSyncAt && resultSyncAt < syncedLoadAt, true, '端末データを先に表示し、同期成功後に最新結果を再読込する');
+assert.equal(source.includes('setAttempts(synced.rows);'), true, '同期で更新された回答件数と判定別集計を同じ画面へ反映する');
+assert.equal(source.includes('画面を開き直さなくても最新集計へ更新する。'), true, '同期後再読込の利用者向け目的を明記する');
+
 assert.match(source, /new Set\(session\?\.initialTargetIds \?\? \[\]\)\.size/u, '重複した初期出題IDを結果画面のカード件数で1件へ正規化する');
 assert.equal(source.includes('カード {initialTargetCount}件'), true, '表示件数は重複除外後の初期出題数を使う');
 assert.equal(source.includes('カード {session.initialTargetIds.length}件'), false, '同期競合で膨らみうる生配列長へ戻さない');
