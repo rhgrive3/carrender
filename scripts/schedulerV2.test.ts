@@ -334,6 +334,7 @@ console.log('--- 17. 完全探索比較(小規模ランダムケース) ---');
       perDayMinutes: days.map(() => 0),
       maxIdx: -1,
       tailIdx: Number.POSITIVE_INFINITY,
+      lastEndByDay: days.map(() => Number.NEGATIVE_INFINITY),
     }));
     let nodes = 0;
     let limit = false;
@@ -355,6 +356,7 @@ console.log('--- 17. 完全探索比較(小規模ランダムケース) ---');
             if (!isChunkAllowed(item, units, state.remaining, tailEligible)) continue;
             const minutes = minutesForUnits(item.minutesPerUnit, units);
             const slot = slots[dayIdx][slotIdx];
+            if (slot.start < state.lastEndByDay[dayIdx]) continue;
             if (slot.end - slot.start < minutes || budgets[dayIdx] < minutes) continue;
             if (item.maxUnitsPerDay !== undefined && state.perDayUnits[dayIdx] + units > item.maxUnitsPerDay) continue;
             if (item.maxMinutesPerDay !== undefined && state.perDayMinutes[dayIdx] + minutes > item.maxMinutesPerDay) continue;
@@ -366,6 +368,8 @@ console.log('--- 17. 完全探索比較(小規模ランダムケース) ---');
             state.perDayMinutes[dayIdx] += minutes;
             const prevMax = state.maxIdx;
             const prevTail = state.tailIdx;
+            const prevLastEnd = state.lastEndByDay[dayIdx];
+            state.lastEndByDay[dayIdx] = slot.start;
             if (isTail) state.tailIdx = dayIdx;
             if (dayIdx > state.maxIdx) state.maxIdx = dayIdx;
             if (rec()) return true;
@@ -376,6 +380,7 @@ console.log('--- 17. 完全探索比較(小規模ランダムケース) ---');
             state.perDayMinutes[dayIdx] -= minutes;
             state.maxIdx = prevMax;
             state.tailIdx = prevTail;
+            state.lastEndByDay[dayIdx] = prevLastEnd;
             if (limit) return false;
           }
         }

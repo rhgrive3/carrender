@@ -633,9 +633,9 @@ export function summarizeMaterialConcentration(tasks: StudyTask[], materialId: s
 }
 
 /**
- * 既存ソルバーの期限・固定・チャンク保証を壊さず、生成済みの教材セッションを
- * 日付単位で局所移動・交換する。strictは各チャンクを元の実行可能解より後ろへ
- * 動かさないため、最遅解から得た累積期限保証線も維持される。
+ * 通常・柔軟教材の生成済みセッションを、期限・固定・チャンク保証を壊さず
+ * 日付単位で局所移動・交換する。厳守教材はグローバルソルバーが安全完了日・
+ * 日別分散・範囲順まで決定するため、ここでは再配置しない。
  */
 export function smoothMaterialSchedule(
   state: AppState,
@@ -643,7 +643,11 @@ export function smoothMaterialSchedule(
   context: SchedulerContext,
 ): ScheduleGenerationResult {
   if (result.status !== 'success' && result.status !== 'partial') return result;
-  const movableTasks = result.scheduledTasks.filter(isMovableMaterialTask);
+  const strictMaterialIds = new Set(state.materials
+    .filter((material) => material.deadlinePolicy === 'strict')
+    .map((material) => material.id));
+  const movableTasks = result.scheduledTasks
+    .filter((task) => isMovableMaterialTask(task) && !strictMaterialIds.has(task.materialId!));
   if (movableTasks.length < 2) return result;
   const movableIds = new Set(movableTasks.map((task) => task.id));
   const originalDates = new Map(movableTasks.map((task) => [task.id, task.scheduledDate] as const));

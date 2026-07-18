@@ -376,6 +376,95 @@ function minimumBalancedDailyLoadCap(
   return Math.min(maximumLoad, loadCap);
 }
 
+/**
+ * 実際の空き区間・チャンク幅を考慮した、1日内に確実に置ける通常単位数の下限。
+ * 端数チャンクは数えないため保守的だが、連続していない空き時間を合算して
+ * 「置ける」と誤判定することはない。平準化上限の事前判定でのみ使う。
+ */
+function regularUnitsPackableInSlot(item: SolverItem, fitUnits: number): number {
+  if (fitUnits <= 0) return 0;
+  if (!item.splittable) return fitUnits >= item.requiredUnits ? item.requiredUnits : 0;
+  const step = Math.max(1, item.unitStep);
+  const minimum = Math.ceil(item.minChunkUnits / step) * step;
+  const maximum = Math.floor(Math.min(item.maxChunkUnits, fitUnits) / step) * step;
+  if (maximum < minimum) return 0;
+  let target = Math.floor(fitUnits / step) * step;
+  while (target >= minimum) {
+    const minimumChunks = Math.ceil(target / maximum);
+    const maximumChunks = Math.floor(target / minimum);
+    if (minimumChunks <= maximumChunks) return target;
+    target -= step;
+  }
+  return 0;
+}
+
+function solverUnitsAvailableOnDay(item: SolverItem, day: SolverDayInput, loadCap: number): number {
+  if (day.date < item.release || day.date > item.deadline || loadCap <= 0) return 0;
+  const minuteLimit = Math.max(0, Math.min(
+    day.budget,
+    loadCap,
+    item.maxMinutesPerDay ?? Number.POSITIVE_INFINITY,
+  ));
+  const unitLimit = Math.max(0, Math.min(
+    item.requiredUnits,
+    item.maxUnitsPerDay ?? Number.POSITIVE_INFINITY,
+  ));
+  if (minuteLimit <= 0 || unitLimit <= 0) return 0;
+  if (!item.splittable) {
+    const requiredMinutes = minutesForUnits(item.minutesPerUnit, item.requiredUnits);
+    return requiredMinutes <= minuteLimit
+      && day.slots.some((slot) => slot.end - slot.start >= requiredMinutes)
+      && item.requiredUnits <= unitLimit
+      ? item.requiredUnits
+      : 0;
+  }
+
+  let remainingMinutes = minuteLimit;
+  let remainingUnits = unitLimit;
+  let packedUnits = 0;
+  const slots = [...day.slots].sort((a, b) => (b.end - b.start) - (a.end - a.start) || a.start - b.start);
+  for (const slot of slots) {
+    if (remainingMinutes <= 0 || remainingUnits <= 0) break;
+    const usableMinutes = Math.min(slot.end - slot.start, remainingMinutes);
+    const fitUnits = Math.min(
+      remainingUnits,
+      Math.floor(usableMinutes / Math.max(item.minutesPerUnit, 0.0001)),
+    );
+    const units = regularUnitsPackableInSlot(item, fitUnits);
+    if (units <= 0) continue;
+    const minutes = minutesForUnits(item.minutesPerUnit, units);
+    packedUnits += units;
+    remainingUnits -= units;
+    remainingMinutes -= minutes;
+  }
+  return packedUnits;
+}
+
+function withOneSessionPerDayWhenFeasible(
+  work: StrictWork,
+  item: SolverItem,
+  days: ReadonlyArray<SolverDayInput>,
+): SolverItem {
+  const material = work.material;
+  if (!material
+    || !item.splittable
+    || item.maxUnitsPerDay !== undefined
+    || item.maxMinutesPerDay !== undefined
+    || material.dailyTarget !== null
+    || material.weeklyTarget !== null) return item;
+  const step = Math.max(1, item.unitStep);
+  const sessionUnits = Math.floor(item.maxChunkUnits / step) * step;
+  if (sessionUnits < item.minChunkUnits) return item;
+  const requiredDays = Math.ceil(item.requiredUnits / sessionUnits);
+  const capped = { ...item, maxUnitsPerDay: sessionUnits };
+  const eligibleDays = days.filter((day) =>
+    day.date >= item.release
+    && day.date <= item.deadline
+    && solverUnitsAvailableOnDay(capped, day, day.budget) >= Math.min(sessionUnits, item.requiredUnits),
+  ).length;
+  return eligibleDays >= requiredDays ? capped : item;
+}
+
 export function dateInTimeZone(date: Date, timeZone: string): ISODate {
   return toISODate(date, timeZone);
 }
@@ -1133,7 +1222,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       // 最遅解は「この日までに必要な累積量」の保証線としてだけ残す。
       // 実予定は安全完了日までに均して解き、保証線を下回る解は採用しない。
       const capacityByDate = [...calendar.values()].map((day) => ({ date: day.date, minutes: day.budget }));
-      const balancedItems = ordered.map((work) => {
+      const safetyItems = ordered.map((work) => {
         if (!work.material) return work.solverItem;
         const finish = computeSafetyFinishDate({
           start: work.solverItem.release,
@@ -1147,6 +1236,10 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
         return { ...work.solverItem, deadline: finish };
       });
       const balancedDaysBase = solverDays();
+      // 十分な日数がある厳守教材は、1日1セッションを上限として分散する。
+      // 日数が足りない教材へは適用せず、期限保証を優先する。
+      const balancedItems = safetyItems.map((item, index) =>
+        withOneSessionPerDayWhenFeasible(ordered[index], item, balancedDaysBase));
       const totalStrictMinutes = strictWorks.reduce((sum, work) => sum + work.requiredMinutes, 0);
       const activeStrictDays = balancedDaysBase.filter((day) => day.budget > 0
         && balancedItems.some((item) => day.date >= item.release && day.date <= item.deadline)).length;
@@ -1157,17 +1250,13 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
           day.date >= item.release && day.date <= item.deadline));
         const totalCapacity = activeDays.reduce((sum, day) => sum + Math.min(day.budget, cap), 0);
         if (totalCapacity < totalStrictMinutes) return false;
-        const unitsAvailableOn = (item: SolverItem, day: SolverDayInput) => {
-          if (day.date < item.release || day.date > item.deadline) return 0;
-          const minuteCap = Math.min(day.budget, cap, item.maxMinutesPerDay ?? Number.POSITIVE_INFINITY);
-          const unitCap = Math.floor(minuteCap / Math.max(item.minutesPerUnit, 0.0001));
-          return Math.max(0, Math.min(unitCap, item.maxUnitsPerDay ?? Number.POSITIVE_INFINITY));
-        };
         const unitsAvailableAcross = (item: SolverItem, days: SolverDayInput[]) => {
           if (!item.splittable) {
-            return days.some((day) => unitsAvailableOn(item, day) >= item.requiredUnits) ? item.requiredUnits : 0;
+            return days.some((day) => solverUnitsAvailableOnDay(item, day, cap) >= item.requiredUnits)
+              ? item.requiredUnits
+              : 0;
           }
-          return days.reduce((sum, day) => sum + unitsAvailableOn(item, day), 0);
+          return days.reduce((sum, day) => sum + solverUnitsAvailableOnDay(item, day, cap), 0);
         };
         if (!balancedItems.every((item) => {
           const capacityUnits = unitsAvailableAcross(item, balancedDaysBase);
@@ -1911,6 +2000,7 @@ export function validateGeneratedScheduleV2(state: AppState, result: ScheduleGen
   const byDate = new Map<ISODate, StudyTask[]>();
   const ids = new Set<string>();
   const rangesByMaterial = new Map<string, UnitRange[]>();
+  const orderedAutoTasksByMaterial = new Map<string, { task: StudyTask; range: UnitRange }[]>();
   const materialDayUsage = new Map<string, { units: number; minutes: number }>();
   // 完了済み・固定・日付固定タスクが請求する範囲を除いた「残り断片」の境界。
   // 断片の末尾で終わるチャンクは、unitStep・最小チャンク制約の例外(最終残量)として扱う。
@@ -1959,6 +2049,15 @@ export function validateGeneratedScheduleV2(state: AppState, result: ScheduleGen
       const range = taskRange(task);
       if (range && !isReview) {
         rangesByMaterial.set(material.id, [...(rangesByMaterial.get(material.id) ?? []), range]);
+        if (material.deadlinePolicy === 'strict'
+          && task.sourceType === 'material'
+          && task.generatedBy === 'auto'
+          && effectiveLock(task) === 'none') {
+          orderedAutoTasksByMaterial.set(material.id, [
+            ...(orderedAutoTasksByMaterial.get(material.id) ?? []),
+            { task, range },
+          ]);
+        }
         const completed = normalizeUnitRanges(material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []), materialTotal(material));
         if (completed.some((item) => range.start <= item.end && range.end >= item.start)) errors.push(issue(task.id, 'materialRange', range, '完了済み範囲と重複しています', '未完了範囲を割り当ててください'));
         const units = range.end - range.start + 1;
@@ -1987,6 +2086,24 @@ export function validateGeneratedScheduleV2(state: AppState, result: ScheduleGen
   for (const [materialId, ranges] of rangesByMaterial) {
     const sorted = ranges.sort((a, b) => a.start - b.start || a.end - b.end);
     for (let i = 1; i < sorted.length; i += 1) if (sorted[i].start <= sorted[i - 1].end) errors.push(issue(materialId, 'materialRange', sorted[i], '教材範囲がタスク間で重複しています', '未使用範囲を割り当ててください'));
+  }
+  for (const [materialId, entries] of orderedAutoTasksByMaterial) {
+    const sorted = [...entries].sort((a, b) => a.range.start - b.range.start || a.range.end - b.range.end || a.task.id.localeCompare(b.task.id));
+    for (let index = 1; index < sorted.length; index += 1) {
+      const previous = sorted[index - 1].task;
+      const current = sorted[index].task;
+      const previousPosition = `${previous.scheduledDate}T${previous.scheduledStart ?? '00:00'}`;
+      const currentPosition = `${current.scheduledDate}T${current.scheduledStart ?? '00:00'}`;
+      if (currentPosition < previousPosition) {
+        errors.push(issue(
+          current.id,
+          'materialRangeOrder',
+          { previous: sorted[index - 1].range, current: sorted[index].range },
+          '教材範囲の順序と実行日時が逆転しています',
+          `${materialId}の小さい範囲から順に配置してください`,
+        ));
+      }
+    }
   }
   for (const [key, usage] of materialDayUsage) {
     const [materialId, date] = key.split('|');

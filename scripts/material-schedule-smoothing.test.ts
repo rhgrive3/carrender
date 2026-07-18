@@ -54,7 +54,7 @@ function material(over: Partial<Material> = {}): Material {
     preferredCadence: { type: 'auto' },
     dailyTarget: null,
     weeklyTarget: null,
-    deadlinePolicy: 'strict',
+    deadlinePolicy: 'normal',
     examRelevance: 3,
     reviewEnabled: false,
     reviewIntervals: [1, 3, 7],
@@ -164,7 +164,7 @@ const result: ScheduleGenerationResult = {
   },
   deadlineReports: [{
     workItemId: 'material:mat-composition',
-    policy: 'strict',
+    policy: 'normal',
     deadline: D7,
     feasible: true,
     scheduledMinutes: 270,
@@ -186,10 +186,8 @@ assert.equal(after.activeDays, 3, '3セッションを3日に分散する');
 assert.equal(after.sameDayExcess, 0, '同日複数チャンクを解消する');
 assert.equal(after.maxDayMinutes, 90, '1日の最大進捗を180分から90分へ半減する');
 
-const originalDate = new Map(result.scheduledTasks.map((entry) => [entry.id, entry.scheduledDate] as const));
 for (const entry of smoothed.scheduledTasks) {
-  assert.ok(entry.scheduledDate <= originalDate.get(entry.id)!, `strictタスク${entry.id}を元の実行可能日より後ろへ動かさない`);
-  assert.ok(entry.scheduledDate <= D7, `strictタスク${entry.id}を期限内に保つ`);
+  assert.ok(entry.scheduledDate <= D7, `通常教材${entry.id}を期限内に保つ`);
 }
 assert.deepEqual(
   smoothed.scheduledTasks.map((entry) => ({ id: entry.id, range: entry.materialRange, amount: entry.amount, minutes: entry.estimatedMinutes })),
@@ -202,6 +200,21 @@ assert.ok(smoothed.objectiveReport.maxDailyMinutes <= result.objectiveReport.max
 
 const rerun = smoothMaterialSchedule(state, smoothed, context);
 assert.deepEqual(rerun.scheduledTasks, smoothed.scheduledTasks, '同じ入力へ再適用しても予定を揺らさない');
+
+const strictState: AppState = {
+  ...state,
+  materials: [material({ deadlinePolicy: 'strict' })],
+};
+const strictResult: ScheduleGenerationResult = {
+  ...result,
+  deadlineReports: result.deadlineReports.map((report) => ({ ...report, policy: 'strict' })),
+};
+const strictUntouched = smoothMaterialSchedule(strictState, strictResult, context);
+assert.deepEqual(
+  strictUntouched.scheduledTasks,
+  strictResult.scheduledTasks,
+  '厳守教材はグローバルソルバーの期限保証・範囲順を保つため後処理で再配置しない',
+);
 
 // 実バックアップの試作比較で見つかった数学XSの隠れ回帰を、その数値で固定する。
 assert.equal(isMaterialConcentrationRegressionAcceptable(

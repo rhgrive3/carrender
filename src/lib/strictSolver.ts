@@ -67,7 +67,8 @@ export function minutesForUnits(minutesPerUnit: number, units: number): number {
 /**
  * チャンク単位数が許されるか(brute force比較器と共有する意味論)。
  * tailEligible = 「端数チャンク(最小チャンク未満/刻み不一致)を教材末尾として置ける状況」。
- * 端数チャンクは1作業につき1つだけ、かつそれ以降その作業をより遅い日に置かないことが前提。
+ * 端数を途中で先取りすると、後続の通常チャンクより教材末尾が早い時刻へ置かれる。
+ * そのため端数は、残量をすべて消費する最後のチャンクとしてのみ許可する。
  */
 export function isChunkAllowed(item: SolverItem, units: number, remaining: number, tailEligible: boolean): boolean {
   if (units <= 0 || units > remaining) return false;
@@ -75,10 +76,7 @@ export function isChunkAllowed(item: SolverItem, units: number, remaining: numbe
   if (units > item.maxChunkUnits) return false;
   const regular = units % item.unitStep === 0 && units >= item.minChunkUnits;
   if (regular) return true;
-  if (!tailEligible) return false;
-  if (units === remaining) return true;
-  const rest = remaining - units;
-  return rest % item.unitStep === 0 && rest >= item.minChunkUnits;
+  return tailEligible && units === remaining;
 }
 
 /** 探索順のタイブレーク: 期限が早い→開始が遅い→最小チャンク大→必要量大→ID昇順 */
@@ -192,14 +190,6 @@ function enumerateUnits(item: SolverItem, state: ItemState, dayIdx: number, free
   if (remaining <= kMax && !result.includes(remaining) && isChunkAllowed(item, remaining, remaining, tailEligible)) {
     result.unshift(remaining);
   }
-  // 端数(末尾)チャンク: 残り − k が通常チャンクへ分解可能なもの
-  if (tailEligible) {
-    for (let k = Math.min(kMax, remaining - item.minChunkUnits); k >= 1; k -= 1) {
-      if ((remaining - k) % step !== 0) continue;
-      if (result.includes(k)) continue;
-      if (isChunkAllowed(item, k, remaining, true)) result.push(k);
-    }
-  }
   return result;
 }
 
@@ -261,16 +251,22 @@ export function solveStrict(items: SolverItem[], daysInput: SolverDayInput[], op
     for (const dayIdx of dayOrder) {
       const day = days[dayIdx];
       if (day.budget <= 0) continue;
-      // 同じ長さのスロットは等価なので代表1つに絞る
+      // 同じ教材の同日チャンクは、探索中も開始時刻を後ろへ進める。
+      // 日単位だけを見て早い空き枠へ戻ると、末尾端数が通常チャンクより
+      // 先に実行され、教材範囲と時刻の順序が逆転する。
+      const minimumStart = state.allocations
+        .filter((allocation) => allocation.dayIdx === dayIdx)
+        .reduce((latest, allocation) => Math.max(latest, allocation.end), Number.NEGATIVE_INFINITY);
+      // 同じ長さのスロットは等価なので、時刻が最も早い代表1つに絞る。
       const seen = new Set<number>();
       const slotOrder = day.slots
-        .map((slot, slotIdx) => ({ slotIdx, len: slot.end - slot.start }))
-        .filter(({ len }) => {
-          if (len <= 0 || seen.has(len)) return false;
+        .map((slot, slotIdx) => ({ slotIdx, start: slot.start, len: slot.end - slot.start }))
+        .filter(({ start, len }) => {
+          if (len <= 0 || start < minimumStart || seen.has(len)) return false;
           seen.add(len);
           return true;
         })
-        .sort((a, b) => a.len - b.len); // best-fit: 小さいスロットから
+        .sort((a, b) => a.start - b.start || a.len - b.len);
       for (const { slotIdx, len } of slotOrder) {
         const slot = day.slots[slotIdx];
         const free = Math.min(len, day.budget);
