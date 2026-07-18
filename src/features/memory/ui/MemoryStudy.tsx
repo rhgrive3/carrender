@@ -92,6 +92,12 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     questionStarted.current = performance.now();
   }, [session?.answerCount, target?.id]);
 
+  const requestSyncSafely = (force: boolean) => {
+    void requestSync(force).catch(() => {
+      // 回答・取り消しは端末へ保存済み。同期失敗はContextの状態表示と次回同期へ委ねる。
+    });
+  };
+
   const commit = async (assessment: 'correct' | 'partial' | 'incorrect') => {
     if (!repository || !session || !target || busy) return;
     setBusy(true);
@@ -107,7 +113,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         presentedExerciseType: 'flashcard',
       });
       await refresh();
-      void requestSync(result.session.status === 'completed');
+      requestSyncSafely(result.session.status === 'completed');
       // 保存中に利用者が暗記ホームへ戻った場合、完了後に古い学習画面へ
       // 勝手に遷移させない。IndexedDBへの回答保存と同期要求はそのまま維持する。
       if (!mounted.current) return;
@@ -135,7 +141,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       // 取り消し自体は既にIndexedDBへ保存済み。画面を閉じた直後でも、
       // Contextの集計更新と端末間同期は最後まで要求する。
       await refresh();
-      void requestSync(false);
+      requestSyncSafely(false);
       if (!mounted.current) return;
       setRevealed(false);
       setFlipDirection(undefined);
