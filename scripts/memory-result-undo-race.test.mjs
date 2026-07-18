@@ -4,13 +4,16 @@ import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('../src/features/memory/ui/MemoryResult.tsx', import.meta.url), 'utf8');
 
 assert.equal(source.includes('const mounted = useRef(true)'), true);
-assert.equal(source.includes('if (!mounted.current) return;'), true);
-assert.equal(source.includes('if (mounted.current) toast(caught instanceof Error'), true);
-assert.equal(source.includes('if (mounted.current) setUndoing(false)'), true);
+assert.match(source, /const activeSessionId = useRef\(sessionId\)[\s\S]*?activeSessionId\.current = sessionId/u, '同じ結果画面インスタンス内で切り替わった現在セッションを追跡する');
+assert.equal(source.includes('const actionSessionId = session.id;'), true, '取り消し開始時のセッションIDを固定する');
+assert.match(source, /if \(!mounted\.current \|\| activeSessionId\.current !== actionSessionId\) return;[\s\S]*?navigate\(\{ name: 'study'/u, '古い取り消し完了で切替後の画面を上書きしない');
+assert.match(source, /mounted\.current && activeSessionId\.current === actionSessionId[\s\S]*?toast/u, '別セッションへ切替後に古い取り消しのToastを出さない');
+assert.equal(source.includes('if (mounted.current && activeSessionId.current === actionSessionId) setUndoing(false)'), true, '古い処理のfinallyで新しいセッションの操作状態を解除しない');
+assert.equal(source.includes('setUndoing(false);\n    void (async () => {'), true, 'セッション切替時は前セッションの処理中表示をリセットする');
 
 const refreshAt = source.indexOf('await refresh();');
 const syncAt = source.indexOf('void requestSync(true).catch(() => {', refreshAt);
-const guardAt = source.indexOf('if (!mounted.current) return;', syncAt);
+const guardAt = source.indexOf('if (!mounted.current || activeSessionId.current !== actionSessionId) return;', syncAt);
 const navigateAt = source.indexOf("navigate({ name: 'study'", guardAt);
 assert.equal(refreshAt < syncAt && syncAt < guardAt && guardAt < navigateAt, true);
 assert.equal(source.includes('void requestSync(true);', refreshAt), false, '取り消し後の同期失敗を未処理のPromise rejectionにしない');
