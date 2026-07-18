@@ -55,10 +55,12 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
   const [recordDate, setRecordDate] = useState(session?.date ?? today());
   const [startTime, setStartTime] = useState(() => sessionStartTime(session));
   const initializedTargetRef = useRef<string | null>(null);
+  const actionInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
       initializedTargetRef.current = null;
+      actionInFlightRef.current = false;
       return;
     }
     const targetKey = session
@@ -115,7 +117,14 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
   }, [open, remainingAmount, selectedMaterialId]);
 
   const save = () => {
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
+    const release = () => {
+      actionInFlightRef.current = false;
+    };
+
     if (!subjectId) {
+      release();
       toast('科目を選択してください');
       return;
     }
@@ -124,15 +133,18 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       try {
         resolvedStartedAt = localDateTimeToISOString(recordDate, startTime);
       } catch {
+        release();
         toast('学習日と開始時刻を正しく入力してください');
         return;
       }
       if (recordDate > today()) {
+        release();
         toast('未来日の記録は追加できません');
         return;
       }
       // 今日の手入力・編集で未来時刻を許すと、学習ログが未来の記録として並び時系列が壊れる。
       if (recordDate === today() && resolvedStartedAt > new Date().toISOString()) {
+        release();
         toast('未来の開始時刻は指定できません');
         return;
       }
@@ -165,9 +177,27 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     const result = tasklessMaterialRecord
       ? execute({ type: 'REPLACE_STATE', state: applyRecordSessionTransaction(state, action, today()) })
       : execute(action);
-    if (!result.changed) { toast(result.message ?? '記録を保存できませんでした'); return; }
+    if (!result.changed) {
+      release();
+      toast(result.message ?? '記録を保存できませんでした');
+      return;
+    }
     toast(result.message ?? (session ? '記録を更新しました' : '記録を保存しました 🎉'));
     onDone?.();
+    onClose();
+  };
+
+  const remove = () => {
+    if (!session || actionInFlightRef.current) return;
+    if (!window.confirm('この学習記録を削除しますか？教材進捗と復習タスクも再計算されます。')) return;
+    actionInFlightRef.current = true;
+    const result = execute({ type: 'DELETE_SESSION', sessionId: session.id });
+    if (!result.changed) {
+      actionInFlightRef.current = false;
+      toast(result.message ?? '記録を削除できませんでした');
+      return;
+    }
+    toast(result.message ?? '記録を削除して進捗を再計算しました');
     onClose();
   };
 
@@ -319,13 +349,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
         {session ? 'この記録を更新' : '保存する'}
       </button>
       {session && (
-        <button type="button" className="btn btn-danger btn-block mt-12" onClick={() => {
-          if (!window.confirm('この学習記録を削除しますか？教材進捗と復習タスクも再計算されます。')) return;
-          const result = execute({ type: 'DELETE_SESSION', sessionId: session.id });
-          if (!result.changed) { toast(result.message ?? '記録を削除できませんでした'); return; }
-          toast(result.message ?? '記録を削除して進捗を再計算しました');
-          onClose();
-        }}>この記録を削除</button>
+        <button type="button" className="btn btn-danger btn-block mt-12" onClick={remove}>この記録を削除</button>
       )}
     </Sheet>
   );
