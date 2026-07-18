@@ -142,7 +142,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       taskId: preservesReference ? session?.taskId ?? preset?.taskId ?? null : null,
       subjectId,
       materialId: selectedMaterialId,
-      minutes: Math.max(1, minutes),
+      minutes: Math.min(600, Math.max(1, minutes)),
       amountDone,
       focus,
       memo,
@@ -203,7 +203,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
           </div>
           <div className="field">
             <label>学習時間(分)</label>
-            <Stepper value={minutes} onChange={setMinutes} step={5} min={5} max={600} suffix="分" />
+            <Stepper value={minutes} onChange={setMinutes} step={5} min={5} max={600} suffix="分" label="学習時間" />
           </div>
           <div className="field-row">
             <div className="field"><label htmlFor="rec-date">学習日</label><input id="rec-date" type="date" value={recordDate} max={today()} onChange={(e) => setRecordDate(e.target.value)} /></div>
@@ -217,12 +217,53 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
           <div className="row spread">
             <div>
               <div style={{ fontWeight: 700, fontSize: 14.5 }}>{preset.rangeLabel || material?.name || '学習'}</div>
-              <div className="faint mt-8">学習時間 {preset.minutes}分</div>
+              <div className="faint mt-8" aria-live="polite" aria-atomic="true">記録時間 {minutes}分</div>
             </div>
             <span className="status-badge status-accent iflex" style={{ gap: 4 }}>
               <Timer size={12} strokeWidth={2.4} aria-hidden="true" /> タイマー
             </span>
           </div>
+          {preset.source === 'timer' && !session && (
+            <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
+              <label htmlFor="rec-timer-minutes">記録する学習時間</label>
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  aria-label="記録する学習時間を5分減らす"
+                  disabled={minutes <= 1}
+                  onClick={() => setMinutes(Math.max(1, minutes - 5))}
+                >
+                  −5分
+                </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <NumericInput
+                    id="rec-timer-minutes"
+                    value={minutes}
+                    min={1}
+                    max={600}
+                    onChange={setMinutes}
+                    ariaLabel="記録する学習時間（分）"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  aria-label="記録する学習時間を5分増やす"
+                  disabled={minutes >= 600}
+                  onClick={() => setMinutes(Math.min(600, minutes + 5))}
+                >
+                  ＋5分
+                </button>
+              </div>
+              <div className="field-hint">計測時間 {preset.minutes}分。実際の学習時間に合わせて1〜600分で変更できます。</div>
+              {minutes !== preset.minutes && (
+                <button type="button" className="btn btn-ghost btn-sm mt-8" onClick={() => setMinutes(preset.minutes)}>
+                  計測値に戻す
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -269,16 +310,16 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
           <textarea id="rec-memo" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="気づいたこと、ミスの原因など" />
         </div>
       ) : (
-        <button className="btn btn-ghost btn-sm" onClick={() => setShowMemo(true)}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowMemo(true)}>
           <Plus size={14} strokeWidth={2.6} aria-hidden="true" /> メモを追加
         </button>
       )}
 
-      <button className="btn btn-primary btn-block mt-16" onClick={save}>
+      <button type="button" className="btn btn-primary btn-block mt-16" onClick={save}>
         {session ? 'この記録を更新' : '保存する'}
       </button>
       {session && (
-        <button className="btn btn-danger btn-block mt-12" onClick={() => {
+        <button type="button" className="btn btn-danger btn-block mt-12" onClick={() => {
           if (!window.confirm('この学習記録を削除しますか？教材進捗と復習タスクも再計算されます。')) return;
           const result = execute({ type: 'DELETE_SESSION', sessionId: session.id });
           if (!result.changed) { toast(result.message ?? '記録を削除できませんでした'); return; }

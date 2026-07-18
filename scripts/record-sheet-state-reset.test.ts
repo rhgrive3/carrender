@@ -13,6 +13,14 @@ assert.match(source, /setSubjectId\(session\?\.subjectId \?\? preset\?\.subjectI
 assert.match(source, /setMaterialId\(session\?\.materialId \?\? preset\?\.materialId/, '教材を新しい対象から復元する');
 assert.match(source, /setMemo\(session\?\.memo \?\? ''\)/, '前回入力したメモを次の記録へ持ち越さない');
 assert.match(source, /setFocus\(session\?\.focus \?\? null\)/, '集中度を次の記録へ持ち越さない');
+assert.match(source, /preset\.source === 'timer' && !session/, 'タイマー記録だけに保存前の時間調整UIを表示する');
+assert.match(source, /id="rec-timer-minutes"[\s\S]*value=\{minutes\}[\s\S]*min=\{1\}[\s\S]*max=\{600\}/, 'タイマー時間を1〜600分の範囲で直接入力できる');
+assert.match(source, /setMinutes\(Math\.max\(1, minutes - 5\)\)/, 'タイマー時間を5分単位で減らせる');
+assert.match(source, /setMinutes\(Math\.min\(600, minutes \+ 5\)\)/, 'タイマー時間を5分単位で増やせる');
+assert.match(source, /minutes !== preset\.minutes[\s\S]*setMinutes\(preset\.minutes\)/, '変更後は元の計測時間へ戻せる');
+assert.match(source, /記録時間 \{minutes\}分/, '保存対象の時間を現在値として表示する');
+assert.match(source, /計測時間 \{preset\.minutes\}分/, '元の計測時間を比較用に残す');
+assert.match(source, /minutes: Math\.min\(600, Math\.max\(1, minutes\)\)/, '保存値も編集可能範囲へ確実に収める');
 assert.match(source, /const preservesReference = !session \|\| \(session\.subjectId === subjectId && session\.materialId === selectedMaterialId\);/, '科目または教材を変更した編集を参照変更として判定する');
 assert.match(source, /rangeLabel: preservesReference[\s\S]*?: material\?\.name \?\? ''/, '参照変更時は旧教材の表示名を残さず新教材名へ同期する');
 assert.match(source, /completedTask: Boolean\(preservesReference/, '参照変更時は旧タスクとの完了関連も切り離す');
@@ -123,4 +131,4 @@ for (const planned of recorded.tasks.filter((item) => item.status === 'planned' 
   assert.equal(completed.some((done) => range.start <= done.end && range.end >= done.start), false, `再計画後の${range.start}〜${range.end}は完了済み範囲と重複しない`);
 }
 
-console.log('✅ record sheet state reset and taskless progress regressions passed');
+console.log('✅ record sheet state reset, timer duration editing, and taskless progress regressions passed');
