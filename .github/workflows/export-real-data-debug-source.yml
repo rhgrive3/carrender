@@ -1,0 +1,22 @@
+name: Export real-data debug source
+
+on:
+  push:
+    branches:
+      - fix/strict-material-daily-spread-real-data
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack source
+        run: tar --exclude=.git -czf /tmp/carrender-real-data-source.tgz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carrender-real-data-source
+          path: /tmp/carrender-real-data-source.tgz
+          retention-days: 1
