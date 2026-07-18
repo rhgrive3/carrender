@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CheckCircle2, Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import type { MemorySetBundle, MemoryStat } from '../domain/types';
 import { normalizeSearchText } from '../domain/normalization';
@@ -49,8 +49,23 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     void requestSync(true).catch(() => undefined);
   };
 
-  useEffect(() => {
-    if (!repository) return;
+  useLayoutEffect(() => {
+    activeSetIdRef.current = setId;
+    actionTokenRef.current += 1;
+    actionInFlightRef.current = false;
+    setActionBusy(false);
+    setBundle(null);
+    setStats([]);
+    setLoadError(undefined);
+    setEditingSet(false);
+  }, [setId]);
+
+  useLayoutEffect(() => {
+    if (!repository) {
+      setBundle(null);
+      setStats([]);
+      return;
+    }
     let cancelled = false;
     setBundle(null);
     setStats([]);
@@ -68,13 +83,6 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     });
     return () => { cancelled = true; };
   }, [reloadKey, repository, setId]);
-
-  useEffect(() => {
-    activeSetIdRef.current = setId;
-    actionTokenRef.current += 1;
-    actionInFlightRef.current = false;
-    setActionBusy(false);
-  }, [setId]);
 
   const targets = useMemo(() => bundle ? generateLearningTargets({ content: bundle, setMembers: bundle.setMembers, selectedSetIds: [setId], direction: 'output', includeUnverifiedAi: false })
     .filter((target) => !target.exerciseId && target.mode === 'output') : [], [bundle, setId]);

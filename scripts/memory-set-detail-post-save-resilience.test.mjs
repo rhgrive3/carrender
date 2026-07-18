@@ -45,6 +45,16 @@ assert.match(
 );
 assert.match(
   source,
+  /useLayoutEffect\(\(\) => \{[\s\S]*activeSetIdRef\.current = setId;[\s\S]*actionTokenRef\.current \+= 1;[\s\S]*setBundle\(null\);[\s\S]*setEditingSet\(false\);[\s\S]*\}, \[setId\]\)/u,
+  'セット切替時はブラウザ描画前に旧セット表示・編集状態・操作トークンを無効化する',
+);
+assert.match(
+  source,
+  /useLayoutEffect\(\(\) => \{[\s\S]*if \(!repository\) \{[\s\S]*setBundle\(null\);[\s\S]*return;[\s\S]*repository\.loadSetBundle\(\[setId\]\)[\s\S]*\}, \[reloadKey, repository, setId\]\)/u,
+  'セット読込開始とrepository消失時の旧表示除去を描画前に行う',
+);
+assert.match(
+  source,
   /const runAction = async[\s\S]*if \(actionInFlightRef\.current\) return;[\s\S]*const actionToken = \+\+actionTokenRef\.current;[\s\S]*const isCurrent = \(\) => activeSetIdRef\.current === actionSetId && actionTokenRef\.current === actionToken;[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*actionInFlightRef\.current = false;[\s\S]*setActionBusy\(false\);/u,
   '古い操作のfinallyが新しいセットの処理中状態を解除しない',
 );
