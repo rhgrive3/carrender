@@ -207,8 +207,31 @@ export function clearOwnedState(): void {
   clearMainSyncMetadata();
 }
 
+/**
+ * 復元に必要な現在状態だけをバックアップへ含める。
+ *
+ * 計画の変更履歴(planRevisions)は、過去の配置をUIから復元するための端末内履歴であり、
+ * 教材・現在の予定・学習記録・設定を復元するためには不要。各世代が全タスク配置を
+ * 重複保持するため、JSON書き出し時だけ除外する。アプリ内の履歴やクラウド正本は変更しない。
+ */
+export function createBackupState(state: AppState): AppState {
+  const historyData = state.settings.historyData;
+  if (!historyData || historyData.planRevisions.length === 0) return state;
+  return {
+    ...state,
+    settings: {
+      ...state.settings,
+      historyData: {
+        ...historyData,
+        planRevisions: [],
+      },
+    },
+  };
+}
+
 export function exportJSON(state: AppState): string {
-  return JSON.stringify(state, null, 2);
+  // 人が編集する用途ではなく機械復元用なので、空白・改行も保存しない。
+  return JSON.stringify(createBackupState(state));
 }
 
 /** 学習ログをExcel/スプレッドシートで開けるCSVに変換する(BOM付きUTF-8) */

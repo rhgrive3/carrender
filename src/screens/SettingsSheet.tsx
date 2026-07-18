@@ -307,7 +307,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     a.download = `studycommander-backup-${today()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast('JSONをエクスポートしました');
+    toast('計画の変更履歴を除外したバックアップを書き出しました');
   };
 
   const doImport = (file: File) => {
@@ -850,10 +850,13 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       <SubjectManager />
 
       {/* データ管理 */}
-      <Disclosure title="データ管理" icon={<Database size={16} strokeWidth={2.2} />} iconColor="var(--text-sub)" summary="バックアップ・初期化">
+      <Disclosure title="データ管理" icon={<Database size={16} strokeWidth={2.2} />} iconColor="var(--text-sub)" summary="バックアップ（変更履歴は除外）">
+      <p className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 10 }}>
+        教材・現在の予定・学習記録・未達履歴・設定を保存します。容量を抑えるため、復元に不要な「計画の変更履歴」はバックアップに含めません。
+      </p>
       <div className="row" style={{ gap: 8 }}>
         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={doExport}>
-          <Download size={14} strokeWidth={2.4} aria-hidden="true" /> エクスポート
+          <Download size={14} strokeWidth={2.4} aria-hidden="true" /> バックアップを書き出す
         </button>
         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => fileRef.current?.click()}>
           <Upload size={14} strokeWidth={2.4} aria-hidden="true" /> インポート
