@@ -36,7 +36,7 @@ function CreateSetDialog({ onClose }: { onClose: () => void }) {
     try {
       await createMemorySet(repository, { name });
       await refresh();
-      void requestSync(true);
+      void requestSync(true).catch(() => undefined);
       onClose();
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : '暗記セットを作成できませんでした');
@@ -130,7 +130,7 @@ export function MemoryHome() {
         {pendingCount > 0 && `・同期待ち ${pendingCount}件`}
         {syncStatus === 'error' && syncError && <span className="memory-sync-error">・{syncError}</span>}
         {conflictCount > 0 && <button type="button" className="memory-inline-button" onClick={() => setConflictsOpen(true)}>競合</button>}
-        <button type="button" className="memory-inline-button" onClick={() => void requestSync(true)} aria-label="暗記データを同期"><RefreshCw size={15} /></button>
+        <button type="button" className="memory-inline-button" onClick={() => void requestSync(true).catch(() => undefined)} aria-label="暗記データを同期"><RefreshCw size={15} /></button>
       </div>
 
       {activeSession && <button type="button" className="memory-simple-resume card" onClick={() => navigate({ name: 'study', sessionId: activeSession.id })}><ArrowRight size={22} /><span><b>前回の続き</b><small>回答 {activeSession.answerCount}回から再開</small></span></button>}
