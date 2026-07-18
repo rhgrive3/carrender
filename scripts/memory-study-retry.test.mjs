@@ -5,14 +5,14 @@ const source = await readFile(new URL('../src/features/memory/ui/MemoryStudy.tsx
 
 assert.match(source, /const \[reloadKey, setReloadKey\] = useState\(0\)/, '暗記学習の再読込状態を保持する');
 assert.match(source, /setSession\(undefined\);[\s\S]*?setBundle\(undefined\);[\s\S]*?setLoadError\(undefined\)/, '再読込前に古いセッション・内容・エラーを消す');
-assert.match(source, /\[navigate, refresh, reloadKey, repository, sessionId\]/, '再読込操作でセッション読込effectを再実行する');
+assert.match(source, /\[navigate, refresh, reloadKey, repository, requestSync, sessionId\]/, '再読込操作と同期関数変更でセッション読込effectを再実行する');
 assert.match(source, /role="alert"[\s\S]*?セッションを開けませんでした[\s\S]*?setReloadKey[\s\S]*?再読み込み/, '読込失敗時に理由と再試行導線を表示する');
 assert.match(source, /再読み込み[\s\S]*?暗記ホームへ戻る/, '再試行できない恒久エラーではホームへ戻れる');
 
 assert.match(source, /旧形式の暗記セッション終了後に一覧を更新できませんでした/, '旧形式セッション保存後の一覧更新失敗を分離する');
 assert.match(source, /復元不能な暗記セッション終了後に一覧を更新できませんでした/, '復元不能セッション保存後の一覧更新失敗を分離する');
-assert.match(source, /saveSession\([\s\S]*?status: 'abandoned'[\s\S]*?try \{\s*await refresh\(\);\s*\} catch \(caught\) \{[\s\S]*?旧形式の問題セッションは廃止されました/u, '旧形式セッションでは一覧更新失敗後も本来の案内を維持する');
-assert.match(source, /sessionContentIsRestorable[\s\S]*?saveSession\([\s\S]*?status: 'abandoned'[\s\S]*?try \{\s*await refresh\(\);\s*\} catch \(caught\) \{[\s\S]*?学習中のカードが編集または削除されました/u, '復元不能セッションでは一覧更新失敗後も本来の案内を維持する');
+assert.match(source, /saveSession\([\s\S]*?status: 'abandoned'[\s\S]*?try \{\s*await refresh\(\);\s*\} catch \(caught\) \{[\s\S]*?void requestSync\(false\)\.catch[\s\S]*?旧形式の問題セッションは廃止されました/u, '旧形式セッションでは一覧更新失敗後も終了状態を同期して本来の案内を維持する');
+assert.match(source, /sessionContentIsRestorable[\s\S]*?saveSession\([\s\S]*?status: 'abandoned'[\s\S]*?try \{\s*await refresh\(\);\s*\} catch \(caught\) \{[\s\S]*?void requestSync\(false\)\.catch[\s\S]*?学習中のカードが編集または削除されました/u, '復元不能セッションでは一覧更新失敗後も終了状態を同期して本来の案内を維持する');
 assert.equal(source.includes("await refresh();\n        throw new Error('旧形式の問題セッション"), false, '一覧更新失敗を旧形式セッション終了失敗として扱わない');
 assert.equal(source.includes("await refresh();\n        throw new Error('学習中のカードが編集または削除"), false, '一覧更新失敗を復元不能セッション終了失敗として扱わない');
 
