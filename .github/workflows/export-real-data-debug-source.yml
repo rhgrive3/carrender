@@ -1,15 +1,16 @@
 name: Export real-data debug source
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/strict-material-daily-spread-real-data
+      - main
 
 permissions:
   contents: read
 
 jobs:
   export:
+    if: github.event.pull_request.head.ref == 'fix/strict-material-daily-spread-real-data'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
