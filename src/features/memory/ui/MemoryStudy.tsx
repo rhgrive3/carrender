@@ -101,6 +101,14 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     });
   };
 
+  const refreshAfterPersist = async (operation: '回答保存' | '回答取り消し') => {
+    try {
+      await refresh();
+    } catch (caught) {
+      console.warn(`暗記学習の${operation}後に一覧を更新できませんでした`, caught);
+    }
+  };
+
   const beginAction = () => {
     if (actionInFlight.current) return false;
     actionInFlight.current = true;
@@ -127,7 +135,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         responseMs: performance.now() - questionStarted.current,
         presentedExerciseType: 'flashcard',
       });
-      await refresh();
+      await refreshAfterPersist('回答保存');
       requestSyncSafely(result.session.status === 'completed');
       // 保存中に利用者が暗記ホームや別セッションへ移動した場合、完了後に古い学習画面へ
       // 勝手に状態反映・遷移させない。IndexedDBへの回答保存と同期要求はそのまま維持する。
@@ -157,7 +165,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       }
       // 取り消し自体は既にIndexedDBへ保存済み。画面を閉じた直後でも、
       // Contextの集計更新と端末間同期は最後まで要求する。
-      await refresh();
+      await refreshAfterPersist('回答取り消し');
       requestSyncSafely(false);
       if (!mounted.current || activeSessionId.current !== actionSessionId) return;
       setRevealed(false);
