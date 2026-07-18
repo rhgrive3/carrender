@@ -1,9 +1,9 @@
 name: Export source for agent
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/compact-backup-and-strict-plan-quality
+      - main
 
 permissions:
   contents: read
