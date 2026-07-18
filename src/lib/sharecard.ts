@@ -12,13 +12,25 @@ const SHARE_BUTTON_SELECTOR = 'button[aria-label="今日の記録をシェア画
 
 type ShareStudyCardResult = 'shared' | 'downloaded' | 'cancelled' | 'failed';
 let shareInFlight: Promise<ShareStudyCardResult> | null = null;
+let shareBusyObserver: MutationObserver | null = null;
 
-function setShareButtonBusy(busy: boolean) {
+function updateShareButtons(busy: boolean) {
   for (const button of document.querySelectorAll<HTMLButtonElement>(SHARE_BUTTON_SELECTOR)) {
     button.disabled = busy;
     button.setAttribute('aria-busy', String(busy));
     button.setAttribute('aria-label', busy ? 'シェア画像を生成中' : '今日の記録をシェア画像にする');
   }
+}
+
+function setShareButtonBusy(busy: boolean) {
+  updateShareButtons(busy);
+  shareBusyObserver?.disconnect();
+  shareBusyObserver = null;
+  if (!busy || typeof MutationObserver === 'undefined' || !document.body) return;
+
+  // 共有シート表示中に画面が再描画されても、新しく生成されたボタンへ処理中状態を引き継ぐ。
+  shareBusyObserver = new MutationObserver(() => updateShareButtons(true));
+  shareBusyObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
