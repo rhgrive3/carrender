@@ -35,6 +35,7 @@ assert.match(setup, /handleRadioKeyDown[\s\S]*ArrowLeft[\s\S]*ArrowRight[\s\S]*A
 assert.match(setup, /tabIndex=\{direction === 'output' \? 0 : -1\}[\s\S]*tabIndex=\{direction === 'input' \? 0 : -1\}/u, '出題方向は選択中の項目だけをTab移動対象にする');
 assert.match(setup, /tabIndex=\{countChoice === value \? 0 : -1\}/u, '問題数は選択中の項目だけをTab移動対象にする');
 assert.match(setup, /requestAnimationFrame[\s\S]*data-radio-value/u, 'キー操作後に新しい選択項目へフォーカスを移す');
+assert.match(setup, /const startInFlight = useRef\(false\)[\s\S]*if \(!repository \|\| startInFlight\.current[\s\S]*startInFlight\.current = true[\s\S]*finally \{[\s\S]*startInFlight\.current = false/u, '学習開始を同期ロックでsingle-flight化する');
 assert.match(setup, /const created = await createSimpleStudySession[\s\S]*try \{[\s\S]*await refresh\(\);[\s\S]*\} catch \(caught\) \{[\s\S]*console\.error[\s\S]*\}[\s\S]*navigate\(\{ name: 'study', sessionId: created\.session\.id \}\)/u, 'セッション作成後の一覧更新失敗で学習画面への遷移を止めない');
 assert.doesNotMatch(setup, /const created = await createSimpleStudySession[^;]*;\s*await refresh\(\);\s*navigate\(\{ name: 'study'/u, '一覧更新をセッション作成全体の成功条件へ戻さない');
 assert.doesNotMatch(setup, /文中で使う|ミックス|AI未確認|回答方式/u, '学習設定から不要な選択肢を削除する');
