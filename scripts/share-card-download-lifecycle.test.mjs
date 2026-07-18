@@ -24,6 +24,10 @@ assert.equal(source.includes('let shareInFlight: Promise<ShareStudyCardResult> |
 assert.equal(source.includes('if (shareInFlight) return shareInFlight;'), true, '連打時は新しいCanvas生成や共有要求を開始しない');
 assert.match(source, /setShareButtonBusy\(true\);[\s\S]*shareInFlight = performShareStudyCard\(state, ref\)\.finally\(\(\) => \{[\s\S]*?shareInFlight = null;[\s\S]*?setShareButtonBusy\(false\);/u, '共有中は操作を無効化し、完了後に必ず戻す');
 assert.match(source, /button\.disabled = busy;[\s\S]*button\.setAttribute\('aria-busy', String\(busy\)\);[\s\S]*シェア画像を生成中/u, '共有ボタンへ視覚・読み上げ双方の処理中状態を反映する');
+assert.equal(source.includes('new MutationObserver(() => updateShareButtons(true))'), true, '共有中の画面再描画でも新しいボタンへ処理中状態を引き継ぐ');
+assert.equal(source.includes("shareBusyObserver.observe(document.body, { childList: true, subtree: true });"), true, 'DOMの追加だけを監視して再描画を検知する');
+assert.match(source, /shareBusyObserver\?\.disconnect\(\);[\s\S]*shareBusyObserver = null;[\s\S]*if \(!busy/u, '共有完了後は監視を解除して不要なDOM監視を残さない');
+assert.equal(source.includes('共有シート表示中に画面が再描画されても、新しく生成されたボタンへ処理中状態を引き継ぐ。'), true, '再描画を監視する理由を明記する');
 assert.equal(source.includes('共有シート表示中の連打でCanvas生成や共有要求を重複させず'), true, '同時実行を防ぐ理由を明記する');
 
 const clickAt = source.indexOf('a.click();');
