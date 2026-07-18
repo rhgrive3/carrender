@@ -56,6 +56,7 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     setActionBusy(false);
     setBundle(null);
     setStats([]);
+    setQuery('');
     setLoadError(undefined);
     setEditingSet(false);
     return () => {
