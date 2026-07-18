@@ -45,8 +45,8 @@ assert.match(
 );
 assert.match(
   source,
-  /useLayoutEffect\(\(\) => \{[\s\S]*activeSetIdRef\.current = setId;[\s\S]*actionTokenRef\.current \+= 1;[\s\S]*setBundle\(null\);[\s\S]*setEditingSet\(false\);[\s\S]*return \(\) => \{[\s\S]*activeSetIdRef\.current = '';[\s\S]*actionTokenRef\.current \+= 1;[\s\S]*actionInFlightRef\.current = false;[\s\S]*\};[\s\S]*\}, \[setId\]\)/u,
-  'セット切替・画面離脱時は旧表示と操作トークンを無効化し、完了後の通知や遷移を抑止する',
+  /useLayoutEffect\(\(\) => \{[\s\S]*activeSetIdRef\.current = setId;[\s\S]*actionTokenRef\.current \+= 1;[\s\S]*setBundle\(null\);[\s\S]*setQuery\(''\);[\s\S]*setEditingSet\(false\);[\s\S]*return \(\) => \{[\s\S]*activeSetIdRef\.current = '';[\s\S]*actionTokenRef\.current \+= 1;[\s\S]*actionInFlightRef\.current = false;[\s\S]*\};[\s\S]*\}, \[setId\]\)/u,
+  'セット切替時は旧表示・検索条件・編集状態・操作トークンを描画前に無効化する',
 );
 assert.match(
   source,
