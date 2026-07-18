@@ -275,12 +275,22 @@ export function Segmented<T extends string>({
 }
 
 export function EmptyState({ icon, title, children }: { icon: string; title: string; children?: ReactNode }) {
+  const baseId = useId();
+  const titleId = `${baseId}-title`;
+  const descriptionId = `${baseId}-description`;
   return (
-    <div className="empty-state">
+    <section
+      className="empty-state"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      aria-labelledby={titleId}
+      aria-describedby={children ? descriptionId : undefined}
+    >
       <span className="empty-icon" aria-hidden="true">{icon}</span>
-      <div className="empty-title">{title}</div>
-      {children && <p>{children}</p>}
-    </div>
+      <div id={titleId} className="empty-title" role="heading" aria-level={2}>{title}</div>
+      {children && <div id={descriptionId} className="empty-description">{children}</div>}
+    </section>
   );
 }
 
