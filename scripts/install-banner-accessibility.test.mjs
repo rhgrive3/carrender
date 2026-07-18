@@ -5,8 +5,8 @@ const source = readFileSync(new URL('../src/components/pwa/InstallBanner.tsx', i
 
 assert.match(
   source,
-  /<section[\s\S]*?role="region"[\s\S]*?aria-labelledby=\{BANNER_TITLE_ID\}[\s\S]*?aria-describedby=\{BANNER_DESCRIPTION_ID\}/,
-  'インストール案内を名前と説明を持つregionとして公開する',
+  /<section[\s\S]*?role="region"[\s\S]*?aria-labelledby=\{BANNER_TITLE_ID\}[\s\S]*?aria-describedby=\{`\$\{BANNER_DESCRIPTION_ID\} \$\{BANNER_STATUS_ID\}`\}[\s\S]*?aria-busy=\{busy\}/,
+  'インストール案内を名前・説明・処理状態を持つregionとして公開する',
 );
 assert.match(
   source,
@@ -15,29 +15,33 @@ assert.match(
 );
 assert.match(
   source,
-  /<button[\s\S]*?type="button"[\s\S]*?aria-describedby=\{BANNER_DESCRIPTION_ID\}[\s\S]*?インストール/,
-  'インストール操作へ案内内容を関連付け、暗黙のsubmitを防ぐ',
+  /id=\{BANNER_STATUS_ID\}[\s\S]*?role="status"[\s\S]*?aria-live="polite"[\s\S]*?aria-atomic="true"[\s\S]*?\{status\}/,
+  'インストール処理の進行・キャンセル・失敗を独立したライブ領域で通知する',
+);
+assert.match(source, /const \[busy, setBusy\] = useState\(false\)/, 'ネイティブプロンプトの処理中状態をReact stateで保持する');
+assert.match(source, /if \(busy\) return;[\s\S]*?setBusy\(true\)/, '連打で複数のネイティブプロンプトを開始しない');
+assert.match(
+  source,
+  /const result = await promptInstall\(\)[\s\S]*?result === 'dismissed'[\s\S]*?result === 'unavailable'/,
+  'キャンセルと利用不能を成功扱いせず利用者へ説明する',
 );
 assert.match(
   source,
-  /const install = \(\) => \{[\s\S]*?void promptInstall\(\)\.catch\(\(\) => \{[\s\S]*?\}\);[\s\S]*?\};/,
-  'ネイティブプロンプト失敗を未処理Promise rejectionにしない',
+  /catch \{[\s\S]*?インストール確認を開けませんでした[\s\S]*?finally \{[\s\S]*?setBusy\(false\)/,
+  '失敗を通知し、成功・失敗を問わず操作状態を復元する',
 );
 assert.match(
   source,
-  /onClick=\{install\}/,
-  'インストール操作は失敗処理を持つハンドラ経由で実行する',
+  /<button[\s\S]*?type="button"[\s\S]*?aria-busy=\{busy\}[\s\S]*?disabled=\{busy\}[\s\S]*?onClick=\{\(\) => \{ void install\(\); \}\}/,
+  'インストールボタンを処理中は視覚・読み上げ・操作の全てで無効化する',
 );
-assert.doesNotMatch(
-  source,
-  /onClick=\{\(\) => promptInstall\(\)\}/,
-  'catchなしの直接呼び出しへ戻さない',
-);
+assert.match(source, /\{busy \? '確認中…' : 'インストール'\}/, '処理中はボタン表示でも進行状態を伝える');
 assert.match(
   source,
-  /<button[\s\S]*?type="button"[\s\S]*?aria-label="インストール案内を閉じる"[\s\S]*?aria-describedby=\{BANNER_DESCRIPTION_ID\}/,
-  '閉じる操作の対象を単独フォーカス時にも判別できる名前にする',
+  /aria-label="インストール案内を閉じる"[\s\S]*?disabled=\{busy\}[\s\S]*?onClick=\{dismiss\}/,
+  'ネイティブプロンプト処理中に案内だけを閉じて状態を失わない',
 );
+assert.doesNotMatch(source, /void promptInstall\(\)\.catch/, '結果を捨てる旧ハンドラへ戻さない');
 assert.doesNotMatch(source, /role="complementary"\s+aria-label="アプリのインストール"/, '汎用ラベルだけの補足ランドマークへ戻さない');
 
-console.log('✅ install banner accessibility contract passed');
+console.log('✅ install banner accessibility and interaction contract passed');
