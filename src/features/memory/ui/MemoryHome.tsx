@@ -63,6 +63,7 @@ export function MemoryHome() {
   const [conflictsOpen, setConflictsOpen] = useState(false);
   const [startingSetId, setStartingSetId] = useState<string>();
   const startInFlight = useRef(false);
+  const isStarting = startingSetId !== undefined;
 
   useEffect(() => {
     if (!repository || !ready) return;
@@ -117,43 +118,43 @@ export function MemoryHome() {
   if (!snapshot) return <div className="card memory-loading" role="status" aria-live="polite">暗記データを読み込んでいます…</div>;
 
   return (
-    <section className="memory-home memory-simple-home">
+    <section className="memory-home memory-simple-home" aria-busy={isStarting}>
       <div className="memory-toolbar">
         <div><h2>暗記カード</h2><p>セットを選んで、10問ずつ覚える</p></div>
         <div className="memory-toolbar-actions">
-          <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'import' })}><Download size={18} />取込・出力</button>
+          <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'import' })}><Download size={18} aria-hidden="true" />取込・出力</button>
           {summaries.length > 0 ? (
-            <button type="button" className="btn btn-primary" onClick={() => navigate({ name: 'editor', setId: summaries[0].set.id })}><Plus size={18} />カード追加</button>
+            <button type="button" className="btn btn-primary" disabled={isStarting} onClick={() => navigate({ name: 'editor', setId: summaries[0].set.id })}><Plus size={18} aria-hidden="true" />カード追加</button>
           ) : (
-            <button type="button" className="btn btn-primary" onClick={() => setCreateSetOpen(true)}><Plus size={18} />セット追加</button>
+            <button type="button" className="btn btn-primary" disabled={isStarting} onClick={() => setCreateSetOpen(true)}><Plus size={18} aria-hidden="true" />セット追加</button>
           )}
         </div>
       </div>
 
-      {snapshotError && <div className="card memory-error" role="alert"><span>{snapshotError}</span><button type="button" className="memory-inline-button" onClick={() => setSnapshotReloadKey((value) => value + 1)}>再読み込み</button></div>}
+      {snapshotError && <div className="card memory-error" role="alert"><span>{snapshotError}</span><button type="button" className="memory-inline-button" disabled={isStarting} onClick={() => setSnapshotReloadKey((value) => value + 1)}>再読み込み</button></div>}
 
       <div className="memory-sync-line" aria-live="polite">
         <span className={`memory-sync-dot ${syncStatus}`} aria-hidden="true" />
         {syncStatus === 'offline' ? 'オフライン・端末へ保存済み' : syncStatus === 'syncing' ? '同期中' : syncStatus === 'conflict' ? '差分確認が必要' : syncStatus === 'error' ? '同期失敗・端末へは保存済み' : '端末へ保存済み'}
         {pendingCount > 0 && `・同期待ち ${pendingCount}件`}
         {syncStatus === 'error' && syncError && <span className="memory-sync-error">・{syncError}</span>}
-        {conflictCount > 0 && <button type="button" className="memory-inline-button" onClick={() => setConflictsOpen(true)}>競合</button>}
-        <button type="button" className="memory-inline-button" disabled={syncStatus === 'syncing'} aria-busy={syncStatus === 'syncing'} onClick={() => void requestSync(true).catch(() => undefined)} aria-label={syncStatus === 'syncing' ? '暗記データを同期中' : '暗記データを同期'}><RefreshCw size={15} aria-hidden="true" /></button>
+        {conflictCount > 0 && <button type="button" className="memory-inline-button" disabled={isStarting} onClick={() => setConflictsOpen(true)}>競合</button>}
+        <button type="button" className="memory-inline-button" disabled={isStarting || syncStatus === 'syncing'} aria-busy={syncStatus === 'syncing'} onClick={() => void requestSync(true).catch(() => undefined)} aria-label={syncStatus === 'syncing' ? '暗記データを同期中' : '暗記データを同期'}><RefreshCw size={15} aria-hidden="true" /></button>
       </div>
 
-      {activeSession && <button type="button" className="memory-simple-resume card" onClick={() => navigate({ name: 'study', sessionId: activeSession.id })}><ArrowRight size={22} /><span><b>前回の続き</b><small>回答 {activeSession.answerCount}回から再開</small></span></button>}
+      {activeSession && <button type="button" className="memory-simple-resume card" disabled={isStarting} onClick={() => navigate({ name: 'study', sessionId: activeSession.id })}><ArrowRight size={22} aria-hidden="true" /><span><b>前回の続き</b><small>回答 {activeSession.answerCount}回から再開</small></span></button>}
 
       {summaries.length === 0 ? (
-        <div className="card empty-state memory-empty"><span className="empty-icon">🗂️</span><div className="empty-title">最初の暗記セットを作る</div><p>日本語と英語を登録するだけで始められます。</p><button type="button" className="btn btn-primary" onClick={() => setCreateSetOpen(true)}>セットを作る</button></div>
+        <div className="card empty-state memory-empty"><span className="empty-icon">🗂️</span><div className="empty-title">最初の暗記セットを作る</div><p>日本語と英語を登録するだけで始められます。</p><button type="button" className="btn btn-primary" disabled={isStarting} onClick={() => setCreateSetOpen(true)}>セットを作る</button></div>
       ) : (
         <>
-          <div className="memory-simple-library-head"><label className="memory-search"><Search size={17} /><span className="sr-only">セットを検索</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="セットを検索" /></label><button type="button" className="icon-btn" aria-label="暗記セットを追加" onClick={() => setCreateSetOpen(true)}><Plus size={20} /></button></div>
+          <div className="memory-simple-library-head"><label className="memory-search"><Search size={17} aria-hidden="true" /><span className="sr-only">セットを検索</span><input value={query} disabled={isStarting} onChange={(event) => setQuery(event.target.value)} placeholder="セットを検索" /></label><button type="button" className="icon-btn" aria-label="暗記セットを追加" disabled={isStarting} onClick={() => setCreateSetOpen(true)}><Plus size={20} aria-hidden="true" /></button></div>
           {filtered.length === 0 ? (
             <div className="card empty-state memory-empty" role="status">
               <span className="empty-icon" aria-hidden="true">🔎</span>
               <div className="empty-title">一致する暗記セットがありません</div>
               <p>検索語を変えるか、検索を解除してください。</p>
-              <button type="button" className="btn btn-secondary" onClick={() => setQuery('')}>検索を解除</button>
+              <button type="button" className="btn btn-secondary" disabled={isStarting} onClick={() => setQuery('')}>検索を解除</button>
             </div>
           ) : (
             <div className="memory-simple-set-cards">
@@ -162,9 +163,9 @@ export function MemoryHome() {
                   <div><h3>{summary.set.name}</h3><p>{summary.cards}カード</p></div>
                   <div className="memory-simple-metrics"><span><b>{summary.weak}</b><small>苦手</small></span><span><b>{summary.newCount}</b><small>未学習</small></span></div>
                   <div className="memory-simple-set-actions">
-                    <button type="button" className="btn btn-primary" disabled={startingSetId !== undefined || summary.eligible === 0} aria-busy={startingSetId === summary.set.id} onClick={() => void start(summary)}><Play size={18} fill="currentColor" aria-hidden="true" />{startingSetId === summary.set.id ? '準備中…' : summary.eligible === 0 ? '出題できるカードなし' : '10問始める'}</button>
-                    <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'set', setId: summary.set.id })}>カードを見る</button>
-                    <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'studySetup', setIds: [summary.set.id] })}>設定</button>
+                    <button type="button" className="btn btn-primary" disabled={isStarting || summary.eligible === 0} aria-busy={startingSetId === summary.set.id} onClick={() => void start(summary)}><Play size={18} fill="currentColor" aria-hidden="true" />{startingSetId === summary.set.id ? '準備中…' : summary.eligible === 0 ? '出題できるカードなし' : '10問始める'}</button>
+                    <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'set', setId: summary.set.id })}>カードを見る</button>
+                    <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'studySetup', setIds: [summary.set.id] })}>設定</button>
                   </div>
                 </article>
               ))}
