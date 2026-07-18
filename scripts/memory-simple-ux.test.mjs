@@ -32,6 +32,8 @@ assert.match(home, /disabled=\{isStarting \|\| syncStatus === 'syncing'\}[\s\S]*
 assert.match(home, /<RefreshCw size=\{15\} aria-hidden="true" \/>/u, '同期アイコンを読み上げ名へ重複させない');
 assert.match(home, /await createMemorySet[\s\S]*try \{[\s\S]*await refresh\(\);[\s\S]*\} catch \(caught\) \{[\s\S]*console\.error[\s\S]*\}[\s\S]*requestSync\(true\)[\s\S]*onClose\(\)/u, 'セット保存後の一覧更新失敗でも作成成功として同期と画面更新を続ける');
 assert.doesNotMatch(home, /await createMemorySet[^;]*;\s*await refresh\(\);\s*void requestSync/u, '一覧更新をセット作成全体の成功条件へ戻さない');
+assert.match(home, /const \{ repository, ready, error, sets,[\s\S]*\} = useMemory\(\)/u, 'Contextのセット更新を暗記ホームの再読込トリガーとして受け取る');
+assert.match(home, /\[pendingCount, ready, repository, sets, snapshotReloadKey\]/u, '同期後にセット一覧が更新されたらカード件数と苦手集計を再読込する');
 assert.doesNotMatch(home, /Input／Output差|Composition/u, 'ホームへ専門的な分析を出さない');
 assert.match(setup, /日本語 → 英語/u);
 assert.match(setup, /英語 → 日本語/u);
