@@ -16,6 +16,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   const [reloadKey, setReloadKey] = useState(0);
   const mounted = useRef(true);
   const activeSessionId = useRef(sessionId);
+  const undoInFlightSessionId = useRef<string>();
   activeSessionId.current = sessionId;
 
   useEffect(() => {
@@ -31,6 +32,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     setBundle(undefined);
     setLoadError(undefined);
     setUndoing(false);
+    undoInFlightSessionId.current = undefined;
     void (async () => {
       const loadResult = async () => {
         const loaded = await repository.getSession(sessionId);
@@ -84,8 +86,9 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   });
 
   const undoLast = async () => {
-    if (!repository || !session || undoing) return;
+    if (!repository || !session || undoing || undoInFlightSessionId.current === session.id) return;
     const actionSessionId = session.id;
+    undoInFlightSessionId.current = actionSessionId;
     setUndoing(true);
     try {
       const restored = await undoMemoryAnswer(repository, session);
@@ -106,6 +109,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
         toast(caught instanceof Error ? caught.message : '回答を取り消せませんでした');
       }
     } finally {
+      if (undoInFlightSessionId.current === actionSessionId) undoInFlightSessionId.current = undefined;
       if (mounted.current && activeSessionId.current === actionSessionId) setUndoing(false);
     }
   };
