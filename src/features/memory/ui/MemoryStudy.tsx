@@ -68,6 +68,9 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         } catch (caught) {
           console.warn('旧形式の暗記セッション終了後に一覧を更新できませんでした', caught);
         }
+        void requestSync(false).catch(() => {
+          // 終了状態は端末へ保存済み。同期失敗はContextの状態表示と次回同期へ委ねる。
+        });
         throw new Error('旧形式の問題セッションは廃止されました。新しいカード学習を開始してください');
       }
       if (!sessionContentIsRestorable(content, targets, false)) {
@@ -77,6 +80,9 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         } catch (caught) {
           console.warn('復元不能な暗記セッション終了後に一覧を更新できませんでした', caught);
         }
+        void requestSync(false).catch(() => {
+          // 終了状態は端末へ保存済み。同期失敗はContextの状態表示と次回同期へ委ねる。
+        });
         throw new Error('学習中のカードが編集または削除されました。新しい学習を開始してください');
       }
       if (!cancelled) {
@@ -87,7 +93,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       if (!cancelled) setLoadError(caught instanceof Error ? caught.message : 'セッションを開けませんでした');
     });
     return () => { cancelled = true; };
-  }, [navigate, refresh, reloadKey, repository, sessionId]);
+  }, [navigate, refresh, reloadKey, repository, requestSync, sessionId]);
 
   const queue = useMemo(() => session ? queueFromSession(session) : undefined, [session]);
   const target = queue ? currentLearningTarget(queue) : undefined;
@@ -145,8 +151,6 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       });
       await refreshAfterPersist('回答保存');
       requestSyncSafely(result.session.status === 'completed');
-      // 保存中に利用者が暗記ホームや別セッションへ移動した場合、完了後に古い学習画面へ
-      // 勝手に状態反映・遷移させない。IndexedDBへの回答保存と同期要求はそのまま維持する。
       if (!mounted.current || activeSessionId.current !== actionSessionId) return;
       setRevealed(false);
       setFlipDirection(undefined);
@@ -171,8 +175,6 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         if (mounted.current && activeSessionId.current === actionSessionId) toast('取り消せる回答はありません');
         return;
       }
-      // 取り消し自体は既にIndexedDBへ保存済み。画面を閉じた直後でも、
-      // Contextの集計更新と端末間同期は最後まで要求する。
       await refreshAfterPersist('回答取り消し');
       requestSyncSafely(false);
       if (!mounted.current || activeSessionId.current !== actionSessionId) return;
