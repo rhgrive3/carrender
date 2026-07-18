@@ -98,7 +98,11 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
       }
       // 取り消しはIndexedDBへ保存済みなので、結果画面を離れた後も集計更新と
       // 端末間同期は完了させる。古い画面からのToast・状態更新・遷移だけを止める。
-      await refresh();
+      try {
+        await refresh();
+      } catch (caught) {
+        console.warn('暗記結果の取り消し後に一覧を更新できませんでした', caught);
+      }
       void requestSync(true).catch(() => {
         // 取り消し結果は端末へ保存済み。同期失敗は次回の自動同期へ委ねる。
       });
