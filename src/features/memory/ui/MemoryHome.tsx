@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Download, Play, Plus, RefreshCw, Search } from 'lucide-react';
 import type { MemoryLocalSnapshot } from '../infrastructure/repositories';
 import type { MemorySet } from '../domain/types';
@@ -28,8 +28,10 @@ function CreateSetDialog({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
+  const saveInFlight = useRef(false);
   const save = async () => {
-    if (!repository || saving || !name.trim()) return;
+    if (!repository || saveInFlight.current || !name.trim()) return;
+    saveInFlight.current = true;
     setSaving(true);
     try {
       await createMemorySet(repository, { name });
@@ -39,6 +41,7 @@ function CreateSetDialog({ onClose }: { onClose: () => void }) {
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : '暗記セットを作成できませんでした');
     } finally {
+      saveInFlight.current = false;
       setSaving(false);
     }
   };
@@ -55,6 +58,7 @@ export function MemoryHome() {
   const [createSetOpen, setCreateSetOpen] = useState(false);
   const [conflictsOpen, setConflictsOpen] = useState(false);
   const [startingSetId, setStartingSetId] = useState<string>();
+  const startInFlight = useRef(false);
 
   useEffect(() => {
     if (!repository || !ready) return;
@@ -73,7 +77,8 @@ export function MemoryHome() {
   const filtered = summaries.filter(({ set }) => !normalized || set.name.normalize('NFKC').toLocaleLowerCase('ja-JP').includes(normalized));
 
   const start = async (summary: SetSummary) => {
-    if (!repository || startingSetId || summary.eligible === 0) return;
+    if (!repository || startInFlight.current || summary.eligible === 0) return;
+    startInFlight.current = true;
     setStartingSetId(summary.set.id);
     try {
       const created = await createSimpleStudySession({
@@ -84,7 +89,10 @@ export function MemoryHome() {
       await refresh();
       navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) { toast(caught instanceof Error ? caught.message : '学習を開始できませんでした'); }
-    finally { setStartingSetId(undefined); }
+    finally {
+      startInFlight.current = false;
+      setStartingSetId(undefined);
+    }
   };
 
   if (!ready) return <div className="card memory-loading" role="status" aria-live="polite">暗記データを開いています…</div>;
