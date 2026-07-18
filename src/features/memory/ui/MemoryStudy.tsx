@@ -53,7 +53,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       if (!loaded) throw new Error('学習セッションが見つかりません');
       if (loaded.status === 'abandoned') throw new Error('この学習セッションは終了済みです');
       if (loaded.status === 'completed') {
-        navigate({ name: 'result', sessionId: loaded.id });
+        if (!cancelled) navigate({ name: 'result', sessionId: loaded.id });
         return;
       }
       const content = await repository.loadContent();
