@@ -28,6 +28,8 @@ assert.match(setup, /日本語 → 英語/u);
 assert.match(setup, /英語 → 日本語/u);
 assert.match(setup, /const \{ repository, ready, sets, navigate, refresh \} = useMemory\(\)/u, '暗記データ準備完了後にセット選択を検証する');
 assert.match(setup, /if \(!ready\) return;[\s\S]*availableSetIds[\s\S]*current\.filter\(\(setId\) => availableSetIds\.has\(setId\)\)/u, '削除済みセットIDを学習設定から除外する');
+assert.match(setup, /const created = await createSimpleStudySession[\s\S]*try \{[\s\S]*await refresh\(\);[\s\S]*\} catch \(caught\) \{[\s\S]*console\.error[\s\S]*\}[\s\S]*navigate\(\{ name: 'study', sessionId: created\.session\.id \}\)/u, 'セッション作成後の一覧更新失敗で学習画面への遷移を止めない');
+assert.doesNotMatch(setup, /const created = await createSimpleStudySession[^;]*;\s*await refresh\(\);\s*navigate\(\{ name: 'study'/u, '一覧更新をセッション作成全体の成功条件へ戻さない');
 assert.doesNotMatch(setup, /文中で使う|ミックス|AI未確認|回答方式/u, '学習設定から不要な選択肢を削除する');
 assert.doesNotMatch(editor, /問題形式・指定表現|EXERCISE_TYPES|MemoryExerciseDraft/u, 'カード編集から問題作成機能を削除する');
 assert.match(editor, /別の英語を追加/u, '自然な別解登録は残す');
