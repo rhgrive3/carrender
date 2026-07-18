@@ -8,6 +8,11 @@ import type { AppState, Material, StudyTask } from '../src/types';
 const source = readFileSync(new URL('../src/components/forms/RecordSheet.tsx', import.meta.url), 'utf8');
 
 assert.match(source, /if \(!open\) \{\s*initializedTargetRef\.current = null;/, '閉じたシートは次回表示前に初期化対象を解除する');
+assert.match(source, /actionInFlightRef\.current = false;/, '閉じたシートは記録操作の同期ロックも解除する');
+assert.match(source, /const save = \(\) => \{\s*if \(actionInFlightRef\.current\) return;\s*actionInFlightRef\.current = true;/, '保存処理は同一表示中に一度だけ開始する');
+assert.match(source, /const remove = \(\) => \{\s*if \(!session \|\| actionInFlightRef\.current\) return;/, '削除処理も保存・削除と競合させない');
+assert.match(source, /if \(!result\.changed\) \{\s*release\(\);/, '保存失敗時は再試行できるよう同期ロックを解除する');
+assert.match(source, /if \(!result\.changed\) \{\s*actionInFlightRef\.current = false;/, '削除失敗時は再試行できるよう同期ロックを解除する');
 assert.match(source, /const targetKey = session[\s\S]*?`session:\$\{session\.id\}`/, '編集対象セッションごとに再初期化する');
 assert.match(source, /setSubjectId\(session\?\.subjectId \?\? preset\?\.subjectId/, '科目を新しい対象から復元する');
 assert.match(source, /setMaterialId\(session\?\.materialId \?\? preset\?\.materialId/, '教材を新しい対象から復元する');
@@ -131,4 +136,4 @@ for (const planned of recorded.tasks.filter((item) => item.status === 'planned' 
   assert.equal(completed.some((done) => range.start <= done.end && range.end >= done.start), false, `再計画後の${range.start}〜${range.end}は完了済み範囲と重複しない`);
 }
 
-console.log('✅ record sheet state reset, timer duration editing, and taskless progress regressions passed');
+console.log('✅ record sheet state reset, single-flight actions, timer duration editing, and taskless progress regressions passed');
