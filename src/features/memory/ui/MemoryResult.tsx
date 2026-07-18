@@ -59,16 +59,25 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
       };
 
       const initial = await loadResult();
-      if (cancelled || !applyResult(initial)) return;
+      if (cancelled) return;
+      // 同期前の完了状態は画面操作へ公開しない。別端末で取り消し・終了済みに
+      // 変わっている途中に、古いセッションを再度取り消して上書きする競合を防ぐ。
+      if (initial.loaded.status === 'active') {
+        navigate({ name: 'study', sessionId: initial.loaded.id });
+        return;
+      }
+      if (initial.loaded.status !== 'completed') {
+        throw new Error('この学習セッションは終了済みです');
+      }
 
       try {
         await requestSync(true);
       } catch {
         // 同期要求自体の失敗だけは端末データで継続し、暗記ホームから再試行できる。
-        return;
       }
       if (cancelled) return;
-      // 同期成功後の読込・状態判定は失敗を握り潰さず、古い完了画面を残さない。
+      // 同期確認後の状態だけを結果画面へ公開する。同期後の読込・状態判定は
+      // 失敗を握り潰さず、古い完了画面を残さない。
       const synced = await loadResult();
       if (cancelled) return;
       applyResult(synced);

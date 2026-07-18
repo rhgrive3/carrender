@@ -26,20 +26,22 @@ assert.match(source, /try \{\s*await refresh\(\);\s*\} catch \(caught\) \{[\s\S]
 assert.equal(source.includes('void requestSync(true);', refreshAt), false, '取り消し後の同期失敗を未処理のPromise rejectionにしない');
 assert.equal(source.includes('取り消し結果は端末へ保存済み。同期失敗は次回の自動同期へ委ねる。'), true, '同期失敗時の継続方針を明記する');
 
-assert.equal(source.includes('const loadResult = async () => {'), true, '初回表示と同期後更新で同じ結果読込処理を使う');
-assert.equal(source.includes('const applyResult = (result: Awaited<ReturnType<typeof loadResult>>) => {'), true, '初回表示と同期後再読込へ同じセッション状態判定を適用する');
+assert.equal(source.includes('const loadResult = async () => {'), true, '初回確認と同期後更新で同じ結果読込処理を使う');
+assert.equal(source.includes('const applyResult = (result: Awaited<ReturnType<typeof loadResult>>) => {'), true, '同期後再読込へセッション状態判定を適用する');
 assert.match(source, /result\.loaded\.status === 'active'[\s\S]*?navigate\(\{ name: 'study', sessionId: result\.loaded\.id \}\);[\s\S]*?return false;/u, '別端末の取り消しで学習中へ戻ったセッションは結果画面へ残さず学習へ戻す');
 assert.match(source, /result\.loaded\.status !== 'completed'[\s\S]*?この学習セッションは終了済みです/u, '完了済み以外の終了状態を学習完了として表示しない');
-assert.equal(source.includes('if (cancelled || !applyResult(initial)) return;'), true, '初回読込でも無効な結果状態を描画しない');
-assert.equal(source.includes('applyResult(synced);'), true, '同期後のセッション状態変化を同じ画面で反映する');
+assert.equal(source.includes('applyResult(initial)'), false, '同期前の古い完了状態を結果画面へ公開しない');
+assert.match(source, /initial\.loaded\.status === 'active'[\s\S]*?navigate\(\{ name: 'study', sessionId: initial\.loaded\.id \}\)/u, '同期前でもローカルで学習中なら結果画面を表示せず学習へ戻す');
+assert.match(source, /initial\.loaded\.status !== 'completed'[\s\S]*?この学習セッションは終了済みです/u, '同期前のローカル状態が終了済みなら操作画面を表示しない');
+assert.equal(source.includes('applyResult(synced);'), true, '同期確認後のセッション状態だけを結果画面へ反映する');
 assert.equal(source.includes('[navigate, reloadKey, repository, requestSync, sessionId]'), true, '結果状態判定で使う画面遷移関数をeffect依存へ含める');
 const initialLoadAt = source.indexOf('const initial = await loadResult();');
 const resultSyncAt = source.indexOf('await requestSync(true);', initialLoadAt);
-const syncCatchAt = source.indexOf('同期要求自体の失敗だけは端末データで継続', resultSyncAt);
-const syncedLoadAt = source.indexOf('const synced = await loadResult();', syncCatchAt);
+const syncedLoadAt = source.indexOf('const synced = await loadResult();', resultSyncAt);
 const syncedApplyAt = source.indexOf('applyResult(synced);', syncedLoadAt);
-assert.equal(initialLoadAt < resultSyncAt && resultSyncAt < syncCatchAt && syncCatchAt < syncedLoadAt && syncedLoadAt < syncedApplyAt, true, '同期要求失敗だけを局所処理し、同期成功後の読込と状態判定は外側へ伝播させる');
-assert.equal(source.includes('同期成功後の読込・状態判定は失敗を握り潰さず、古い完了画面を残さない。'), true, '同期後に終了状態へ変わった場合の表示方針を明記する');
+assert.equal(initialLoadAt < resultSyncAt && resultSyncAt < syncedLoadAt && syncedLoadAt < syncedApplyAt, true, '同期確認後に再読込した最新状態だけを操作可能な結果画面へ公開する');
+assert.equal(source.includes('同期前の完了状態は画面操作へ公開しない。'), true, '同期前の古いセッションを操作させない方針を明記する');
+assert.equal(source.includes('同期確認後の状態だけを結果画面へ公開する。'), true, '同期後の最新状態だけを表示する方針を明記する');
 
 assert.match(source, /new Set\(session\?\.initialTargetIds \?\? \[\]\)\.size/u, '重複した初期出題IDを結果画面のカード件数で1件へ正規化する');
 assert.equal(source.includes('カード {initialTargetCount}件'), true, '表示件数は重複除外後の初期出題数を使う');
