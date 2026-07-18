@@ -96,6 +96,7 @@ export function MemoryHome() {
       } catch (caught) {
         console.error('暗記学習開始後の一覧更新に失敗しました', caught);
       }
+      void requestSync(true).catch(() => undefined);
       navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) { toast(caught instanceof Error ? caught.message : '学習を開始できませんでした'); }
     finally {

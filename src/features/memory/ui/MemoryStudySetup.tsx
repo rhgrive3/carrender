@@ -46,7 +46,7 @@ function handleRadioKeyDown<T extends string>(
 }
 
 export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] }) {
-  const { repository, ready, sets, navigate, refresh } = useMemory();
+  const { repository, ready, sets, navigate, refresh, requestSync } = useMemory();
   const toast = useToast();
   const [selectedSetIds, setSelectedSetIds] = useState(() => [...new Set(initialSetIds)]);
   const [countChoice, setCountChoice] = useState<CountChoice>('weak10');
@@ -124,6 +124,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
       } catch (caught) {
         console.error('Failed to refresh memory state after creating a study session', caught);
       }
+      void requestSync(true).catch(() => undefined);
       navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
