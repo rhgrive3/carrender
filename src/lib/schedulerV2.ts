@@ -440,7 +440,7 @@ function solverUnitsAvailableOnDay(item: SolverItem, day: SolverDayInput, loadCa
   return packedUnits;
 }
 
-function withOneSessionPerDayWhenFeasible(
+function withBalancedDailyUnitsCap(
   work: StrictWork,
   item: SolverItem,
   days: ReadonlyArray<SolverDayInput>,
@@ -455,14 +455,74 @@ function withOneSessionPerDayWhenFeasible(
   const step = Math.max(1, item.unitStep);
   const sessionUnits = Math.floor(item.maxChunkUnits / step) * step;
   if (sessionUnits < item.minChunkUnits) return item;
-  const requiredDays = Math.ceil(item.requiredUnits / sessionUnits);
-  const capped = { ...item, maxUnitsPerDay: sessionUnits };
   const eligibleDays = days.filter((day) =>
     day.date >= item.release
     && day.date <= item.deadline
-    && solverUnitsAvailableOnDay(capped, day, day.budget) >= Math.min(sessionUnits, item.requiredUnits),
-  ).length;
-  return eligibleDays >= requiredDays ? capped : item;
+    && solverUnitsAvailableOnDay(item, day, day.budget) >= Math.min(item.minChunkUnits, item.requiredUnits));
+  if (eligibleDays.length <= 0) return item;
+  const requiredSessions = Math.ceil(item.requiredUnits / sessionUnits);
+  const sessionsPerDay = Math.max(1, Math.ceil(requiredSessions / eligibleDays.length));
+  const capped = { ...item, maxUnitsPerDay: sessionsPerDay * sessionUnits };
+  const availableUnits = eligibleDays.reduce(
+    (sum, day) => sum + solverUnitsAvailableOnDay(capped, day, day.budget),
+    0,
+  );
+  return availableUnits >= item.requiredUnits ? capped : item;
+}
+
+function relaxBalancedDailyUnitsCaps(
+  works: ReadonlyArray<StrictWork>,
+  items: ReadonlyArray<SolverItem>,
+): SolverItem[] {
+  return items.map((item, index) => {
+    const original = works[index].solverItem;
+    if (original.maxUnitsPerDay !== undefined || item.maxUnitsPerDay === undefined || !item.splittable) return item;
+    const step = Math.max(1, item.unitStep);
+    const sessionUnits = Math.floor(item.maxChunkUnits / step) * step;
+    if (sessionUnits <= 0 || item.maxUnitsPerDay >= item.requiredUnits) return item;
+    return { ...item, maxUnitsPerDay: Math.min(item.requiredUnits, item.maxUnitsPerDay + sessionUnits) };
+  });
+}
+
+function balanceCapsForSharedDeadlines(
+  works: ReadonlyArray<StrictWork>,
+  initialItems: ReadonlyArray<SolverItem>,
+  days: ReadonlyArray<SolverDayInput>,
+): SolverItem[] {
+  let items = [...initialItems];
+  const cutoffs = [...new Set(days.map((day) => day.date))].sort();
+  const necessaryBoundsHold = () => cutoffs.every((cutoff) => {
+    let mandatoryMinutes = 0;
+    for (const item of items) {
+      const unitsAfter = days
+        .filter((day) => day.date > cutoff)
+        .reduce((sum, day) => sum + solverUnitsAvailableOnDay(item, day, day.budget), 0);
+      mandatoryMinutes += minutesForUnits(item.minutesPerUnit, Math.max(0, item.requiredUnits - unitsAfter));
+    }
+    const sharedCapacity = days
+      .filter((day) => day.date <= cutoff)
+      .reduce((sum, day) => sum + day.budget, 0);
+    return mandatoryMinutes <= sharedCapacity;
+  });
+  for (let attempt = 0; attempt < 12 && !necessaryBoundsHold(); attempt += 1) {
+    const relaxed = relaxBalancedDailyUnitsCaps(works, items);
+    if (relaxed.every((item, index) => item.maxUnitsPerDay === items[index].maxUnitsPerDay)) break;
+    items = relaxed;
+  }
+  return items;
+}
+
+function earliestCapacityFinishDate(
+  item: SolverItem,
+  days: ReadonlyArray<SolverDayInput>,
+): ISODate | null {
+  let units = 0;
+  for (const day of days) {
+    if (day.date < item.release || day.date > item.deadline) continue;
+    units += solverUnitsAvailableOnDay(item, day, day.budget);
+    if (units >= item.requiredUnits) return day.date;
+  }
+  return null;
 }
 
 export function dateInTimeZone(date: Date, timeZone: string): ISODate {
@@ -1222,9 +1282,11 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       // 最遅解は「この日までに必要な累積量」の保証線としてだけ残す。
       // 実予定は安全完了日までに均して解き、保証線を下回る解は採用しない。
       const capacityByDate = [...calendar.values()].map((day) => ({ date: day.date, minutes: day.budget }));
-      const safetyItems = ordered.map((work) => {
-        if (!work.material) return work.solverItem;
-        const finish = computeSafetyFinishDate({
+      const balancedDaysBase = solverDays();
+      let balancedItems = ordered.map((work) => {
+        const capped = withBalancedDailyUnitsCap(work, work.solverItem, balancedDaysBase);
+        if (!work.material) return capped;
+        const preferredFinish = computeSafetyFinishDate({
           start: work.solverItem.release,
           deadline: work.deadline,
           deadlinePolicy: 'strict',
@@ -1232,14 +1294,15 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
           requiredMinutes: work.requiredMinutes,
           capacityByDate,
         });
+        // 総分数だけで安全完了日を決めると、40分×21単位のような教材を
+        // 2日へ840分詰め込もうとして均等解が失敗する。チャンク幅と日別上限を
+        // 反映した最短実行可能日までは安全完了日を後ろへ延ばす。
+        const capacityFinish = earliestCapacityFinishDate(capped, balancedDaysBase) ?? work.deadline;
+        const finish = preferredFinish > capacityFinish ? preferredFinish : capacityFinish;
         safetyFinishByMaterial.set(work.material.id, finish);
-        return { ...work.solverItem, deadline: finish };
+        return { ...capped, deadline: finish };
       });
-      const balancedDaysBase = solverDays();
-      // 十分な日数がある厳守教材は、1日1セッションを上限として分散する。
-      // 日数が足りない教材へは適用せず、期限保証を優先する。
-      const balancedItems = safetyItems.map((item, index) =>
-        withOneSessionPerDayWhenFeasible(ordered[index], item, balancedDaysBase));
+      balancedItems = balanceCapsForSharedDeadlines(ordered, balancedItems, balancedDaysBase);
       const totalStrictMinutes = strictWorks.reduce((sum, work) => sum + work.requiredMinutes, 0);
       const activeStrictDays = balancedDaysBase.filter((day) => day.budget > 0
         && balancedItems.some((item) => day.date >= item.release && day.date <= item.deadline)).length;
@@ -1295,8 +1358,8 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       while (perDayTarget < maxAvailableBudget && !capCouldPossiblyFit(perDayTarget)) perDayTarget += 5;
       const balancedDays = balancedDaysBase.map((day) => ({ ...day, budget: Math.min(day.budget, perDayTarget) }));
       let balanced = runSolve(balancedItems, balancedDays, false);
-      // 大きな分割不可チャンク等で均等上限が狭すぎる場合は、同じ安全期限で
-      // 上限なしの早期解へ一度だけ緩める。探索上限は共有のまま。
+      // 大きな分割不可チャンク等で均等な総日負荷上限だけが狭すぎる場合は、
+      // 教材別の分散上限を維持したまま総日負荷だけを一度緩める。
       if (balanced.status !== 'feasible' && remainingNodes > 0 && Date.now() < searchDeadline) {
         balanced = runSolve(balancedItems, balancedDaysBase, false);
       }
