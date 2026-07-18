@@ -16,7 +16,7 @@ function questionCount(choice: CountChoice): MemoryQuestionCount {
 }
 
 export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] }) {
-  const { repository, sets, navigate, refresh } = useMemory();
+  const { repository, ready, sets, navigate, refresh } = useMemory();
   const toast = useToast();
   const [selectedSetIds, setSelectedSetIds] = useState(() => [...new Set(initialSetIds)]);
   const [countChoice, setCountChoice] = useState<CountChoice>('weak10');
@@ -25,6 +25,12 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   const [resolvedEligibilityKey, setResolvedEligibilityKey] = useState<string>();
   const [eligibilityError, setEligibilityError] = useState<string>();
   const [starting, setStarting] = useState(false);
+
+  useEffect(() => {
+    if (!ready) return;
+    const availableSetIds = new Set(sets.map((set) => set.id));
+    setSelectedSetIds((current) => current.filter((setId) => availableSetIds.has(setId)));
+  }, [ready, sets]);
 
   const eligibilityKey = useMemo(
     () => `${direction}:${[...selectedSetIds].sort().join(',')}`,
