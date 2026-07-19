@@ -12,5 +12,10 @@ assert.match(source, /<section className="memory-import" aria-busy=\{busy\}>/u, 
 assert.match(source, /<fieldset disabled=\{saving\}/u, '保存中は取込内容と保存先を変更できない');
 assert.match(source, /aria-label="戻る" disabled=\{busy\}/u, '保存または出力中の画面離脱を防ぐ');
 assert.doesNotMatch(source, /await refresh\(\);\s*void requestSync\(true\);/u, '保存後処理を旧構造へ戻さない');
+assert.match(source, /fileReadGenerationRef = useRef<Record<TextFileTarget, number>>/u, '取込ファイル読込は対象別の世代を持つ');
+assert.match(source, /const generation = fileReadGenerationRef\.current\[target\] \+ 1;[\s\S]*fileReadGenerationRef\.current\[target\] !== generation/u, '古いファイル読込結果を現在入力へ反映しない');
+assert.match(source, /invalidateTextFileRead\('import'\); setText/u, '手入力後に古い取込ファイルで上書きしない');
+assert.match(source, /invalidateTextFileRead\('ai'\); setAiText/u, 'AI差分の手入力後に古いJSONで上書きしない');
+assert.match(source, /fileReadGenerationRef\.current\.import \+= 1;[\s\S]*fileReadGenerationRef\.current\.ai \+= 1/u, '画面離脱時に進行中のファイル読込を無効化する');
 
 console.log('memory import save resilience contract: ok');

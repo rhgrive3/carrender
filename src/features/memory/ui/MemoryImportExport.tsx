@@ -24,6 +24,7 @@ import { useMemory } from './MemoryContext';
 
 type Tab = 'import' | 'export' | 'ai';
 type ImportColumnOrder = 'auto' | 'english-first' | 'japanese-first';
+type TextFileTarget = 'import' | 'ai';
 
 function containsJapanese(value: string): boolean {
   return /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(value);
@@ -94,6 +95,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
   const mountedRef = useRef(false);
   const saveInFlightRef = useRef(false);
   const exportInFlightRef = useRef(false);
+  const fileReadGenerationRef = useRef<Record<TextFileTarget, number>>({ import: 0, ai: 0 });
   const repositoryRef = useRef(repository);
   repositoryRef.current = repository;
   const busy = saving || exporting;
@@ -104,6 +106,8 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
       mountedRef.current = false;
       saveInFlightRef.current = false;
       exportInFlightRef.current = false;
+      fileReadGenerationRef.current.import += 1;
+      fileReadGenerationRef.current.ai += 1;
     };
   }, []);
 
@@ -148,19 +152,25 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
     });
   };
 
-  const loadTextFile = async (file: File | undefined, target: 'import' | 'ai') => {
+  const invalidateTextFileRead = (target: TextFileTarget): void => {
+    fileReadGenerationRef.current[target] += 1;
+  };
+
+  const loadTextFile = async (file: File | undefined, target: TextFileTarget) => {
     if (!file || busy) return;
+    const generation = fileReadGenerationRef.current[target] + 1;
+    fileReadGenerationRef.current[target] = generation;
     if (file.size > 5_000_000) {
       toast('ファイルは5MB以内にしてください');
       return;
     }
     try {
       const value = await file.text();
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || fileReadGenerationRef.current[target] !== generation) return;
       if (target === 'ai') { setAiText(value); setAiPreview(undefined); }
       else setText(value);
     } catch {
-      if (mountedRef.current) toast('ファイルを読み込めませんでした');
+      if (mountedRef.current && fileReadGenerationRef.current[target] === generation) toast('ファイルを読み込めませんでした');
     }
   };
 
@@ -410,7 +420,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
               <div className="field">
                 <label htmlFor="memory-import-text">CSV・TSV・セットJSON・コピーした表・「英語 = 日本語」</label>
                 <input type="file" accept=".csv,.tsv,.json,.txt,text/csv,text/tab-separated-values,application/json,text/plain" aria-label="取込ファイルを選択" onChange={(event) => void loadTextFile(event.target.files?.[0], 'import')} />
-                <textarea id="memory-import-text" className="memory-import-textarea" value={text} onChange={(event) => setText(event.target.value)} placeholder={'take A into account\t〜を考慮に入れる\nallow for A = Aを考慮する'} />
+                <textarea id="memory-import-text" className="memory-import-textarea" value={text} onChange={(event) => { invalidateTextFileRead('import'); setText(event.target.value); }} placeholder={'take A into account\t〜を考慮に入れる\nallow for A = Aを考慮する'} />
               </div>
               <div className="memory-parse-status" aria-live="polite">{parsing ? '解析中…' : `形式：${format.toUpperCase()}・有効 ${rows.length}件・エラー ${parseErrors.length}件`}</div>
               {format !== 'selected-sets' && <div className="field">
@@ -498,7 +508,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
           <fieldset disabled={saving} className="memory-import-input-group">
             <div className="card">
               <p className="memory-ai-manual-note"><b>ChatGPTアプリから受け取ったファイルを手動で確認します。</b> CarrenderからAIへ通信することはありません。</p>
-              <div className="field"><label htmlFor="memory-ai-json">ChatGPTが返したAI用JSON</label><textarea id="memory-ai-json" className="memory-import-textarea" value={aiText} onChange={(event) => { setAiText(event.target.value); setAiPreview(undefined); }} /></div>
+              <div className="field"><label htmlFor="memory-ai-json">ChatGPTが返したAI用JSON</label><textarea id="memory-ai-json" className="memory-import-textarea" value={aiText} onChange={(event) => { invalidateTextFileRead('ai'); setAiText(event.target.value); setAiPreview(undefined); }} /></div>
               <input type="file" accept=".json,application/json" aria-label="ChatGPTが返したJSONファイルを選択" onChange={(event) => void loadTextFile(event.target.files?.[0], 'ai')} />
               <button type="button" className="btn btn-primary" disabled={!aiText.trim()} onClick={() => void inspectAi()}>差分を確認</button>
             </div>
