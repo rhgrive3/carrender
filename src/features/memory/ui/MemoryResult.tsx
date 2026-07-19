@@ -31,7 +31,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     setLoadError(undefined);
     setUndoing(false);
     undoInFlightSessionId.current = undefined;
-  }, [repository, sessionId]);
+  }, [reloadKey, repository, sessionId]);
 
   useEffect(() => {
     if (!repository) return;

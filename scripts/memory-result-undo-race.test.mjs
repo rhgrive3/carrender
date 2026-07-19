@@ -15,7 +15,8 @@ assert.match(source, /mounted\.current && activeSessionId\.current === actionSes
 assert.equal(source.includes('if (mounted.current && activeSessionId.current === actionSessionId) setUndoing(false)'), true, '古い処理のfinallyで新しいセッションの操作状態を解除しない');
 
 assert.match(source, /import \{[^}]*useLayoutEffect[^}]*\} from 'react'/u, '結果切替の描画前リセットにuseLayoutEffectを使う');
-assert.match(source, /useLayoutEffect\(\(\) => \{\s*setSession\(undefined\);\s*setAttempts\(\[\]\);\s*setBundle\(undefined\);\s*setLoadError\(undefined\);\s*setUndoing\(false\);\s*undoInFlightSessionId\.current = undefined;\s*\}, \[repository, sessionId\]\)/u, '所有者またはセッション切替時に旧結果・エラー・取り消し状態を描画前に破棄する');
+assert.match(source, /useLayoutEffect\(\(\) => \{\s*setSession\(undefined\);\s*setAttempts\(\[\]\);\s*setBundle\(undefined\);\s*setLoadError\(undefined\);\s*setUndoing\(false\);\s*undoInFlightSessionId\.current = undefined;\s*\}, \[reloadKey, repository, sessionId\]\)/u, '所有者・セッション切替または再読み込み時に旧結果・エラー・取り消し状態を描画前に破棄する');
+assert.equal(source.includes('}, [repository, sessionId]);'), false, '再読み込み時に古い読込エラーを残さない');
 const layoutResetAt = source.indexOf('useLayoutEffect(() => {');
 const loadEffectAt = source.indexOf('useEffect(() => {\n    if (!repository) return;', layoutResetAt);
 assert.equal(layoutResetAt >= 0 && layoutResetAt < loadEffectAt, true, '旧結果を破棄してから新しい結果の非同期読込を始める');
