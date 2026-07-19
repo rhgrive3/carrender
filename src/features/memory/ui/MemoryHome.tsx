@@ -105,10 +105,15 @@ export function MemoryHome() {
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     repositoryRef.current = repository;
     startInFlight.current = false;
     setStartingSetId(undefined);
+    setSnapshot(null);
+    setSnapshotError(undefined);
+    setQuery('');
+    setCreateSetOpen(false);
+    setConflictsOpen(false);
   }, [repository]);
 
   useEffect(() => {
