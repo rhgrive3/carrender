@@ -63,7 +63,16 @@ export function MemoryHome() {
   const [conflictsOpen, setConflictsOpen] = useState(false);
   const [startingSetId, setStartingSetId] = useState<string>();
   const startInFlight = useRef(false);
+  const mountedRef = useRef(false);
   const isStarting = startingSetId !== undefined;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      startInFlight.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!repository || !ready) return;
@@ -97,11 +106,12 @@ export function MemoryHome() {
         console.error('暗記学習開始後の一覧更新に失敗しました', caught);
       }
       void requestSync(true).catch(() => undefined);
-      navigate({ name: 'study', sessionId: created.session.id });
-    } catch (caught) { toast(caught instanceof Error ? caught.message : '学習を開始できませんでした'); }
-    finally {
+      if (mountedRef.current) navigate({ name: 'study', sessionId: created.session.id });
+    } catch (caught) {
+      if (mountedRef.current) toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
+    } finally {
       startInFlight.current = false;
-      setStartingSetId(undefined);
+      if (mountedRef.current) setStartingSetId(undefined);
     }
   };
 
