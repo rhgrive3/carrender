@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { MemorySet, MemorySession } from '../domain/types';
 import { MemoryRepository } from '../infrastructure/repositories';
@@ -48,6 +48,16 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
   const activeRepository = useRef<MemoryRepository | null>(null);
   const syncInFlight = useRef<Promise<void> | null>(null);
   const syncForceQueued = useRef(false);
+
+  useLayoutEffect(() => {
+    // 所有者切替時は旧所有者の詳細画面・一覧・進行中セッションを描画前に破棄する。
+    // 新しいIndexedDBの読込完了まで前の利用者の情報を見せない。
+    setView({ name: 'home' });
+    setSets([]);
+    setActiveSession(null);
+    setPendingCount(0);
+    setConflictCount(0);
+  }, [owner]);
 
   const refreshRepository = useCallback(async (target: MemoryRepository) => {
     const [nextSets, session, pending, conflicts] = await Promise.all([
