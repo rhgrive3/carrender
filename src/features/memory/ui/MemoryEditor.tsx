@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Save, Table2, Trash2 } from 'lucide-react';
 import type { MemoryContentBundle } from '../domain/types';
 import { saveMemoryItemDraft, type MemoryItemDraft, type MemorySenseDraft } from '../application/editContent';
@@ -8,6 +8,10 @@ import { MemoryBulkEditor } from './MemoryBulkEditor';
 
 function blankSense(): MemorySenseDraft {
   return { promptJa: '', meaningJa: '', answers: [{ displayForm: '' }], examples: [], exercises: [] };
+}
+
+function blankDraft(): MemoryItemDraft {
+  return { kind: 'expression', senses: [blankSense()] };
 }
 
 function draftFromContent(content: MemoryContentBundle, itemId: string): MemoryItemDraft | null {
@@ -47,17 +51,36 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
   const { repository, navigate, refresh, requestSync } = useMemory();
   const toast = useToast();
   const [original, setOriginal] = useState<MemoryContentBundle>();
-  const [draft, setDraft] = useState<MemoryItemDraft>({ kind: 'expression', senses: [blankSense()] });
+  const [draft, setDraft] = useState<MemoryItemDraft>(blankDraft);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string>();
+  const saveInFlight = useRef(false);
+  const mountedRef = useRef(false);
+  const activeItemIdRef = useRef(itemId);
+  activeItemIdRef.current = itemId;
 
   useEffect(() => {
-    if (!repository || !itemId) return;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      saveInFlight.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
+    setOriginal(undefined);
+    setDraft(blankDraft());
+    setLoadError(undefined);
+    if (!repository || !itemId) return () => { cancelled = true; };
     void repository.loadContent().then((content) => {
       if (cancelled) return;
-      setOriginal(content);
       const loaded = draftFromContent(content, itemId);
-      if (loaded) setDraft(loaded);
+      if (!loaded) throw new Error('編集するカードが見つかりません');
+      setOriginal(content);
+      setDraft(loaded);
+    }).catch((caught) => {
+      if (!cancelled) setLoadError(caught instanceof Error ? caught.message : 'カードを読み込めませんでした');
     });
     return () => { cancelled = true; };
   }, [repository, itemId]);
@@ -69,85 +92,92 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
   };
 
   const save = async (continueNext: boolean) => {
-    if (!repository || saving) return;
+    if (!repository || saveInFlight.current || loadError) return;
+    saveInFlight.current = true;
+    const actionItemId = itemId;
     setSaving(true);
     try {
       const members = setId ? await repository.listSetMembers(setId) : [];
       await saveMemoryItemDraft({ repository, draft, original, setId, setOrder: members.length });
-      await refresh();
-      void requestSync(true);
+      try {
+        await refresh();
+      } catch (caught) {
+        console.warn('暗記カード保存後に一覧を更新できませんでした', caught);
+      }
+      void requestSync(true).catch(() => undefined);
+      if (!mountedRef.current || activeItemIdRef.current !== actionItemId) return;
       toast(itemId ? 'カードを更新しました' : 'カードを保存しました');
       if (continueNext && !itemId) {
-        setDraft({ kind: 'expression', senses: [blankSense()] });
+        setDraft(blankDraft());
         setOriginal(undefined);
         document.getElementById('memory-prompt-0')?.focus();
       } else {
         navigate(setId ? { name: 'set', setId } : { name: 'home' });
       }
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : '保存できませんでした');
+      if (mountedRef.current && activeItemIdRef.current === actionItemId) {
+        toast(caught instanceof Error ? caught.message : '保存できませんでした');
+      }
     } finally {
-      setSaving(false);
+      saveInFlight.current = false;
+      if (mountedRef.current && activeItemIdRef.current === actionItemId) setSaving(false);
     }
   };
 
+  if (loadError) {
+    return (
+      <section className="memory-editor memory-simple-editor">
+        <div className="memory-page-header">
+          <button type="button" className="icon-btn" aria-label="戻る" onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}><ArrowLeft size={21} aria-hidden="true" /></button>
+          <div><h2>カードを編集</h2><p>カードを開けませんでした</p></div>
+        </div>
+        <div className="card" role="alert"><p>{loadError}</p><button type="button" className="btn btn-primary" onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}>戻る</button></div>
+      </section>
+    );
+  }
+
   return (
-    <section className="memory-editor memory-simple-editor">
+    <section className="memory-editor memory-simple-editor" aria-busy={saving}>
       <div className="memory-page-header">
-        <button type="button" className="icon-btn" aria-label="戻る" onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}><ArrowLeft size={21} /></button>
+        <button type="button" className="icon-btn" aria-label="戻る" disabled={saving} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}><ArrowLeft size={21} aria-hidden="true" /></button>
         <div><h2>{itemId ? 'カードを編集' : 'カードを追加'}</h2><p>日本語と英語だけで登録できます</p></div>
-        {!itemId && <button type="button" className="btn btn-ghost" onClick={() => navigate({ name: 'editor', setId, bulk: true })}><Table2 size={18} />まとめて追加</button>}
+        {!itemId && <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => navigate({ name: 'editor', setId, bulk: true })}><Table2 size={18} aria-hidden="true" />まとめて追加</button>}
       </div>
 
       <div className="memory-simple-editor-note">別解がある場合だけ「別の英語を追加」を使ってください。問題形式や細かい採点設定は廃止しました。</div>
 
-      <div className="memory-editor-card card">
+      <fieldset className="memory-editor-card card" disabled={saving}>
         {draft.senses.map((sense, senseIndex) => (
           <fieldset className="memory-sense-editor memory-simple-card-editor" key={sense.id ?? `new-${senseIndex}`}>
             <legend>{draft.senses.length > 1 ? `カード ${senseIndex + 1}` : 'カード'}</legend>
-            {draft.senses.length > 1 && <button type="button" className="memory-fieldset-remove" aria-label={`カード${senseIndex + 1}を削除`} onClick={() => setDraft((current) => ({ ...current, senses: current.senses.filter((_, index) => index !== senseIndex) }))}><Trash2 size={17} />削除</button>}
-
-            <div className="field">
-              <label htmlFor={`memory-prompt-${senseIndex}`}>日本語</label>
-              <input id={`memory-prompt-${senseIndex}`} value={sense.promptJa} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, promptJa: event.target.value, meaningJa: event.target.value }))} placeholder="例：〜を考慮に入れる" />
-            </div>
-
+            {draft.senses.length > 1 && <button type="button" className="memory-fieldset-remove" aria-label={`カード${senseIndex + 1}を削除`} onClick={() => setDraft((current) => ({ ...current, senses: current.senses.filter((_, index) => index !== senseIndex) }))}><Trash2 size={17} aria-hidden="true" />削除</button>}
+            <div className="field"><label htmlFor={`memory-prompt-${senseIndex}`}>日本語</label><input id={`memory-prompt-${senseIndex}`} value={sense.promptJa} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, promptJa: event.target.value, meaningJa: event.target.value }))} placeholder="例：〜を考慮に入れる" /></div>
             <div className="memory-answer-editors">
               {sense.answers.map((answer, answerIndex) => (
                 <div className="memory-simple-answer-row" key={answer.id ?? `new-${answerIndex}`}>
-                  <div className="field">
-                    <label htmlFor={`memory-answer-${senseIndex}-${answerIndex}`}>{answerIndex === 0 ? '英語' : `別の英語 ${answerIndex}`}</label>
-                    <input id={`memory-answer-${senseIndex}-${answerIndex}`} value={answer.displayForm} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, answers: current.answers.map((value, index) => index === answerIndex ? { ...value, displayForm: event.target.value } : value) }))} placeholder="take A into account" />
-                  </div>
-                  {sense.answers.length > 1 && <button type="button" className="icon-btn" aria-label="この英語を削除" onClick={() => updateSense(senseIndex, (current) => ({ ...current, answers: current.answers.filter((_, index) => index !== answerIndex) }))}><Trash2 size={17} /></button>}
+                  <div className="field"><label htmlFor={`memory-answer-${senseIndex}-${answerIndex}`}>{answerIndex === 0 ? '英語' : `別の英語 ${answerIndex}`}</label><input id={`memory-answer-${senseIndex}-${answerIndex}`} value={answer.displayForm} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, answers: current.answers.map((value, index) => index === answerIndex ? { ...value, displayForm: event.target.value } : value) }))} placeholder="take A into account" /></div>
+                  {sense.answers.length > 1 && <button type="button" className="icon-btn" aria-label="この英語を削除" onClick={() => updateSense(senseIndex, (current) => ({ ...current, answers: current.answers.filter((_, index) => index !== answerIndex) }))}><Trash2 size={17} aria-hidden="true" /></button>}
                 </div>
               ))}
-              <button type="button" className="btn btn-ghost memory-add-row" onClick={() => updateSense(senseIndex, (current) => ({ ...current, answers: [...current.answers, { displayForm: '' }] }))}><Plus size={17} />別の英語を追加</button>
+              <button type="button" className="btn btn-ghost memory-add-row" onClick={() => updateSense(senseIndex, (current) => ({ ...current, answers: [...current.answers, { displayForm: '' }] }))}><Plus size={17} aria-hidden="true" />別の英語を追加</button>
             </div>
-
             <div className="memory-simple-examples">
               {sense.examples.map((example, exampleIndex) => {
                 const englishId = `memory-example-en-${senseIndex}-${exampleIndex}`;
                 const japaneseId = `memory-example-ja-${senseIndex}-${exampleIndex}`;
-                return (
-                  <div className="memory-simple-example-row" key={example.id ?? `example-${exampleIndex}`}>
-                    <div className="field"><label htmlFor={englishId}>例文（任意）</label><input id={englishId} value={example.english} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, english: event.target.value } : value) }))} /></div>
-                    <div className="field"><label htmlFor={japaneseId}>和訳（任意）</label><input id={japaneseId} value={example.japanese ?? ''} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, japanese: event.target.value } : value) }))} /></div>
-                    <button type="button" className="icon-btn" aria-label="例文を削除" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.filter((_, index) => index !== exampleIndex) }))}><Trash2 size={17} /></button>
-                  </div>
-                );
+                return <div className="memory-simple-example-row" key={example.id ?? `example-${exampleIndex}`}><div className="field"><label htmlFor={englishId}>例文（任意）</label><input id={englishId} value={example.english} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, english: event.target.value } : value) }))} /></div><div className="field"><label htmlFor={japaneseId}>和訳（任意）</label><input id={japaneseId} value={example.japanese ?? ''} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, japanese: event.target.value } : value) }))} /></div><button type="button" className="icon-btn" aria-label="例文を削除" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.filter((_, index) => index !== exampleIndex) }))}><Trash2 size={17} aria-hidden="true" /></button></div>;
               })}
-              {sense.examples.length === 0 && <button type="button" className="btn btn-ghost memory-add-row" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: [{ english: '' }] }))}><Plus size={17} />例文を追加</button>}
+              {sense.examples.length === 0 && <button type="button" className="btn btn-ghost memory-add-row" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: [{ english: '' }] }))}><Plus size={17} aria-hidden="true" />例文を追加</button>}
             </div>
           </fieldset>
         ))}
-        <button type="button" className="btn btn-ghost memory-add-sense" onClick={() => setDraft((current) => ({ ...current, senses: [...current.senses, blankSense()] }))}><Plus size={18} />別のカードを追加</button>
-      </div>
+        <button type="button" className="btn btn-ghost memory-add-sense" onClick={() => setDraft((current) => ({ ...current, senses: [...current.senses, blankSense()] }))}><Plus size={18} aria-hidden="true" />別のカードを追加</button>
+      </fieldset>
 
       <div className="memory-sticky-actions">
-        <button type="button" className="btn btn-ghost" onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
-        {!itemId && <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => void save(true)}><Save size={18} />保存して次へ</button>}
-        <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void save(false)}><Save size={18} />保存</button>
+        <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
+        {!itemId && <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => void save(true)}><Save size={18} aria-hidden="true" />{saving ? '保存中…' : '保存して次へ'}</button>}
+        <button type="button" className="btn btn-primary" disabled={saving} aria-busy={saving} onClick={() => void save(false)}><Save size={18} aria-hidden="true" />{saving ? '保存中…' : '保存'}</button>
       </div>
     </section>
   );
