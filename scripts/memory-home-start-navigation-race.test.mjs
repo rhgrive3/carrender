@@ -10,8 +10,8 @@ assert.match(
 );
 assert.match(
   source,
-  /const repositoryRef = useRef\(repository\)[\s\S]*repositoryRef\.current = repository;[\s\S]*startInFlight\.current = false;[\s\S]*setStartingSetId\(undefined\);[\s\S]*\}, \[repository\]\)/u,
-  '所有者切替時に進行中の開始表示と排他状態を破棄する',
+  /const repositoryRef = useRef\(repository\)[\s\S]*useLayoutEffect\(\(\) => \{[\s\S]*repositoryRef\.current = repository;[\s\S]*startInFlight\.current = false;[\s\S]*setStartingSetId\(undefined\);[\s\S]*setSnapshot\(null\);[\s\S]*setSnapshotError\(undefined\);[\s\S]*setQuery\(''\);[\s\S]*setCreateSetOpen\(false\);[\s\S]*setConflictsOpen\(false\);[\s\S]*\}, \[repository\]\)/u,
+  '所有者切替時に旧snapshot・検索・ダイアログ・開始状態を描画前に破棄する',
 );
 assert.match(
   source,
@@ -34,4 +34,4 @@ assert.match(
   '離脱または所有者切替後に古い開始処理から状態を更新しない',
 );
 
-console.log('memory home start navigation race contract: ok');
+console.log('memory home owner/start navigation race contract: ok');
