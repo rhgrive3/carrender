@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Download, Play, Plus, RefreshCw, Search } from 'lucide-react';
 import type { MemoryLocalSnapshot } from '../infrastructure/repositories';
 import type { MemorySet } from '../domain/types';
@@ -30,36 +30,56 @@ function CreateSetDialog({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const saveInFlight = useRef(false);
   const mountedRef = useRef(false);
+  const repositoryRef = useRef(repository);
+  const actionTokenRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      actionTokenRef.current += 1;
       saveInFlight.current = false;
     };
   }, []);
 
+  useLayoutEffect(() => {
+    repositoryRef.current = repository;
+    actionTokenRef.current += 1;
+    saveInFlight.current = false;
+    setSaving(false);
+    setName('');
+  }, [repository]);
+
   const save = async () => {
     if (!repository || saveInFlight.current || !name.trim()) return;
+    const targetRepository = repository;
+    const actionToken = actionTokenRef.current + 1;
+    actionTokenRef.current = actionToken;
     saveInFlight.current = true;
     setSaving(true);
     try {
-      await createMemorySet(repository, { name });
+      await createMemorySet(targetRepository, { name: name.trim() });
+      if (!mountedRef.current || repositoryRef.current !== targetRepository || actionTokenRef.current !== actionToken) return;
       try {
         await refresh();
       } catch (caught) {
         console.error('暗記セット作成後の一覧更新に失敗しました', caught);
       }
+      if (!mountedRef.current || repositoryRef.current !== targetRepository || actionTokenRef.current !== actionToken) return;
       void requestSync(true).catch(() => undefined);
-      if (mountedRef.current) onClose();
+      onClose();
     } catch (caught) {
-      if (mountedRef.current) toast(caught instanceof Error ? caught.message : '暗記セットを作成できませんでした');
+      if (mountedRef.current && repositoryRef.current === targetRepository && actionTokenRef.current === actionToken) {
+        toast(caught instanceof Error ? caught.message : '暗記セットを作成できませんでした');
+      }
     } finally {
-      saveInFlight.current = false;
-      if (mountedRef.current) setSaving(false);
+      if (actionTokenRef.current === actionToken) {
+        saveInFlight.current = false;
+        if (mountedRef.current && repositoryRef.current === targetRepository) setSaving(false);
+      }
     }
   };
-  return <MemoryDialog title="暗記セットを追加" onClose={() => { if (!saving) onClose(); }} footer={<button type="button" className="btn btn-primary" disabled={saving || !name.trim()} onClick={() => void save()}>{saving ? '作成中…' : 'セットを作る'}</button>}><div className="field"><label htmlFor="memory-set-name">セット名</label><input id="memory-set-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="例：LEAP 1〜300" /></div></MemoryDialog>;
+  return <MemoryDialog title="暗記セットを追加" onClose={() => { if (!saving) onClose(); }} footer={<button type="button" className="btn btn-primary" disabled={saving || !name.trim()} aria-busy={saving} onClick={() => void save()}>{saving ? '作成中…' : 'セットを作る'}</button>}><fieldset disabled={saving} aria-busy={saving}><div className="field"><label htmlFor="memory-set-name">セット名</label><input id="memory-set-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="例：LEAP 1〜300" /></div></fieldset></MemoryDialog>;
 }
 
 export function MemoryHome() {
