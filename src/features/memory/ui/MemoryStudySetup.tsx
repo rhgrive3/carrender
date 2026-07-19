@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowLeft, Play } from 'lucide-react';
 import type { MemoryQuestionCount, MemorySessionConfig } from '../domain/types';
 import { generateLearningTargets, resolveQuestionCount } from '../domain/targets';
@@ -48,6 +48,7 @@ function handleRadioKeyDown<T extends string>(
 export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] }) {
   const { repository, ready, sets, navigate, refresh, requestSync } = useMemory();
   const toast = useToast();
+  const initialSelectionKey = [...new Set(initialSetIds)].sort().join('\u0000');
   const [selectedSetIds, setSelectedSetIds] = useState(() => [...new Set(initialSetIds)]);
   const [countChoice, setCountChoice] = useState<CountChoice>('weak10');
   const [direction, setDirection] = useState<DirectionChoice>('output');
@@ -71,11 +72,15 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     startTokenRef.current += 1;
     startInFlight.current = false;
     setStarting(false);
-  }, [repository]);
+    setSelectedSetIds(initialSelectionKey ? initialSelectionKey.split('\u0000') : []);
+    setEligibleCount(0);
+    setResolvedEligibilityKey(undefined);
+    setEligibilityError(undefined);
+  }, [initialSelectionKey, repository]);
 
   useEffect(() => {
     if (!ready) return;

@@ -6,10 +6,11 @@ const source = await readFile(new URL('../src/features/memory/ui/MemoryStudySetu
 assert.match(source, /const mountedRef = useRef\(false\)/u, '画面のマウント状態を追跡する');
 assert.match(source, /const startTokenRef = useRef\(0\)/u, '開始処理を一意のトークンで識別する');
 assert.match(source, /repositoryRef\.current = repository/u, '現在の所有者リポジトリを追跡する');
+assert.match(source, /const initialSelectionKey = \[\.\.\.new Set\(initialSetIds\)\]\.sort\(\)\.join/u, '初期選択セットの変更を安定したキーで追跡する');
 assert.match(
   source,
-  /useEffect\(\(\) => \{[\s\S]*?startTokenRef\.current \+= 1;[\s\S]*?startInFlight\.current = false;[\s\S]*?setStarting\(false\);[\s\S]*?\}, \[repository\]\)/u,
-  '所有者切替時に古い開始操作を無効化する',
+  /useLayoutEffect\(\(\) => \{[\s\S]*?startTokenRef\.current \+= 1;[\s\S]*?startInFlight\.current = false;[\s\S]*?setStarting\(false\);[\s\S]*?setSelectedSetIds\(initialSelectionKey \? initialSelectionKey\.split[\s\S]*?setEligibleCount\(0\);[\s\S]*?setResolvedEligibilityKey\(undefined\);[\s\S]*?setEligibilityError\(undefined\);[\s\S]*?\}, \[initialSelectionKey, repository\]\)/u,
+  '所有者または初期セット切替時に描画前に旧選択と件数状態を破棄する',
 );
 assert.match(
   source,
