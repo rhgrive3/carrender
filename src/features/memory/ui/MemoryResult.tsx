@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Home, RotateCcw, RotateCw } from 'lucide-react';
 import type { MemoryAttempt, MemorySession, MemorySetBundle } from '../domain/types';
 import { undoMemoryAnswer } from '../application/session';
@@ -24,15 +24,18 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     return () => { mounted.current = false; };
   }, []);
 
-  useEffect(() => {
-    if (!repository) return;
-    let cancelled = false;
+  useLayoutEffect(() => {
     setSession(undefined);
     setAttempts([]);
     setBundle(undefined);
     setLoadError(undefined);
     setUndoing(false);
     undoInFlightSessionId.current = undefined;
+  }, [repository, sessionId]);
+
+  useEffect(() => {
+    if (!repository) return;
+    let cancelled = false;
     void (async () => {
       const loadResult = async () => {
         const loaded = await repository.getSession(sessionId);
