@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Save, Table2, Trash2 } from 'lucide-react';
 import type { MemoryContentBundle } from '../domain/types';
 import { saveMemoryItemDraft, type MemoryItemDraft, type MemorySenseDraft } from '../application/editContent';
@@ -56,16 +56,26 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
   const [loadError, setLoadError] = useState<string>();
   const saveInFlight = useRef(false);
   const mountedRef = useRef(false);
+  const activeRepositoryRef = useRef(repository);
   const activeItemIdRef = useRef(itemId);
-  activeItemIdRef.current = itemId;
+  const saveActionTokenRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      saveActionTokenRef.current += 1;
       saveInFlight.current = false;
     };
   }, []);
+
+  useLayoutEffect(() => {
+    activeRepositoryRef.current = repository;
+    activeItemIdRef.current = itemId;
+    saveActionTokenRef.current += 1;
+    saveInFlight.current = false;
+    setSaving(false);
+  }, [repository, itemId, setId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,34 +105,49 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
 
   const save = async (continueNext: boolean) => {
     if (!repository || saveInFlight.current || loadError || (itemId && !original)) return;
-    saveInFlight.current = true;
+    const actionRepository = repository;
     const actionItemId = itemId;
+    const actionSetId = setId;
+    const actionDraft = draft;
+    const actionOriginal = original;
+    const actionToken = saveActionTokenRef.current + 1;
+    saveActionTokenRef.current = actionToken;
+    saveInFlight.current = true;
     setSaving(true);
+    const isCurrentAction = () => (
+      mountedRef.current
+      && activeRepositoryRef.current === actionRepository
+      && activeItemIdRef.current === actionItemId
+      && saveActionTokenRef.current === actionToken
+    );
     try {
-      const members = setId ? await repository.listSetMembers(setId) : [];
-      await saveMemoryItemDraft({ repository, draft, original, setId, setOrder: members.length });
+      const members = actionSetId ? await actionRepository.listSetMembers(actionSetId) : [];
+      await saveMemoryItemDraft({ repository: actionRepository, draft: actionDraft, original: actionOriginal, setId: actionSetId, setOrder: members.length });
+      if (!isCurrentAction()) return;
       try {
         await refresh();
       } catch (caught) {
         console.warn('暗記カード保存後に一覧を更新できませんでした', caught);
       }
+      if (!isCurrentAction()) return;
       void requestSync(true).catch(() => undefined);
-      if (!mountedRef.current || activeItemIdRef.current !== actionItemId) return;
-      toast(itemId ? 'カードを更新しました' : 'カードを保存しました');
-      if (continueNext && !itemId) {
+      toast(actionItemId ? 'カードを更新しました' : 'カードを保存しました');
+      if (continueNext && !actionItemId) {
         setDraft(blankDraft());
         setOriginal(undefined);
         document.getElementById('memory-prompt-0')?.focus();
       } else {
-        navigate(setId ? { name: 'set', setId } : { name: 'home' });
+        navigate(actionSetId ? { name: 'set', setId: actionSetId } : { name: 'home' });
       }
     } catch (caught) {
-      if (mountedRef.current && activeItemIdRef.current === actionItemId) {
+      if (isCurrentAction()) {
         toast(caught instanceof Error ? caught.message : '保存できませんでした');
       }
     } finally {
-      saveInFlight.current = false;
-      if (mountedRef.current && activeItemIdRef.current === actionItemId) setSaving(false);
+      if (saveActionTokenRef.current === actionToken) {
+        saveInFlight.current = false;
+        if (mountedRef.current && activeRepositoryRef.current === actionRepository && activeItemIdRef.current === actionItemId) setSaving(false);
+      }
     }
   };
 
