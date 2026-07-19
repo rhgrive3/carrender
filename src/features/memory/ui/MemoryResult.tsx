@@ -17,6 +17,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   const mounted = useRef(true);
   const activeSessionId = useRef(sessionId);
   const undoInFlightSessionId = useRef<string>();
+  const undoActionToken = useRef(0);
   activeSessionId.current = sessionId;
 
   useEffect(() => {
@@ -25,6 +26,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   }, []);
 
   useLayoutEffect(() => {
+    undoActionToken.current += 1;
     setSession(undefined);
     setAttempts([]);
     setBundle(undefined);
@@ -110,12 +112,20 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   const undoLast = async () => {
     if (!repository || !session || undoing || undoInFlightSessionId.current === session.id) return;
     const actionSessionId = session.id;
+    const actionRepository = repository;
+    const actionToken = ++undoActionToken.current;
     undoInFlightSessionId.current = actionSessionId;
     setUndoing(true);
+    const isCurrentAction = () => (
+      mounted.current
+      && activeSessionId.current === actionSessionId
+      && repository === actionRepository
+      && undoActionToken.current === actionToken
+    );
     try {
-      const restored = await undoMemoryAnswer(repository, session);
+      const restored = await undoMemoryAnswer(actionRepository, session);
       if (!restored) {
-        if (mounted.current && activeSessionId.current === actionSessionId) toast('取り消せる回答はありません');
+        if (isCurrentAction()) toast('取り消せる回答はありません');
         return;
       }
       // 取り消しはIndexedDBへ保存済みなので、結果画面を離れた後も集計更新と
@@ -128,15 +138,17 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
       void requestSync(true).catch(() => {
         // 取り消し結果は端末へ保存済み。同期失敗は次回の自動同期へ委ねる。
       });
-      if (!mounted.current || activeSessionId.current !== actionSessionId) return;
+      if (!isCurrentAction()) return;
       navigate({ name: 'study', sessionId: restored.session.id });
     } catch (caught) {
-      if (mounted.current && activeSessionId.current === actionSessionId) {
+      if (isCurrentAction()) {
         toast(caught instanceof Error ? caught.message : '回答を取り消せませんでした');
       }
     } finally {
-      if (undoInFlightSessionId.current === actionSessionId) undoInFlightSessionId.current = undefined;
-      if (mounted.current && activeSessionId.current === actionSessionId) setUndoing(false);
+      if (undoActionToken.current === actionToken) {
+        undoInFlightSessionId.current = undefined;
+        if (mounted.current) setUndoing(false);
+      }
     }
   };
 
