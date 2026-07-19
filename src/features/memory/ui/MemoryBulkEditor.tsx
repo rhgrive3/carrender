@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
 import { parseImportText, type ImportParseError, type ParsedImportRow } from '../domain/importExport';
 import {
@@ -62,17 +62,31 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
   const [resolutions, setResolutions] = useState<Map<number, DuplicateResolution>>(new Map());
   const saveInFlight = useRef(false);
   const mountedRef = useRef(false);
+  const activeRepositoryRef = useRef(repository);
   const activeSetIdRef = useRef(setId);
-  activeSetIdRef.current = setId;
+  const saveActionTokenRef = useRef(0);
   const validRows = useMemo(() => rows.filter((row) => row.japanese.trim() || row.english.trim()), [rows]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      saveActionTokenRef.current += 1;
       saveInFlight.current = false;
     };
   }, []);
+
+  useLayoutEffect(() => {
+    activeRepositoryRef.current = repository;
+    activeSetIdRef.current = setId;
+    saveActionTokenRef.current += 1;
+    saveInFlight.current = false;
+    setSaving(false);
+    setRows(Array.from({ length: 8 }, () => emptyRow(defaultSetId)));
+    setPasteErrors([]);
+    setDuplicatePreview(undefined);
+    setResolutions(new Map());
+  }, [repository, setId]);
 
   const update = (id: string, key: keyof GridRow, value: string) => {
     setRows((current) => current.map((row) => row.id === id ? { ...row, [key]: value } : row));
@@ -147,57 +161,72 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
       toast('日本語または英語が空の行があります');
       return;
     }
-    const parsedRows: ParsedImportRow[] = validRows.map((row, index) => ({
+    const actionRepository = repository;
+    const actionSetId = setId;
+    const actionRows = validRows;
+    const actionSets = sets;
+    const actionDuplicatePreview = duplicatePreview;
+    const actionResolutions = resolutions;
+    const actionToken = saveActionTokenRef.current + 1;
+    saveActionTokenRef.current = actionToken;
+    saveInFlight.current = true;
+    setSaving(true);
+    const isCurrentAction = () => (
+      mountedRef.current
+      && activeRepositoryRef.current === actionRepository
+      && activeSetIdRef.current === actionSetId
+      && saveActionTokenRef.current === actionToken
+    );
+    const parsedRows: ParsedImportRow[] = actionRows.map((row, index) => ({
       english: row.english.trim(),
       japanese: row.japanese.trim(),
       meaning: row.meaning.trim() || undefined,
       example: row.example.trim() || undefined,
       tags: row.tags.split(/[,、]/u).map((tag) => tag.trim()).filter(Boolean),
-      setName: sets.find((set) => set.id === row.setId)?.name,
+      setName: actionSets.find((set) => set.id === row.setId)?.name,
       sourceLine: index + 1,
     }));
-    const actionSetId = setId;
-    saveInFlight.current = true;
-    setSaving(true);
 
     try {
-      if (!duplicatePreview) {
-        const candidates = findImportDuplicates(parsedRows, await repository.loadContent())
+      if (!actionDuplicatePreview) {
+        const candidates = findImportDuplicates(parsedRows, await actionRepository.loadContent())
           .filter((candidate) => candidate.kinds.length > 0);
+        if (!isCurrentAction()) return;
         if (candidates.length > 0) {
-          if (mountedRef.current && activeSetIdRef.current === actionSetId) {
-            setDuplicatePreview(candidates);
-            setResolutions(new Map(candidates.map((candidate) => [candidate.rowIndex, candidate.suggestedResolution])));
-            toast(`${candidates.length}件の重複候補があります。保存方法を確認してください`);
-          }
+          setDuplicatePreview(candidates);
+          setResolutions(new Map(candidates.map((candidate) => [candidate.rowIndex, candidate.suggestedResolution])));
+          toast(`${candidates.length}件の重複候補があります。保存方法を確認してください`);
           return;
         }
       }
 
       const result = await importParsedRows({
-        repository,
+        repository: actionRepository,
         rows: parsedRows,
-        resolutions,
+        resolutions: actionResolutions,
         source: 'user',
         requireExplicitDuplicateResolution: true,
-        reviewedDuplicates: duplicatePreview ?? [],
+        reviewedDuplicates: actionDuplicatePreview ?? [],
       });
+      if (!isCurrentAction()) return;
       try {
         await refresh();
       } catch (caught) {
         console.warn('暗記カード一括保存後に一覧を更新できませんでした', caught);
       }
+      if (!isCurrentAction()) return;
       void requestSync(true).catch(() => undefined);
-      if (!mountedRef.current || activeSetIdRef.current !== actionSetId) return;
       toast(`${result.imported}件を一括保存しました${result.skipped ? `（${result.skipped}件スキップ）` : ''}`);
-      navigate(setId ? { name: 'set', setId } : { name: 'home' });
+      navigate(actionSetId ? { name: 'set', setId: actionSetId } : { name: 'home' });
     } catch (caught) {
-      if (mountedRef.current && activeSetIdRef.current === actionSetId) {
+      if (isCurrentAction()) {
         toast(caught instanceof Error ? caught.message : '一括保存に失敗しました');
       }
     } finally {
-      saveInFlight.current = false;
-      if (mountedRef.current && activeSetIdRef.current === actionSetId) setSaving(false);
+      if (saveActionTokenRef.current === actionToken) {
+        saveInFlight.current = false;
+        if (mountedRef.current && activeRepositoryRef.current === actionRepository && activeSetIdRef.current === actionSetId) setSaving(false);
+      }
     }
   };
 
