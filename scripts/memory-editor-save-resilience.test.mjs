@@ -9,7 +9,7 @@ assert.match(source, /requestSync\(true\)\.catch\(\(\) => undefined\)/u, '保存
 assert.match(source, /const mountedRef = useRef\(false\)[\s\S]*activeItemIdRef[\s\S]*if \(!mountedRef\.current \|\| activeItemIdRef\.current !== actionItemId\) return/u, '離脱または別カード切替後に古い保存完了を画面へ反映しない');
 assert.match(source, /setOriginal\(undefined\);[\s\S]*setDraft\(blankDraft\(\)\);[\s\S]*setLoadError\(undefined\)/u, '編集対象切替時に旧カード内容を消す');
 assert.match(source, /\.catch\(\(caught\) => \{[\s\S]*setLoadError/u, 'カード読込失敗を利用者へ表示する');
-assert.match(source, /role="alert"[\s\S]*カードを開けませんでした/u, '読込失敗時に空の編集フォームを表示しない');
+assert.match(source, /カードを開けませんでした[\s\S]*role="alert"/u, '読込失敗時に空の編集フォームを表示しない');
 assert.match(source, /<section className="memory-editor memory-simple-editor" aria-busy=\{saving\}>[\s\S]*<fieldset className="memory-editor-card card" disabled=\{saving\}>/u, '保存中はフォーム全体を固定し処理中状態を通知する');
 assert.match(source, /aria-label="戻る" disabled=\{saving\}/u, '保存中は戻る操作を止める');
 assert.match(source, /aria-busy=\{saving\}[\s\S]*保存中…/u, '保存ボタン自体へ処理中状態を表示する');
