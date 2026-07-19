@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AlertTriangle, RotateCcw, Upload } from 'lucide-react';
 import {
   parseFullMemoryBackup,
@@ -19,14 +19,45 @@ export function MemoryBackupRestore() {
   const [confirming, setConfirming] = useState(false);
   const [understood, setUnderstood] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const mountedRef = useRef(false);
+  const repositoryRef = useRef(repository);
+  repositoryRef.current = repository;
+  const inspectTokenRef = useRef(0);
+  const restoreTokenRef = useRef(0);
+  const restoreInFlightRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      inspectTokenRef.current += 1;
+      restoreTokenRef.current += 1;
+      restoreInFlightRef.current = false;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    inspectTokenRef.current += 1;
+    restoreTokenRef.current += 1;
+    restoreInFlightRef.current = false;
+    setFileName('');
+    setResult(undefined);
+    setReading(false);
+    setConfirming(false);
+    setUnderstood(false);
+    setRestoring(false);
+  }, [repository]);
 
   const inspect = async (file: File | undefined) => {
+    const token = ++inspectTokenRef.current;
     setFileName(file?.name ?? '');
     setResult(undefined);
     setConfirming(false);
     setUnderstood(false);
+    setReading(Boolean(file));
     if (!file) return;
     if (file.size > MAX_BACKUP_BYTES) {
+      if (inspectTokenRef.current !== token) return;
       setResult({
         valid: false,
         issues: [{
@@ -35,54 +66,73 @@ export function MemoryBackupRestore() {
           message: 'バックアップは25MB以内にしてください',
         }],
       });
+      setReading(false);
       return;
     }
-    setReading(true);
     try {
       const text = await file.text();
+      if (!mountedRef.current || inspectTokenRef.current !== token) return;
       setResult(parseFullMemoryBackup(text, { maxJsonBytes: MAX_BACKUP_BYTES }));
     } catch {
+      if (!mountedRef.current || inspectTokenRef.current !== token) return;
       setResult({
         valid: false,
         issues: [{ path: '$', code: 'invalid_json', message: 'ファイルを読み込めませんでした' }],
       });
     } finally {
-      setReading(false);
+      if (mountedRef.current && inspectTokenRef.current === token) setReading(false);
     }
   };
 
   const restore = async () => {
-    if (!repository || !result?.valid || !result.backup || !understood || restoring) return;
+    if (!repository || !result?.valid || !result.backup || !understood || restoreInFlightRef.current) return;
+    const actionRepository = repository;
+    const actionBackup = result.backup;
+    const token = ++restoreTokenRef.current;
+    restoreInFlightRef.current = true;
     setRestoring(true);
+    const isCurrentAction = () => mountedRef.current
+      && repositoryRef.current === actionRepository
+      && restoreTokenRef.current === token;
     try {
-      const backup = result.backup;
-      await repository.replaceFromBackup({
+      await actionRepository.replaceFromBackup({
         snapshot: {
-          sets: backup.sets,
-          setMembers: backup.setMembers,
-          items: backup.items,
-          senses: backup.senses,
-          answers: backup.answers,
-          examples: backup.examples,
-          exercises: backup.exercises,
-          stats: backup.stats,
+          sets: actionBackup.sets,
+          setMembers: actionBackup.setMembers,
+          items: actionBackup.items,
+          senses: actionBackup.senses,
+          answers: actionBackup.answers,
+          examples: actionBackup.examples,
+          exercises: actionBackup.exercises,
+          stats: actionBackup.stats,
         },
-        attempts: backup.attempts,
-        sessions: backup.sessions,
+        attempts: actionBackup.attempts,
+        sessions: actionBackup.sessions,
       });
-      await refresh();
-      void requestSync(true);
+      if (!isCurrentAction()) return;
+      try {
+        await refresh();
+      } catch (caught) {
+        console.error('暗記バックアップ復元後の一覧更新に失敗しました', caught);
+      }
+      if (!isCurrentAction()) return;
+      void requestSync(true).catch((caught) => {
+        console.error('暗記バックアップ復元後の同期要求に失敗しました', caught);
+      });
       toast('完全バックアップを復元しました');
       navigate({ name: 'home' });
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : 'バックアップを復元できませんでした');
+      if (isCurrentAction()) toast(caught instanceof Error ? caught.message : 'バックアップを復元できませんでした');
     } finally {
-      setRestoring(false);
+      if (restoreTokenRef.current === token) {
+        restoreInFlightRef.current = false;
+        if (mountedRef.current) setRestoring(false);
+      }
     }
   };
 
   return (
-    <article className="card memory-backup-restore">
+    <article className="card memory-backup-restore" aria-busy={reading || restoring}>
       <RotateCcw size={24} />
       <h3>完全バックアップを復元</h3>
       <p>復元専用JSONを検証してから、端末内の暗記データ一式を置き換えます。</p>
@@ -92,7 +142,7 @@ export function MemoryBackupRestore() {
           type="file"
           accept=".json,application/json"
           aria-label="復元する完全バックアップを選択"
-          disabled={restoring}
+          disabled={reading || restoring}
           onChange={(event) => void inspect(event.target.files?.[0])}
         />
       </label>
@@ -122,7 +172,7 @@ export function MemoryBackupRestore() {
               <span>セッション <b>{result.counts.sessions}</b></span>
             </div>
             {!confirming ? (
-              <button type="button" className="btn btn-ghost" onClick={() => setConfirming(true)}>
+              <button type="button" className="btn btn-ghost" disabled={reading || restoring} onClick={() => setConfirming(true)}>
                 復元確認へ進む
               </button>
             ) : (
@@ -132,13 +182,14 @@ export function MemoryBackupRestore() {
                   <input
                     type="checkbox"
                     checked={understood}
+                    disabled={restoring}
                     onChange={(event) => setUnderstood(event.target.checked)}
                   />
                   内容と置き換えを確認しました
                 </label>
                 <div className="memory-backup-actions">
                   <button type="button" className="btn btn-ghost" disabled={restoring} onClick={() => { setConfirming(false); setUnderstood(false); }}>戻る</button>
-                  <button type="button" className="btn btn-danger" disabled={!understood || restoring} onClick={() => void restore()}>
+                  <button type="button" className="btn btn-danger" aria-busy={restoring} disabled={!understood || restoring} onClick={() => void restore()}>
                     {restoring ? '復元中…' : 'このバックアップで復元'}
                   </button>
                 </div>
