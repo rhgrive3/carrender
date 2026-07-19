@@ -95,18 +95,21 @@ export function MemoryHome() {
   const startInFlight = useRef(false);
   const mountedRef = useRef(false);
   const repositoryRef = useRef(repository);
+  const startActionTokenRef = useRef(0);
   const isStarting = startingSetId !== undefined;
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      startActionTokenRef.current += 1;
       startInFlight.current = false;
     };
   }, []);
 
   useLayoutEffect(() => {
     repositoryRef.current = repository;
+    startActionTokenRef.current += 1;
     startInFlight.current = false;
     setStartingSetId(undefined);
     setSnapshot(null);
@@ -135,6 +138,8 @@ export function MemoryHome() {
   const start = async (summary: SetSummary) => {
     if (!repository || startInFlight.current || summary.eligible === 0) return;
     const targetRepository = repository;
+    const actionToken = startActionTokenRef.current + 1;
+    startActionTokenRef.current = actionToken;
     startInFlight.current = true;
     setStartingSetId(summary.set.id);
     try {
@@ -143,18 +148,24 @@ export function MemoryHome() {
         selectedSetIds: [summary.set.id],
         config: { questionCount: { type: 'weak', count: 10 }, direction: 'output', includeUnverifiedAi: false, preferredExerciseType: 'flashcard' },
       });
+      if (!mountedRef.current || repositoryRef.current !== targetRepository || startActionTokenRef.current !== actionToken) return;
       try {
         await refresh();
       } catch (caught) {
         console.error('暗記学習開始後の一覧更新に失敗しました', caught);
       }
+      if (!mountedRef.current || repositoryRef.current !== targetRepository || startActionTokenRef.current !== actionToken) return;
       void requestSync(true).catch(() => undefined);
-      if (mountedRef.current && repositoryRef.current === targetRepository) navigate({ name: 'study', sessionId: created.session.id });
+      navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) {
-      if (mountedRef.current && repositoryRef.current === targetRepository) toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
+      if (mountedRef.current && repositoryRef.current === targetRepository && startActionTokenRef.current === actionToken) {
+        toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
+      }
     } finally {
-      startInFlight.current = false;
-      if (mountedRef.current && repositoryRef.current === targetRepository) setStartingSetId(undefined);
+      if (startActionTokenRef.current === actionToken) {
+        startInFlight.current = false;
+        if (mountedRef.current && repositoryRef.current === targetRepository) setStartingSetId(undefined);
+      }
     }
   };
 
