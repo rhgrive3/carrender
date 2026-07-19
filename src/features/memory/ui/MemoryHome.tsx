@@ -74,6 +74,7 @@ export function MemoryHome() {
   const [startingSetId, setStartingSetId] = useState<string>();
   const startInFlight = useRef(false);
   const mountedRef = useRef(false);
+  const repositoryRef = useRef(repository);
   const isStarting = startingSetId !== undefined;
 
   useEffect(() => {
@@ -83,6 +84,12 @@ export function MemoryHome() {
       startInFlight.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    repositoryRef.current = repository;
+    startInFlight.current = false;
+    setStartingSetId(undefined);
+  }, [repository]);
 
   useEffect(() => {
     if (!repository || !ready) return;
@@ -102,11 +109,12 @@ export function MemoryHome() {
 
   const start = async (summary: SetSummary) => {
     if (!repository || startInFlight.current || summary.eligible === 0) return;
+    const targetRepository = repository;
     startInFlight.current = true;
     setStartingSetId(summary.set.id);
     try {
       const created = await createSimpleStudySession({
-        repository,
+        repository: targetRepository,
         selectedSetIds: [summary.set.id],
         config: { questionCount: { type: 'weak', count: 10 }, direction: 'output', includeUnverifiedAi: false, preferredExerciseType: 'flashcard' },
       });
@@ -116,12 +124,12 @@ export function MemoryHome() {
         console.error('暗記学習開始後の一覧更新に失敗しました', caught);
       }
       void requestSync(true).catch(() => undefined);
-      if (mountedRef.current) navigate({ name: 'study', sessionId: created.session.id });
+      if (mountedRef.current && repositoryRef.current === targetRepository) navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) {
-      if (mountedRef.current) toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
+      if (mountedRef.current && repositoryRef.current === targetRepository) toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
     } finally {
       startInFlight.current = false;
-      if (mountedRef.current) setStartingSetId(undefined);
+      if (mountedRef.current && repositoryRef.current === targetRepository) setStartingSetId(undefined);
     }
   };
 
