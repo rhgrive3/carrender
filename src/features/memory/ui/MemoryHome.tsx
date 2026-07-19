@@ -29,6 +29,16 @@ function CreateSetDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const saveInFlight = useRef(false);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      saveInFlight.current = false;
+    };
+  }, []);
+
   const save = async () => {
     if (!repository || saveInFlight.current || !name.trim()) return;
     saveInFlight.current = true;
@@ -41,12 +51,12 @@ function CreateSetDialog({ onClose }: { onClose: () => void }) {
         console.error('暗記セット作成後の一覧更新に失敗しました', caught);
       }
       void requestSync(true).catch(() => undefined);
-      onClose();
+      if (mountedRef.current) onClose();
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : '暗記セットを作成できませんでした');
+      if (mountedRef.current) toast(caught instanceof Error ? caught.message : '暗記セットを作成できませんでした');
     } finally {
       saveInFlight.current = false;
-      setSaving(false);
+      if (mountedRef.current) setSaving(false);
     }
   };
   return <MemoryDialog title="暗記セットを追加" onClose={() => { if (!saving) onClose(); }} footer={<button type="button" className="btn btn-primary" disabled={saving || !name.trim()} onClick={() => void save()}>{saving ? '作成中…' : 'セットを作る'}</button>}><div className="field"><label htmlFor="memory-set-name">セット名</label><input id="memory-set-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="例：LEAP 1〜300" /></div></MemoryDialog>;
