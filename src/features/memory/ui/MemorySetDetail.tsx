@@ -64,7 +64,7 @@ export function MemorySetDetail({ setId }: { setId: string }) {
       actionTokenRef.current += 1;
       actionInFlightRef.current = false;
     };
-  }, [setId]);
+  }, [repository, setId]);
 
   useLayoutEffect(() => {
     if (!repository) {
