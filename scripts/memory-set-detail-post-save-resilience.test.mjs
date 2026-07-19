@@ -75,6 +75,21 @@ assert.doesNotMatch(
 );
 assert.match(
   source,
+  /const nextName = setName\.trim\(\);[\s\S]*const nextDescription = setDescription;[\s\S]*updateMemorySet\(repository, set, \{ name: nextName, description: nextDescription/u,
+  '保存開始時のセット名と説明を固定し、処理中の画面状態に依存しない',
+);
+assert.match(
+  source,
+  /<button type="button" className="btn btn-primary" aria-busy=\{actionBusy\} disabled=\{actionBusy \|\| !setName\.trim\(\)\}/u,
+  'セット更新ボタンで保存中状態を支援技術へ通知する',
+);
+assert.match(
+  source,
+  /<fieldset disabled=\{actionBusy\} aria-busy=\{actionBusy\}>[\s\S]*memory-edit-set-name[\s\S]*memory-edit-set-description[\s\S]*<\/fieldset>/u,
+  'セット保存中は名前と説明を変更できないよう編集欄全体を固定する',
+);
+assert.match(
+  source,
   /const targets = useMemo\([\s\S]*includeUnverifiedAi: false[\s\S]*\.filter\(\(target\) => !target\.exerciseId && target\.mode === 'output'\)/u,
   'セット詳細でも通常学習へ実際に出題できる対象を算出する',
 );
