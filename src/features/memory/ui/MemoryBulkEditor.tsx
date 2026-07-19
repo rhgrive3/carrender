@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
 import { parseImportText, type ImportParseError, type ParsedImportRow } from '../domain/importExport';
 import {
@@ -60,7 +60,19 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
   const [pasteErrors, setPasteErrors] = useState<ImportParseError[]>([]);
   const [duplicatePreview, setDuplicatePreview] = useState<ImportDuplicateCandidate[]>();
   const [resolutions, setResolutions] = useState<Map<number, DuplicateResolution>>(new Map());
+  const saveInFlight = useRef(false);
+  const mountedRef = useRef(false);
+  const activeSetIdRef = useRef(setId);
+  activeSetIdRef.current = setId;
   const validRows = useMemo(() => rows.filter((row) => row.japanese.trim() || row.english.trim()), [rows]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      saveInFlight.current = false;
+    };
+  }, []);
 
   const update = (id: string, key: keyof GridRow, value: string) => {
     setRows((current) => current.map((row) => row.id === id ? { ...row, [key]: value } : row));
@@ -88,6 +100,10 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
   };
 
   const onPaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    if (saving) {
+      event.preventDefault();
+      return;
+    }
     const text = event.clipboardData.getData('text/plain');
     if (!text.includes('\n') && !text.includes('\t')) return;
     const parsed = parseImportText(text);
@@ -117,7 +133,7 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
   };
 
   const save = async () => {
-    if (!repository || saving) return;
+    if (!repository || saveInFlight.current) return;
     if (pasteErrors.length > 0) {
       toast('解析できない行があります。内容を修正して、全行をもう一度貼り付けてください');
       return;
@@ -140,25 +156,24 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
       setName: sets.find((set) => set.id === row.setId)?.name,
       sourceLine: index + 1,
     }));
+    const actionSetId = setId;
+    saveInFlight.current = true;
+    setSaving(true);
 
-    if (!duplicatePreview) {
-      try {
+    try {
+      if (!duplicatePreview) {
         const candidates = findImportDuplicates(parsedRows, await repository.loadContent())
           .filter((candidate) => candidate.kinds.length > 0);
         if (candidates.length > 0) {
-          setDuplicatePreview(candidates);
-          setResolutions(new Map(candidates.map((candidate) => [candidate.rowIndex, candidate.suggestedResolution])));
-          toast(`${candidates.length}件の重複候補があります。保存方法を確認してください`);
+          if (mountedRef.current && activeSetIdRef.current === actionSetId) {
+            setDuplicatePreview(candidates);
+            setResolutions(new Map(candidates.map((candidate) => [candidate.rowIndex, candidate.suggestedResolution])));
+            toast(`${candidates.length}件の重複候補があります。保存方法を確認してください`);
+          }
           return;
         }
-      } catch (caught) {
-        toast(caught instanceof Error ? caught.message : '重複候補を確認できませんでした');
-        return;
       }
-    }
 
-    setSaving(true);
-    try {
       const result = await importParsedRows({
         repository,
         rows: parsedRows,
@@ -167,21 +182,29 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
         requireExplicitDuplicateResolution: true,
         reviewedDuplicates: duplicatePreview ?? [],
       });
-      await refresh();
-      void requestSync(true);
+      try {
+        await refresh();
+      } catch (caught) {
+        console.warn('暗記カード一括保存後に一覧を更新できませんでした', caught);
+      }
+      void requestSync(true).catch(() => undefined);
+      if (!mountedRef.current || activeSetIdRef.current !== actionSetId) return;
       toast(`${result.imported}件を一括保存しました${result.skipped ? `（${result.skipped}件スキップ）` : ''}`);
       navigate(setId ? { name: 'set', setId } : { name: 'home' });
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : '一括保存に失敗しました');
+      if (mountedRef.current && activeSetIdRef.current === actionSetId) {
+        toast(caught instanceof Error ? caught.message : '一括保存に失敗しました');
+      }
     } finally {
-      setSaving(false);
+      saveInFlight.current = false;
+      if (mountedRef.current && activeSetIdRef.current === actionSetId) setSaving(false);
     }
   };
 
   return (
-    <section className="memory-bulk-editor">
+    <section className="memory-bulk-editor" aria-busy={saving}>
       <div className="memory-page-header">
-        <button type="button" className="icon-btn" aria-label="1枚入力へ戻る" onClick={() => navigate({ name: 'editor', setId })}><ArrowLeft size={21} /></button>
+        <button type="button" className="icon-btn" aria-label="1枚入力へ戻る" disabled={saving} onClick={() => navigate({ name: 'editor', setId })}><ArrowLeft size={21} aria-hidden="true" /></button>
         <div><h2>表形式で一括登録</h2><p>CSV・TSV・コピーした表をそのまま貼り付けできます</p></div>
         <span className="status-badge">{validRows.length}件</span>
       </div>
@@ -200,14 +223,14 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
             {rows.map((row, rowIndex) => (
               <tr key={row.id}>
                 {COLUMNS.slice(0, 5).map((column, columnIndex) => (
-                  <td key={column}><input data-memory-grid-row={rowIndex} data-memory-grid-col={columnIndex} aria-label={`${rowIndex + 1}行 ${column}`} value={row[column]} onKeyDown={(event) => onKeyDown(event, rowIndex, columnIndex)} onChange={(event) => update(row.id, column, event.target.value)} /></td>
+                  <td key={column}><input disabled={saving} data-memory-grid-row={rowIndex} data-memory-grid-col={columnIndex} aria-label={`${rowIndex + 1}行 ${column}`} value={row[column]} onKeyDown={(event) => onKeyDown(event, rowIndex, columnIndex)} onChange={(event) => update(row.id, column, event.target.value)} /></td>
                 ))}
                 <td>
-                  <select data-memory-grid-row={rowIndex} data-memory-grid-col={5} aria-label={`${rowIndex + 1}行 セット`} value={row.setId} onKeyDown={(event) => onKeyDown(event, rowIndex, 5)} onChange={(event) => update(row.id, 'setId', event.target.value)}>
+                  <select disabled={saving} data-memory-grid-row={rowIndex} data-memory-grid-col={5} aria-label={`${rowIndex + 1}行 セット`} value={row.setId} onKeyDown={(event) => onKeyDown(event, rowIndex, 5)} onChange={(event) => update(row.id, 'setId', event.target.value)}>
                     <option value="">セットなし</option>{sets.map((set) => <option key={set.id} value={set.id}>{set.name}</option>)}
                   </select>
                 </td>
-                <td><button type="button" className="icon-btn" aria-label={`${rowIndex + 1}行を削除`} onClick={() => { setRows((current) => current.filter((value) => value.id !== row.id)); setDuplicatePreview(undefined); setResolutions(new Map()); }}><Trash2 size={17} /></button></td>
+                <td><button type="button" className="icon-btn" disabled={saving} aria-label={`${rowIndex + 1}行を削除`} onClick={() => { setRows((current) => current.filter((value) => value.id !== row.id)); setDuplicatePreview(undefined); setResolutions(new Map()); }}><Trash2 size={17} aria-hidden="true" /></button></td>
               </tr>
             ))}
           </tbody>
@@ -225,6 +248,7 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
                 <div className="memory-import-row" key={`${duplicate.rowIndex}-${duplicate.kinds.join('-')}`}>
                   <div><b>{row.japanese}</b><span>{row.english}</span><span className="status-badge status-warn">{duplicate.kinds.join('・')}</span></div>
                   <select
+                    disabled={saving}
                     aria-label={`${row.japanese}の重複処理`}
                     value={resolutions.get(duplicate.rowIndex) ?? duplicate.suggestedResolution}
                     onChange={(event) => setResolutions((current) => new Map(current).set(duplicate.rowIndex, event.target.value as DuplicateResolution))}
@@ -240,10 +264,10 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
           </div>
         </div>
       )}
-      <button type="button" className="btn btn-ghost memory-add-row" onClick={() => { setRows((current) => [...current, emptyRow(defaultSetId)]); setDuplicatePreview(undefined); setResolutions(new Map()); }}><Plus size={18} />行を追加</button>
+      <button type="button" className="btn btn-ghost memory-add-row" disabled={saving} onClick={() => { setRows((current) => [...current, emptyRow(defaultSetId)]); setDuplicatePreview(undefined); setResolutions(new Map()); }}><Plus size={18} aria-hidden="true" />行を追加</button>
       <div className="memory-sticky-actions">
-        <button type="button" className="btn btn-ghost" onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
-        <button type="button" className="btn btn-primary" disabled={saving || validRows.length === 0 || pasteErrors.length > 0} onClick={() => void save()}><Save size={18} />{duplicatePreview ? '確認して保存' : `${validRows.length}件を保存`}</button>
+        <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
+        <button type="button" className="btn btn-primary" disabled={saving || validRows.length === 0 || pasteErrors.length > 0} aria-busy={saving} onClick={() => void save()}><Save size={18} aria-hidden="true" />{saving ? '保存中…' : duplicatePreview ? '確認して保存' : `${validRows.length}件を保存`}</button>
       </div>
     </section>
   );
