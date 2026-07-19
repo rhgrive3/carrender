@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AppProvider, useApp } from './state/AppContext';
 import { AuthProvider, useAuth } from './state/AuthContext';
@@ -177,6 +177,12 @@ function Shell() {
       shellRouteHref('materials', 'memory'),
     );
   }, [immersive]);
+
+  useLayoutEffect(() => {
+    // リポジトリ（所有者境界を含む）が変わった瞬間に前の集計を描画対象から外す。
+    // 新しい読込が失敗しても、別リポジトリの弱点数や直近結果を残さない。
+    setMemoryTodaySummary({ weakCount: 0 });
+  }, [memoryRepository]);
 
   useEffect(() => {
     if (tab !== 'today' || !memoryRepository) return;
