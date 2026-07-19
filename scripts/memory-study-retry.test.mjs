@@ -22,4 +22,10 @@ assert.match(source, /await refreshAfterPersist\('回答取り消し'\);\s*reque
 assert.equal(source.includes('await refresh();\n      requestSyncSafely(result.session.status'), false, '回答保存済み処理を一覧更新失敗として再試行させない');
 assert.equal(source.includes('await refresh();\n      requestSyncSafely(false);'), false, '取り消し保存済み処理を一覧更新失敗として再試行させない');
 
+assert.match(source, /const actionToken = useRef\(0\)/, '暗記学習操作へ世代トークンを持たせる');
+assert.match(source, /useEffect\(\(\) => \{\s*actionToken\.current \+= 1;\s*actionInFlight\.current = false;\s*setBusy\(false\);\s*\}, \[repository, sessionId\]\)/u, '所有者またはセッション切替時に古い操作を無効化する');
+assert.match(source, /const finishAction = \(token: number\) => \{\s*if \(actionToken\.current !== token\) return;[\s\S]*setBusy\(false\)/u, '古い操作のfinallyが新しい画面のbusy状態を解除しない');
+assert.match(source, /activeSessionId\.current !== actionSessionId \|\| actionToken\.current !== token/u, '回答・取り消し結果は現在の操作トークンが一致する場合だけ反映する');
+assert.equal(source.includes('finally {\n      finishAction();'), false, '操作トークンなしでbusy状態を解除しない');
+
 console.log('✅ memory study retry contract passed');

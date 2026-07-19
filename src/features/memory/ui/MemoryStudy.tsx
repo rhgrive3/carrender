@@ -37,12 +37,19 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const mounted = useRef(true);
   const activeSessionId = useRef(sessionId);
   const actionInFlight = useRef(false);
+  const actionToken = useRef(0);
   activeSessionId.current = sessionId;
 
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+
+  useEffect(() => {
+    actionToken.current += 1;
+    actionInFlight.current = false;
+    setBusy(false);
+  }, [repository, sessionId]);
 
   useEffect(() => {
     if (!repository) return;
@@ -124,19 +131,24 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   };
 
   const beginAction = () => {
-    if (actionInFlight.current) return false;
+    if (actionInFlight.current) return undefined;
+    const token = actionToken.current + 1;
+    actionToken.current = token;
     actionInFlight.current = true;
     setBusy(true);
-    return true;
+    return token;
   };
 
-  const finishAction = () => {
+  const finishAction = (token: number) => {
+    if (actionToken.current !== token) return;
     actionInFlight.current = false;
     if (mounted.current) setBusy(false);
   };
 
   const commit = async (assessment: 'correct' | 'partial' | 'incorrect') => {
-    if (!repository || !session || !target || !beginAction()) return;
+    if (!repository || !session || !target) return;
+    const token = beginAction();
+    if (token === undefined) return;
     const actionSessionId = session.id;
     try {
       const result = await answerMemoryQuestion({
@@ -151,43 +163,45 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       });
       await refreshAfterPersist('回答保存');
       requestSyncSafely(result.session.status === 'completed');
-      if (!mounted.current || activeSessionId.current !== actionSessionId) return;
+      if (!mounted.current || activeSessionId.current !== actionSessionId || actionToken.current !== token) return;
       setRevealed(false);
       setFlipDirection(undefined);
       questionStarted.current = performance.now();
       setSession(result.session);
       if (result.session.status === 'completed') navigate({ name: 'result', sessionId: result.session.id });
     } catch (caught) {
-      if (mounted.current && activeSessionId.current === actionSessionId) {
+      if (mounted.current && activeSessionId.current === actionSessionId && actionToken.current === token) {
         toast(caught instanceof Error ? caught.message : '回答を保存できませんでした');
       }
     } finally {
-      finishAction();
+      finishAction(token);
     }
   };
 
   const undo = async () => {
-    if (!repository || !session || !beginAction()) return;
+    if (!repository || !session) return;
+    const token = beginAction();
+    if (token === undefined) return;
     const actionSessionId = session.id;
     try {
       const restored = await undoMemoryAnswer(repository, session);
       if (!restored) {
-        if (mounted.current && activeSessionId.current === actionSessionId) toast('取り消せる回答はありません');
+        if (mounted.current && activeSessionId.current === actionSessionId && actionToken.current === token) toast('取り消せる回答はありません');
         return;
       }
       await refreshAfterPersist('回答取り消し');
       requestSyncSafely(false);
-      if (!mounted.current || activeSessionId.current !== actionSessionId) return;
+      if (!mounted.current || activeSessionId.current !== actionSessionId || actionToken.current !== token) return;
       setRevealed(false);
       setFlipDirection(undefined);
       setSession(restored.session);
       toast('最後の回答を取り消しました');
     } catch (caught) {
-      if (mounted.current && activeSessionId.current === actionSessionId) {
+      if (mounted.current && activeSessionId.current === actionSessionId && actionToken.current === token) {
         toast(caught instanceof Error ? caught.message : '回答の取り消しを保存できませんでした');
       }
     } finally {
-      finishAction();
+      finishAction(token);
     }
   };
 
