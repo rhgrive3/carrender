@@ -23,6 +23,6 @@ assert.match(
   /finally \{[\s\S]*?if \(startTokenRef\.current === actionToken\)[\s\S]*?startInFlight\.current = false;[\s\S]*?if \(mountedRef\.current\) setStarting\(false\)/u,
   '古い処理のfinallyが新しい開始状態を解除しない',
 );
-assert.doesNotMatch(source, /navigate\(\{ name: 'study',[\s\S]*?\}\);\s*\} catch/u, '無条件の学習画面遷移へ戻さない');
+assert.doesNotMatch(source, /^\s*navigate\(\{ name: 'study'/mu, '無条件の学習画面遷移へ戻さない');
 
 console.log('memory study setup start race contract: ok');
