@@ -87,17 +87,23 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
   const [includeSelectedSetStats, setIncludeSelectedSetStats] = useState(false);
   const [includeSelectedExportStats, setIncludeSelectedExportStats] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [aiText, setAiText] = useState('');
   const [aiPreview, setAiPreview] = useState<AiImportPreview>();
   const [aiSelected, setAiSelected] = useState<Set<string>>(new Set());
   const mountedRef = useRef(false);
   const saveInFlightRef = useRef(false);
+  const exportInFlightRef = useRef(false);
+  const repositoryRef = useRef(repository);
+  repositoryRef.current = repository;
+  const busy = saving || exporting;
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       saveInFlightRef.current = false;
+      exportInFlightRef.current = false;
     };
   }, []);
 
@@ -112,6 +118,21 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
     saveInFlightRef.current = false;
     if (mountedRef.current) setSaving(false);
   };
+
+  const beginExport = (): boolean => {
+    if (exportInFlightRef.current) return false;
+    exportInFlightRef.current = true;
+    setExporting(true);
+    return true;
+  };
+
+  const finishExport = (): void => {
+    exportInFlightRef.current = false;
+    if (mountedRef.current) setExporting(false);
+  };
+
+  const isCurrentRepository = (actionRepository: NonNullable<typeof repository>): boolean =>
+    mountedRef.current && repositoryRef.current === actionRepository;
 
   const refreshAfterSave = async (): Promise<void> => {
     try {
@@ -128,7 +149,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
   };
 
   const loadTextFile = async (file: File | undefined, target: 'import' | 'ai') => {
-    if (!file || saving) return;
+    if (!file || busy) return;
     if (file.size > 5_000_000) {
       toast('ファイルは5MB以内にしてください');
       return;
@@ -259,14 +280,22 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
   };
 
   const exportAi = async () => {
-    if (!repository) return;
-    const content = await repository.loadContent();
-    const document = createAiContentExport(content, {
-      exportId: newAiExportId(),
-      baseRevision: maximumContentRevision(content),
-      exportedAt: new Date().toISOString(),
-    });
-    downloadJson(`carrender-ai-content-${today()}.json`, document);
+    if (!repository || !beginExport()) return;
+    const actionRepository = repository;
+    try {
+      const content = await actionRepository.loadContent();
+      if (!isCurrentRepository(actionRepository)) return;
+      const document = createAiContentExport(content, {
+        exportId: newAiExportId(),
+        baseRevision: maximumContentRevision(content),
+        exportedAt: new Date().toISOString(),
+      });
+      downloadJson(`carrender-ai-content-${today()}.json`, document);
+    } catch (caught) {
+      if (isCurrentRepository(actionRepository)) toast(caught instanceof Error ? caught.message : 'AI用JSONを書き出せませんでした');
+    } finally {
+      finishExport();
+    }
   };
 
   const copyChatGptRequest = async () => {
@@ -285,40 +314,57 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
   };
 
   const exportSelectedSet = async () => {
-    if (!repository) return;
+    if (!repository || !beginExport()) return;
+    const actionRepository = repository;
     const selectedIds = targetSetId ? [targetSetId] : sets.map((set) => set.id);
-    const snapshot = await repository.loadSnapshot();
-    const document = createSelectedSetExport({
-      sets: snapshot.sets,
-      setMembers: snapshot.setMembers,
-      content: snapshot,
-      selectedSetIds: selectedIds,
-      exportId: crypto.randomUUID(),
-      exportedAt: new Date().toISOString(),
-      includeStats: includeSelectedExportStats,
-      stats: snapshot.stats,
-    });
-    downloadJson(`carrender-memory-sets-${today()}.json`, document);
+    const actionIncludeStats = includeSelectedExportStats;
+    try {
+      const snapshot = await actionRepository.loadSnapshot();
+      if (!isCurrentRepository(actionRepository)) return;
+      const document = createSelectedSetExport({
+        sets: snapshot.sets,
+        setMembers: snapshot.setMembers,
+        content: snapshot,
+        selectedSetIds: selectedIds,
+        exportId: crypto.randomUUID(),
+        exportedAt: new Date().toISOString(),
+        includeStats: actionIncludeStats,
+        stats: snapshot.stats,
+      });
+      downloadJson(`carrender-memory-sets-${today()}.json`, document);
+    } catch (caught) {
+      if (isCurrentRepository(actionRepository)) toast(caught instanceof Error ? caught.message : 'セットを書き出せませんでした');
+    } finally {
+      finishExport();
+    }
   };
 
   const exportBackup = async () => {
-    if (!repository) return;
-    const all = await repository.exportAll();
-    const document = createFullMemoryBackup({
-      sets: all.snapshot.sets,
-      setMembers: all.snapshot.setMembers,
-      content: all.snapshot,
-      stats: all.snapshot.stats,
-      attempts: all.attempts,
-      sessions: all.sessions,
-      exportedAt: new Date().toISOString(),
-      settings: {},
-    });
-    downloadJson(`carrender-memory-backup-${today()}.json`, document);
+    if (!repository || !beginExport()) return;
+    const actionRepository = repository;
+    try {
+      const all = await actionRepository.exportAll();
+      if (!isCurrentRepository(actionRepository)) return;
+      const document = createFullMemoryBackup({
+        sets: all.snapshot.sets,
+        setMembers: all.snapshot.setMembers,
+        content: all.snapshot,
+        stats: all.snapshot.stats,
+        attempts: all.attempts,
+        sessions: all.sessions,
+        exportedAt: new Date().toISOString(),
+        settings: {},
+      });
+      downloadJson(`carrender-memory-backup-${today()}.json`, document);
+    } catch (caught) {
+      if (isCurrentRepository(actionRepository)) toast(caught instanceof Error ? caught.message : 'バックアップを作成できませんでした');
+    } finally {
+      finishExport();
+    }
   };
 
   const inspectAi = async () => {
-    if (!repository || saving) return;
+    if (!repository || busy) return;
     const preview = previewAiImport(aiText, await repository.loadContent());
     if (!mountedRef.current) return;
     setAiPreview(preview);
@@ -345,14 +391,14 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
   };
 
   return (
-    <section className="memory-import" aria-busy={saving}>
+    <section className="memory-import" aria-busy={busy}>
       <div className="memory-page-header">
-        <button type="button" className="icon-btn" aria-label="戻る" disabled={saving} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}><ArrowLeft size={21} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn" aria-label="戻る" disabled={busy} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}><ArrowLeft size={21} aria-hidden="true" /></button>
         <div><h2>取込・出力</h2><p>保存前に解析結果と重複を確認します</p></div>
       </div>
       <div className="segmented memory-import-tabs" role="tablist" aria-label="取込と出力">
         {([['import', '取込'], ['export', '出力'], ['ai', 'AI差分']] as const).map(([value, label]) => (
-          <button type="button" role="tab" aria-selected={tab === value} disabled={saving} className={tab === value ? 'active' : ''} key={value} onClick={() => setTab(value)}>{label}</button>
+          <button type="button" role="tab" aria-selected={tab === value} disabled={busy} className={tab === value ? 'active' : ''} key={value} onClick={() => setTab(value)}>{label}</button>
         ))}
       </div>
 
@@ -439,12 +485,12 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
       )}
 
       {tab === 'export' && (
-        <div className="memory-export-grid">
-          <article className="card"><FileJson size={24} aria-hidden="true" /><h3>ChatGPTへ手動で渡す</h3><p><b>AI API・APIキーは不要です。</b> 成績・履歴・ユーザー情報を除いたJSONファイルを取得し、ChatGPTアプリへ添付します。</p><ol className="memory-manual-ai-steps"><li>JSONを書き出す</li><li>依頼文をコピーしてChatGPTアプリへ貼る</li><li>返されたJSONを「AI差分」で確認して追加</li></ol><button type="button" className="btn btn-primary" onClick={() => void exportAi()}><Download size={18} aria-hidden="true" />JSONファイルを取得</button><button type="button" className="btn btn-ghost" onClick={() => void copyChatGptRequest()}><Clipboard size={18} aria-hidden="true" />依頼文をコピー</button><details className="memory-chatgpt-request"><summary>依頼文を表示</summary><pre>{CHATGPT_CONTENT_REQUEST}</pre></details></article>
-          <article className="card"><CheckSquare size={24} aria-hidden="true" /><h3>選択セット</h3><p>選択セットと参照コンテンツを出力します。統計は初期状態では含みません。</p><div className="field"><select aria-label="出力するセット" value={targetSetId} onChange={(event) => setTargetSetId(event.target.value)}><option value="">全セット</option>{sets.map((set) => <option key={set.id} value={set.id}>{set.name}</option>)}</select></div><label className="memory-ai-manual-note"><input type="checkbox" checked={includeSelectedExportStats} onChange={(event) => setIncludeSelectedExportStats(event.target.checked)} />統計も含める（回答履歴は含みません）</label><button type="button" className="btn btn-primary" onClick={() => void exportSelectedSet()}><Download size={18} aria-hidden="true" />セットを書き出す</button></article>
-          <article className="card"><ShieldAlert size={24} aria-hidden="true" /><h3>完全バックアップ</h3><p>全コンテンツ・統計・回答履歴・セッションを復元専用形式で保存します。</p><button type="button" className="btn btn-primary" onClick={() => void exportBackup()}><Download size={18} aria-hidden="true" />バックアップを作成</button></article>
+        <fieldset disabled={exporting} className="memory-export-grid">
+          <article className="card"><FileJson size={24} aria-hidden="true" /><h3>ChatGPTへ手動で渡す</h3><p><b>AI API・APIキーは不要です。</b> 成績・履歴・ユーザー情報を除いたJSONファイルを取得し、ChatGPTアプリへ添付します。</p><ol className="memory-manual-ai-steps"><li>JSONを書き出す</li><li>依頼文をコピーしてChatGPTアプリへ貼る</li><li>返されたJSONを「AI差分」で確認して追加</li></ol><button type="button" className="btn btn-primary" aria-busy={exporting} onClick={() => void exportAi()}><Download size={18} aria-hidden="true" />{exporting ? '書き出し中…' : 'JSONファイルを取得'}</button><button type="button" className="btn btn-ghost" onClick={() => void copyChatGptRequest()}><Clipboard size={18} aria-hidden="true" />依頼文をコピー</button><details className="memory-chatgpt-request"><summary>依頼文を表示</summary><pre>{CHATGPT_CONTENT_REQUEST}</pre></details></article>
+          <article className="card"><CheckSquare size={24} aria-hidden="true" /><h3>選択セット</h3><p>選択セットと参照コンテンツを出力します。統計は初期状態では含みません。</p><div className="field"><select aria-label="出力するセット" value={targetSetId} onChange={(event) => setTargetSetId(event.target.value)}><option value="">全セット</option>{sets.map((set) => <option key={set.id} value={set.id}>{set.name}</option>)}</select></div><label className="memory-ai-manual-note"><input type="checkbox" checked={includeSelectedExportStats} onChange={(event) => setIncludeSelectedExportStats(event.target.checked)} />統計も含める（回答履歴は含みません）</label><button type="button" className="btn btn-primary" aria-busy={exporting} onClick={() => void exportSelectedSet()}><Download size={18} aria-hidden="true" />{exporting ? '書き出し中…' : 'セットを書き出す'}</button></article>
+          <article className="card"><ShieldAlert size={24} aria-hidden="true" /><h3>完全バックアップ</h3><p>全コンテンツ・統計・回答履歴・セッションを復元専用形式で保存します。</p><button type="button" className="btn btn-primary" aria-busy={exporting} onClick={() => void exportBackup()}><Download size={18} aria-hidden="true" />{exporting ? '作成中…' : 'バックアップを作成'}</button></article>
           <MemoryBackupRestore />
-        </div>
+        </fieldset>
       )}
 
       {tab === 'ai' && (
