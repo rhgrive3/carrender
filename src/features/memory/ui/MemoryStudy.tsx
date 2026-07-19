@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Eye, EyeOff, RotateCcw, X } from 'lucide-react';
 import type { MemorySession, MemorySetBundle } from '../domain/types';
 import { currentLearningTarget, sessionQueueProgress } from '../domain/sessionQueue';
@@ -45,9 +45,16 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     return () => { mounted.current = false; };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     actionToken.current += 1;
     actionInFlight.current = false;
+    pointerStartX.current = null;
+    ignoreNextClick.current = false;
+    setSession(undefined);
+    setBundle(undefined);
+    setLoadError(undefined);
+    setRevealed(false);
+    setFlipDirection(undefined);
     setBusy(false);
   }, [repository, sessionId]);
 
