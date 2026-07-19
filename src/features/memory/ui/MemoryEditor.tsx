@@ -87,12 +87,14 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
 
   if (bulk) return <MemoryBulkEditor setId={setId} />;
 
+  const isLoading = Boolean(itemId && repository && !original && !loadError);
+
   const updateSense = (index: number, update: (sense: MemorySenseDraft) => MemorySenseDraft) => {
     setDraft((current) => ({ ...current, senses: current.senses.map((sense, at) => at === index ? update(sense) : sense) }));
   };
 
   const save = async (continueNext: boolean) => {
-    if (!repository || saveInFlight.current || loadError) return;
+    if (!repository || saveInFlight.current || loadError || (itemId && !original)) return;
     saveInFlight.current = true;
     const actionItemId = itemId;
     setSaving(true);
@@ -123,6 +125,18 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
       if (mountedRef.current && activeItemIdRef.current === actionItemId) setSaving(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <section className="memory-editor memory-simple-editor" aria-busy="true">
+        <div className="memory-page-header">
+          <button type="button" className="icon-btn" aria-label="戻る" onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}><ArrowLeft size={21} aria-hidden="true" /></button>
+          <div><h2>カードを編集</h2><p>カードを読み込んでいます…</p></div>
+        </div>
+        <div className="card" role="status">読み込み中…</div>
+      </section>
+    );
+  }
 
   if (loadError) {
     return (
