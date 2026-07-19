@@ -23,7 +23,8 @@ assert.equal(source.includes('await refresh();\n      requestSyncSafely(result.s
 assert.equal(source.includes('await refresh();\n      requestSyncSafely(false);'), false, '取り消し保存済み処理を一覧更新失敗として再試行させない');
 
 assert.match(source, /const actionToken = useRef\(0\)/, '暗記学習操作へ世代トークンを持たせる');
-assert.match(source, /useEffect\(\(\) => \{\s*actionToken\.current \+= 1;\s*actionInFlight\.current = false;\s*setBusy\(false\);\s*\}, \[repository, sessionId\]\)/u, '所有者またはセッション切替時に古い操作を無効化する');
+assert.match(source, /import \{[^}]*useLayoutEffect[^}]*\} from 'react'/u, 'セッション切替の描画前リセットにuseLayoutEffectを使う');
+assert.match(source, /useLayoutEffect\(\(\) => \{\s*actionToken\.current \+= 1;[\s\S]*?actionInFlight\.current = false;[\s\S]*?pointerStartX\.current = null;[\s\S]*?ignoreNextClick\.current = false;[\s\S]*?setSession\(undefined\);[\s\S]*?setBundle\(undefined\);[\s\S]*?setLoadError\(undefined\);[\s\S]*?setRevealed\(false\);[\s\S]*?setFlipDirection\(undefined\);[\s\S]*?setBusy\(false\);\s*\}, \[repository, sessionId\]\)/u, '所有者またはセッション切替時に旧カード・操作・ポインター状態を描画前に破棄する');
 assert.match(source, /const finishAction = \(token: number\) => \{\s*if \(actionToken\.current !== token\) return;[\s\S]*setBusy\(false\)/u, '古い操作のfinallyが新しい画面のbusy状態を解除しない');
 assert.match(source, /activeSessionId\.current !== actionSessionId \|\| actionToken\.current !== token/u, '回答・取り消し結果は現在の操作トークンが一致する場合だけ反映する');
 assert.equal(source.includes('finally {\n      finishAction();'), false, '操作トークンなしでbusy状態を解除しない');
