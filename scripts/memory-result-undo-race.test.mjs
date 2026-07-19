@@ -6,16 +6,19 @@ const source = await readFile(new URL('../src/features/memory/ui/MemoryResult.ts
 assert.equal(source.includes('const mounted = useRef(true)'), true);
 assert.match(source, /const activeSessionId = useRef\(sessionId\)[\s\S]*?activeSessionId\.current = sessionId/u, '同じ結果画面インスタンス内で切り替わった現在セッションを追跡する');
 assert.equal(source.includes('const undoInFlightSessionId = useRef<string>();'), true, 'React再描画前でも同一セッションの取り消しを同期的にロックする');
+assert.equal(source.includes('const undoActionToken = useRef(0);'), true, '所有者・セッションをまたぐ古い取り消し完了を世代トークンで識別する');
 assert.match(source, /undoing \|\| undoInFlightSessionId\.current === session\.id/u, 'state反映前の同一セッション再実行を拒否する');
+assert.equal(source.includes('const actionRepository = repository;'), true, '取り消し開始時の所有者リポジトリを固定する');
+assert.equal(source.includes('const actionToken = ++undoActionToken.current;'), true, '各取り消し操作へ一意の世代を割り当てる');
 assert.equal(source.includes('undoInFlightSessionId.current = actionSessionId;'), true, '非同期処理開始前にロックを取得する');
-assert.match(source, /if \(undoInFlightSessionId\.current === actionSessionId\) undoInFlightSessionId\.current = undefined;/u, '完了した処理自身のロックだけを解除する');
 assert.equal(source.includes('const actionSessionId = session.id;'), true, '取り消し開始時のセッションIDを固定する');
-assert.match(source, /if \(!mounted\.current \|\| activeSessionId\.current !== actionSessionId\) return;[\s\S]*?navigate\(\{ name: 'study'/u, '古い取り消し完了で切替後の画面を上書きしない');
-assert.match(source, /mounted\.current && activeSessionId\.current === actionSessionId[\s\S]*?toast/u, '別セッションへ切替後に古い取り消しのToastを出さない');
-assert.equal(source.includes('if (mounted.current && activeSessionId.current === actionSessionId) setUndoing(false)'), true, '古い処理のfinallyで新しいセッションの操作状態を解除しない');
+assert.match(source, /const isCurrentAction = \(\) => \([\s\S]*?activeSessionId\.current === actionSessionId[\s\S]*?repository === actionRepository[\s\S]*?undoActionToken\.current === actionToken[\s\S]*?\);/u, '現在画面・所有者・操作世代が全て一致する場合だけUIへ結果を反映する');
+assert.match(source, /if \(!isCurrentAction\(\)\) return;[\s\S]*?navigate\(\{ name: 'study'/u, '古い取り消し完了で切替後の画面を上書きしない');
+assert.match(source, /if \(isCurrentAction\(\)\) \{[\s\S]*?toast/u, '所有者またはセッション切替後に古い取り消しのToastを出さない');
+assert.match(source, /if \(undoActionToken\.current === actionToken\) \{\s*undoInFlightSessionId\.current = undefined;\s*if \(mounted\.current\) setUndoing\(false\);\s*\}/u, '古いfinallyで新しい所有者・セッションの操作ロックを解除しない');
 
 assert.match(source, /import \{[^}]*useLayoutEffect[^}]*\} from 'react'/u, '結果切替の描画前リセットにuseLayoutEffectを使う');
-assert.match(source, /useLayoutEffect\(\(\) => \{\s*setSession\(undefined\);\s*setAttempts\(\[\]\);\s*setBundle\(undefined\);\s*setLoadError\(undefined\);\s*setUndoing\(false\);\s*undoInFlightSessionId\.current = undefined;\s*\}, \[reloadKey, repository, sessionId\]\)/u, '所有者・セッション切替または再読み込み時に旧結果・エラー・取り消し状態を描画前に破棄する');
+assert.match(source, /useLayoutEffect\(\(\) => \{\s*undoActionToken\.current \+= 1;\s*setSession\(undefined\);\s*setAttempts\(\[\]\);\s*setBundle\(undefined\);\s*setLoadError\(undefined\);\s*setUndoing\(false\);\s*undoInFlightSessionId\.current = undefined;\s*\}, \[reloadKey, repository, sessionId\]\)/u, '所有者・セッション切替または再読み込み時に旧操作世代と画面状態を描画前に破棄する');
 assert.equal(source.includes('}, [repository, sessionId]);'), false, '再読み込み時に古い読込エラーを残さない');
 const layoutResetAt = source.indexOf('useLayoutEffect(() => {');
 const loadEffectAt = source.indexOf('useEffect(() => {\n    if (!repository) return;', layoutResetAt);
@@ -25,7 +28,7 @@ assert.equal(source.includes('setSession(undefined);\n    setAttempts([]);\n    
 const refreshAt = source.indexOf('await refresh();');
 const refreshCatchAt = source.indexOf("console.warn('暗記結果の取り消し後に一覧を更新できませんでした'", refreshAt);
 const syncAt = source.indexOf('void requestSync(true).catch(() => {', refreshAt);
-const guardAt = source.indexOf('if (!mounted.current || activeSessionId.current !== actionSessionId) return;', syncAt);
+const guardAt = source.indexOf('if (!isCurrentAction()) return;', syncAt);
 const navigateAt = source.indexOf("navigate({ name: 'study'", guardAt);
 assert.equal(refreshAt < refreshCatchAt && refreshCatchAt < syncAt && syncAt < guardAt && guardAt < navigateAt, true);
 assert.match(source, /try \{\s*await refresh\(\);\s*\} catch \(caught\) \{[\s\S]*?console\.warn\('暗記結果の取り消し後に一覧を更新できませんでした', caught\);\s*\}/u, '保存済みの回答取り消しを一覧更新失敗として扱わない');
