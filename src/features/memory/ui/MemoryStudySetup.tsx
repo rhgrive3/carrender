@@ -56,7 +56,26 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   const [eligibilityError, setEligibilityError] = useState<string>();
   const [eligibilityRetry, setEligibilityRetry] = useState(0);
   const [starting, setStarting] = useState(false);
+  const mountedRef = useRef(false);
   const startInFlight = useRef(false);
+  const startTokenRef = useRef(0);
+  const repositoryRef = useRef(repository);
+  repositoryRef.current = repository;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      startTokenRef.current += 1;
+      startInFlight.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    startTokenRef.current += 1;
+    startInFlight.current = false;
+    setStarting(false);
+  }, [repository]);
 
   useEffect(() => {
     if (!ready) return;
@@ -109,8 +128,14 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
 
   const start = async () => {
     if (!repository || startInFlight.current || !eligibilityReady || plannedCount === 0 || eligibilityError) return;
+    const actionRepository = repository;
+    const actionToken = startTokenRef.current + 1;
+    startTokenRef.current = actionToken;
     startInFlight.current = true;
     setStarting(true);
+    const isCurrentAction = () => mountedRef.current
+      && repositoryRef.current === actionRepository
+      && startTokenRef.current === actionToken;
     try {
       const config: MemorySessionConfig = {
         questionCount: questionCount(countChoice),
@@ -118,19 +143,23 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         includeUnverifiedAi: false,
         preferredExerciseType: 'flashcard',
       };
-      const created = await createSimpleStudySession({ repository, selectedSetIds, config });
-      try {
-        await refresh();
-      } catch (caught) {
-        console.error('Failed to refresh memory state after creating a study session', caught);
+      const created = await createSimpleStudySession({ repository: actionRepository, selectedSetIds: [...selectedSetIds], config });
+      if (isCurrentAction()) {
+        try {
+          await refresh();
+        } catch (caught) {
+          console.error('Failed to refresh memory state after creating a study session', caught);
+        }
       }
       void requestSync(true).catch(() => undefined);
-      navigate({ name: 'study', sessionId: created.session.id });
+      if (isCurrentAction()) navigate({ name: 'study', sessionId: created.session.id });
     } catch (caught) {
-      toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
+      if (isCurrentAction()) toast(caught instanceof Error ? caught.message : '学習を開始できませんでした');
     } finally {
-      startInFlight.current = false;
-      setStarting(false);
+      if (startTokenRef.current === actionToken) {
+        startInFlight.current = false;
+        if (mountedRef.current) setStarting(false);
+      }
     }
   };
 
