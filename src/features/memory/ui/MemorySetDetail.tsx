@@ -160,8 +160,10 @@ export function MemorySetDetail({ setId }: { setId: string }) {
 
   const saveSetEdit = async () => {
     if (!repository || !set || !setName.trim()) return;
+    const nextName = setName.trim();
+    const nextDescription = setDescription;
     await runAction(async (isCurrent) => {
-      await updateMemorySet(repository, set, { name: setName, description: setDescription, tags: set.tags });
+      await updateMemorySet(repository, set, { name: nextName, description: nextDescription, tags: set.tags });
       if (isCurrent()) setEditingSet(false);
       await refreshAfterMutation('セット更新', isCurrent);
       requestSyncSafely();
@@ -234,7 +236,7 @@ export function MemorySetDetail({ setId }: { setId: string }) {
 
       {filtered.length === 0 && <div className="card empty-state"><div className="empty-title">該当するカードがありません</div></div>}
 
-      {editingSet && <MemoryDialog title="暗記セットを編集" onClose={() => { if (!actionBusy) setEditingSet(false); }} footer={<button type="button" className="btn btn-primary" disabled={actionBusy || !setName.trim()} onClick={() => void saveSetEdit()}>{actionBusy ? '保存中…' : '変更を保存'}</button>}><div className="field"><label htmlFor="memory-edit-set-name">セット名</label><input id="memory-edit-set-name" autoFocus value={setName} onChange={(event) => setSetName(event.target.value)} /></div><div className="field"><label htmlFor="memory-edit-set-description">説明</label><textarea id="memory-edit-set-description" value={setDescription} onChange={(event) => setSetDescription(event.target.value)} /></div></MemoryDialog>}
+      {editingSet && <MemoryDialog title="暗記セットを編集" onClose={() => { if (!actionBusy) setEditingSet(false); }} footer={<button type="button" className="btn btn-primary" aria-busy={actionBusy} disabled={actionBusy || !setName.trim()} onClick={() => void saveSetEdit()}>{actionBusy ? '保存中…' : '変更を保存'}</button>}><fieldset disabled={actionBusy} aria-busy={actionBusy}><div className="field"><label htmlFor="memory-edit-set-name">セット名</label><input id="memory-edit-set-name" autoFocus value={setName} onChange={(event) => setSetName(event.target.value)} /></div><div className="field"><label htmlFor="memory-edit-set-description">説明</label><textarea id="memory-edit-set-description" value={setDescription} onChange={(event) => setSetDescription(event.target.value)} /></div></fieldset></MemoryDialog>}
     </section>
   );
 }
