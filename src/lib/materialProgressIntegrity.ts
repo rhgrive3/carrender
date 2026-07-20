@@ -71,7 +71,8 @@ function isCompletedMaterialWork(task: StudyTask, material: Material): boolean {
 /**
  * 完了記録は残っているのに、対応タスクがplannedへ戻った旧データを修復する。
  * taskSnapshotBeforeは完了操作直前の不変履歴なので、そこから当時の日付・範囲を復元し、
- * 今日のチェック表示と達成率を守る。
+ * 今日のチェック表示と達成率を守る。同一タスクを複数回完了した履歴がある場合は、
+ * 最後の完了操作を正として古いスナップショットへ巻き戻さない。
  *
  * タスク自体が存在しない場合は、明示削除と旧不具合による消失を判別できない。
  * 使用者の削除操作を起動時修復で取り消さないため、欠損タスクは復元しない。
@@ -81,11 +82,17 @@ export function reconcileCompletedTaskHistory(state: AppState): CompletedTaskHis
   const tasks = [...state.tasks];
   const indexById = new Map(tasks.map((task, index) => [task.id, index]));
 
+  const latestCompletedSessionByTask = new Map<string, AppState['sessions'][number]>();
   const completedSessions = state.sessions
     .filter((session) => session.completedTask && session.taskId && session.taskSnapshotBefore)
-    .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id));
-
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt) || right.id.localeCompare(left.id));
   for (const session of completedSessions) {
+    if (!latestCompletedSessionByTask.has(session.taskId!)) {
+      latestCompletedSessionByTask.set(session.taskId!, session);
+    }
+  }
+
+  for (const session of latestCompletedSessionByTask.values()) {
     const taskId = session.taskId!;
     const snapshot = session.taskSnapshotBefore!;
     const currentIndex = indexById.get(taskId);
