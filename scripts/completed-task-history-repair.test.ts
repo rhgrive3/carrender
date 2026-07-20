@@ -71,4 +71,40 @@ assert.equal(latestRestored.title, latestSnapshot.title, '古いタイトルへ�
 assert.equal(latestRestored.rangeLabel, latestSnapshot.rangeLabel, '古い範囲へ巻き戻さない');
 assert.equal(latestRestored.scheduledDate, latestDate, '古い予定日へ巻き戻さない');
 
-console.log('✅ completed task history repair, deletion preservation, and latest completion precedence passed');
+const backdatedStartedAt = '2026-07-19T07:00:00.000Z';
+const backdatedUpdatedAt = '2026-07-22T12:00:00.000Z';
+const backdatedSnapshot = {
+  ...latestSnapshot,
+  title: '英作文（過去日の記録を後から再完了）',
+  rangeLabel: '第3問',
+  scheduledDate: '2026-07-19',
+  scheduledStart: '07:00',
+  scheduledEnd: '07:30',
+  updatedAt: backdatedUpdatedAt,
+} satisfies StudyTask;
+const backdatedLatestOperation = {
+  ...latestSession,
+  id: 'done-session-backdated-latest-operation',
+  date: '2026-07-19',
+  startedAt: backdatedStartedAt,
+  rangeLabel: backdatedSnapshot.rangeLabel,
+  taskSnapshotBefore: backdatedSnapshot,
+  updatedAt: backdatedUpdatedAt,
+} satisfies StudySession;
+const backdatedCompletionState = {
+  ...base,
+  tasks: [{ ...backdatedSnapshot, status: 'planned' }],
+  sessions: [latestSession, backdatedLatestOperation],
+} satisfies AppState;
+const repairedBackdatedCompletion = reconcileCompletedTaskHistory(backdatedCompletionState);
+const backdatedRestored = repairedBackdatedCompletion.state.tasks[0];
+assert.equal(
+  repairedBackdatedCompletion.repairs[0]?.sessionId,
+  backdatedLatestOperation.id,
+  '学習開始時刻が古くても、後から保存・更新された完了操作を採用する',
+);
+assert.equal(backdatedRestored.title, backdatedSnapshot.title, '過去日の再完了後に古い内容へ巻き戻さない');
+assert.equal(backdatedRestored.rangeLabel, backdatedSnapshot.rangeLabel);
+assert.equal(backdatedRestored.scheduledDate, backdatedSnapshot.scheduledDate);
+
+console.log('✅ completed task history repair, deletion preservation, and completion-operation precedence passed');
