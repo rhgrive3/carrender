@@ -84,6 +84,8 @@ try {
     const now = '2026-07-14T00:00:00.000Z';
     const baseState = {
       ...emptyState(),
+      // IndexedDBのgetAllは主キー順で返す。保存元の配列順が違っても移行検証を誤失敗させない。
+      availability: [...emptyState().availability].reverse(),
       onboarded: true,
       goal: { id: 'goal-1', name: '医学部合格', examDate: '2027-02-01', createdAt: now },
       subjects: [{ id: 'subject-1', name: '化学', color: '#123456', importance: 5, weakness: 4 }],

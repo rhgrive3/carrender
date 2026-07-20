@@ -172,7 +172,9 @@ function restoreTaskDeadline(task: StudyTask, original: StudyTask): StudyTask {
  * 既存ソルバーへ渡す。元の期限は結果へ戻し、期限違反と回復予定を同時に示す。
  */
 export function generatePlanV2(state: AppState, context: SchedulerContext): ScheduleGenerationResult {
-  const today = dateInTimeZone(context.now, context.timezone);
+  const currentDate = dateInTimeZone(context.now, context.timezone);
+  const planningStartDate = context.planningStartDate;
+  const today = planningStartDate && planningStartDate > currentDate ? planningStartDate : currentDate;
   const end = recoveryEnd(state, today);
   const overdueMaterials = new Map<string, Material>();
   for (const material of state.materials) {

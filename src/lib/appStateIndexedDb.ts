@@ -99,6 +99,21 @@ function sameStoredValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(stableStoredValue(left)) === JSON.stringify(stableStoredValue(right));
 }
 
+function canonicalStateForStorageComparison(state: AppState): AppState {
+  const byId = <T extends { id: string }>(left: T, right: T) => left.id.localeCompare(right.id);
+  return {
+    ...state,
+    subjects: [...state.subjects].sort(byId),
+    materials: [...state.materials].sort(byId),
+    tasks: [...state.tasks].sort(byId),
+    sessions: [...state.sessions].sort(byId),
+    planHistory: [...(state.planHistory ?? [])].sort(byId),
+    availability: [...state.availability].sort((left, right) => left.weekday - right.weekday),
+    dayPlans: [...state.dayPlans].sort((left, right) => left.date.localeCompare(right.date)),
+    fixedEvents: [...state.fixedEvents].sort(byId),
+  };
+}
+
 function createSchema(database: IDBDatabase): void {
   database.createObjectStore(MAIN_STATE_STORES.meta, { keyPath: 'key' });
   database.createObjectStore(MAIN_STATE_STORES.goal, { keyPath: 'id' });
@@ -308,7 +323,7 @@ export class AppStateIndexedDbRepository {
     if (!normalized.ok) throw new Error('移行元の予定データが不正です');
     await this.replaceState(normalized.state);
     const restored = await this.loadState();
-    if (!restored || !sameStoredValue(restored, normalized.state)) {
+    if (!restored || !sameStoredValue(canonicalStateForStorageComparison(restored), canonicalStateForStorageComparison(normalized.state))) {
       throw new Error('IndexedDBへの移行後検証に失敗しました');
     }
   }

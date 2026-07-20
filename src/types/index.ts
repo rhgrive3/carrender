@@ -321,6 +321,8 @@ export interface SchedulerContext {
   now: Date;
   timezone: TimeZoneId;
   generationId: string;
+  /** この日より前の計画を保持し、新規配置を開始する最初の日。 */
+  planningStartDate?: LocalDate;
   maxSearchNodes?: number;
   maxSearchMilliseconds?: number;
 }

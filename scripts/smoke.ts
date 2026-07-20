@@ -593,7 +593,7 @@ console.log('--- 固定予定・完了タスクとの時間帯重複防止 ---')
     onboarded: true,
     goal: { id: 'g_ov', name: 'テスト', examDate: '2026-09-30', createdAt: fixedNow.toISOString() },
     subjects: [{ id: 'subj_ov', name: '数学', color: '#4f7cff', importance: 3, weakness: 3 }],
-    materials: [makeMat(5)],
+    materials: [{ ...makeMat(5), totalAmount: 7, totalUnits: 7, targetDate: '2026-07-10' }],
     availability: ([0, 1, 2, 3, 4, 5, 6] as const).map((weekday) => ({
       weekday,
       minutes: 120,
