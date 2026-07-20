@@ -165,7 +165,7 @@ export function TodayScreen({
               <div className="next-action-subject">
                 <span className="subject-dot" style={{ background: topSubject.color }} aria-hidden="true" />
                 {topSubject.name}
-                {topTask.status === 'doing' && <span className="status-badge status-accent">進行中</span>}
+                {topTaskOwnsActiveTimer && <span className="status-badge status-accent">進行中</span>}
               </div>
               <h2>{topTask.title}</h2>
               <p className="next-action-range">{topTask.rangeLabel}</p>
@@ -183,7 +183,7 @@ export function TodayScreen({
                   </button>
                 )}
               </div>
-              {topTask.status !== 'doing' && (
+              {!topTaskOwnsActiveTimer && (
                 <button className="today-rest-action" onClick={() => postponeTopTask(topTask)}>
                   <SkipForward size={16} aria-hidden="true" />明日以降へ
                 </button>
