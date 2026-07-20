@@ -13,6 +13,19 @@ export interface MaterialProgressIntegrityResult {
   repairs: MaterialProgressRepair[];
 }
 
+export interface CompletedTaskHistoryRepair {
+  sessionId: string;
+  taskId: string;
+  taskTitle: string;
+  previousStatus: StudyTask['status'] | 'missing';
+  scheduledDate: string;
+}
+
+export interface CompletedTaskHistoryIntegrityResult {
+  state: AppState;
+  repairs: CompletedTaskHistoryRepair[];
+}
+
 function normalizeRanges(ranges: UnitRange[], total: number): UnitRange[] {
   const sorted = ranges
     .filter((range) => Number.isInteger(range.start)
@@ -53,6 +66,52 @@ function isCompletedMaterialWork(task: StudyTask, material: Material): boolean {
   if (task.status !== 'done' || task.type !== 'new' || task.materialId !== material.id) return false;
   const sourceType = task.sourceType ?? (task.generatedBy === 'manual' ? 'manual' : 'material');
   return sourceType === 'material';
+}
+
+/**
+ * 完了記録は残っているのに、記録編集や再計算の途中で対応タスクだけが消えたり
+ * plannedへ戻った旧データを修復する。taskSnapshotBeforeは完了操作直前の不変履歴なので、
+ * そこから当時の日付・範囲を復元し、今日のチェック表示と達成率を守る。
+ */
+export function reconcileCompletedTaskHistory(state: AppState): CompletedTaskHistoryIntegrityResult {
+  const repairs: CompletedTaskHistoryRepair[] = [];
+  const tasks = [...state.tasks];
+  const indexById = new Map(tasks.map((task, index) => [task.id, index]));
+
+  const completedSessions = state.sessions
+    .filter((session) => session.completedTask && session.taskId && session.taskSnapshotBefore)
+    .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id));
+
+  for (const session of completedSessions) {
+    const taskId = session.taskId!;
+    const snapshot = session.taskSnapshotBefore!;
+    const currentIndex = indexById.get(taskId);
+    const current = currentIndex === undefined ? undefined : tasks[currentIndex];
+    if (current?.status === 'done') continue;
+
+    const restored: StudyTask = {
+      ...snapshot,
+      id: taskId,
+      status: 'done',
+      completedAt: current?.completedAt ?? session.updatedAt ?? session.startedAt,
+      updatedAt: session.updatedAt ?? session.startedAt,
+    };
+    if (currentIndex === undefined) {
+      indexById.set(taskId, tasks.length);
+      tasks.push(restored);
+    } else {
+      tasks[currentIndex] = restored;
+    }
+    repairs.push({
+      sessionId: session.id,
+      taskId,
+      taskTitle: restored.title,
+      previousStatus: current?.status ?? 'missing',
+      scheduledDate: restored.scheduledDate,
+    });
+  }
+
+  return repairs.length > 0 ? { state: { ...state, tasks }, repairs } : { state, repairs };
 }
 
 /**
