@@ -172,9 +172,11 @@ export function TodayScreen({
                   <CheckCircle2 size={18} aria-hidden="true" />完了を記録
                 </button>
               </div>
-              <button className="today-rest-action" onClick={() => postponeTopTask(topTask)}>
-                <SkipForward size={16} aria-hidden="true" />明日以降へ
-              </button>
+              {topTask.status !== 'doing' && (
+                <button className="today-rest-action" onClick={() => postponeTopTask(topTask)}>
+                  <SkipForward size={16} aria-hidden="true" />明日以降へ
+                </button>
+              )}
               <div className="next-action-footer">
                 <span>今日あと{pending.length}件 · {formatMinutes(remainingMinutes)}</span>
                 <span>{Math.round(doneRate * 100)}% 完了</span>
