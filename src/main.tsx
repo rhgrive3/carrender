@@ -14,6 +14,7 @@ import './styles/memory-card-ux.css';
 import './styles/memory-android-flip-fix.css';
 import './styles/memory-compact-fixes.css';
 import './styles/record-chart-fixes.css';
+import './styles/material-shelf.css';
 import './styles/accessibility-polish.css';
 import './styles/ios-form-controls.css';
 import { registerSW } from 'virtual:pwa-register';
