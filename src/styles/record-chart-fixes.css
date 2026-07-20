@@ -7,3 +7,8 @@
   flex-shrink: 1;
   min-height: 0;
 }
+
+/* 手入力記録は入力欄へ直行させる。候補フィールドだけを対象にし、他の入力欄は隠さない。 */
+.sheet > .field:has(> label:first-child + .row > .btn.btn-secondary.btn-sm .faint) {
+  display: none;
+}
