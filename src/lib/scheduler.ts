@@ -198,11 +198,13 @@ export function generatePlan(
           };
         }),
       };
-  const rawSchedule = generatePlanV2(planningState, {
+  const schedulerContext = {
     now,
     timezone,
     generationId,
-  });
+    planningStartDate: fromDate > todayDate ? fromDate : todayDate,
+  };
+  const rawSchedule = generatePlanV2(planningState, schedulerContext);
   const schedule = protectedTasks.size === 0
     ? rawSchedule
     : {
@@ -253,6 +255,7 @@ export function generatePlan(
   }
 
   const generatedIds = new Set(schedule.scheduledTasks.map((task) => task.id));
+  const generatedSourceIds = new Set(schedule.scheduledTasks.flatMap((task) => task.sourceId ? [task.sourceId] : []));
   const conflictIds = new Set(schedule.conflicts.map((conflict) => conflict.taskId));
   const unscheduledIds = new Set(schedule.unscheduledWork.filter((item) => item.workItemId.startsWith('task:')).map((item) => item.sourceId));
   const history = state.tasks.filter((task) =>
@@ -276,7 +279,15 @@ export function generatePlan(
     task.status === 'planned'
     && task.scheduledDate > schedule.capacityReport.horizonEnd
     && Boolean(task.manualScheduling));
-  const merged = [...history, ...schedule.scheduledTasks, ...conflicts, ...unscheduledTasks, ...futureManuals];
+  // 日付保護タスクが分割配置された場合、生成側は新しいIDを持つがsourceIdには
+  // 元タスクIDが残る。元タスクを無条件で復元すると同じ教材範囲が二重化するため、
+  // IDまたはsourceIdで既に表現されている保護タスクはフォールバック復元しない。
+  const protectedFallbacks = [...protectedTasks.values()].filter((task) =>
+    !generatedIds.has(task.id)
+    && !generatedSourceIds.has(task.id)
+    && !conflictIds.has(task.id)
+    && !unscheduledIds.has(task.id));
+  const merged = [...history, ...schedule.scheduledTasks, ...conflicts, ...unscheduledTasks, ...futureManuals, ...protectedFallbacks];
   const unique = [...new Map(merged.map((task) => [task.id, task])).values()];
   const nextState: AppState = {
     ...state,

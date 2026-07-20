@@ -739,7 +739,9 @@ function placeFixedTasks(state: AppState, calendar: Map<ISODate, CalendarDay>, c
   const warnings: ScheduleWarning[] = [];
   const valid: StudyTask[] = [];
   const conflictTasks: StudyTask[] = [];
-  const today = dateInTimeZone(context.now, context.timezone);
+  const currentDate = dateInTimeZone(context.now, context.timezone);
+  const planningStartDate = context.planningStartDate;
+  const today = planningStartDate && planningStartDate > currentDate ? planningStartDate : currentDate;
   const roundedNow = Math.ceil(minutesInTimeZone(context.now, context.timezone) / 5) * 5;
   const fixed = state.tasks
     .filter((task) => (task.status === 'doing' || (task.status === 'planned' && effectiveLock(task) === 'time')) && task.scheduledDate >= today)
@@ -1116,7 +1118,9 @@ function taskSolverItem(task: StudyTask, today: ISODate): SolverItem {
 }
 
 export function generatePlanV2(state: AppState, context: SchedulerContext): ScheduleGenerationResult {
-  const today = dateInTimeZone(context.now, context.timezone);
+  const currentDate = dateInTimeZone(context.now, context.timezone);
+  const planningStartDate = context.planningStartDate;
+  const today = planningStartDate && planningStartDate > currentDate ? planningStartDate : currentDate;
   const validationErrors = validateStateV2(state);
   if (validationErrors.length > 0) return emptyResult(context, today, 'invalidInput', validationErrors);
 
@@ -1171,6 +1175,12 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   const sessionMax = state.settings.sessionMaxMinutes;
 
   // ---------- 教材範囲の請求(完了済み・固定・日付固定タスクが担当する単位を除外) ----------
+  const preStartLockedTasks = state.tasks
+    .filter((task) => task.status === 'planned'
+      && effectiveLock(task) !== 'none'
+      && task.scheduledDate >= currentDate
+      && task.scheduledDate < today)
+    .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate) || a.id.localeCompare(b.id));
   const dateLockedTasks = state.tasks
     .filter((task) => task.status === 'planned' && effectiveLock(task) === 'date' && task.scheduledDate >= today)
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate) || a.id.localeCompare(b.id));
@@ -1178,7 +1188,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   const materialCountingManuals = state.tasks.filter((task) =>
     task.status === 'planned'
     && task.manualScheduling?.progressPolicy.type === 'countTowardMaterial');
-  for (const task of [...fixed.valid, ...dateLockedTasks, ...materialCountingManuals, ...state.tasks.filter((item) => item.status === 'done')]) {
+  for (const task of [...fixed.valid, ...preStartLockedTasks, ...dateLockedTasks, ...materialCountingManuals, ...state.tasks.filter((item) => item.status === 'done')]) {
     if (!task.materialId) continue;
     const range = taskRange(task);
     if (range) claimedByMaterial.set(task.materialId, [...(claimedByMaterial.get(task.materialId) ?? []), range]);
