@@ -8,7 +8,11 @@ import { todayQuotaFor } from '../../lib/analytics';
 import { APP_TIME_ZONE, localDateTimeToISOString, minutesInTimeZone, minutesToHM, today } from '../../lib/date';
 import { missingRecordMaterialOption, missingRecordSubjectOption } from '../../lib/recordReferences';
 import { applyRecordSessionTransaction } from '../../lib/recordSessionTransaction';
-import { recordAmountInputLimit } from '../../lib/recordEditCapacity';
+import {
+  recordAmountInputLimit,
+  recordTaskCompletionAmount,
+  shouldDetachEditedTaskReference,
+} from '../../lib/recordEditCapacity';
 import type { StudySession } from '../../types';
 
 export interface RecordPreset {
@@ -47,6 +51,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
   const [minutes, setMinutes] = useState(session?.minutes ?? preset?.minutes ?? 30);
   const taskId = session?.taskId ?? preset?.taskId;
   const task = taskId ? state.tasks.find((t) => t.id === taskId) ?? session?.taskSnapshotBefore : undefined;
+  const taskCompletionAmount = recordTaskCompletionAmount(task, session);
   const [amountDone, setAmountDone] = useState(() => session?.amountDone ?? task?.amount ?? 0);
   const [completed, setCompleted] = useState(session ? (session.completedTask ?? Boolean(session.taskId && !session.replacementTaskIds?.length)) : true);
   const [focus, setFocus] = useState<1 | 2 | 3 | 4 | 5 | null>(session?.focus ?? null);
@@ -105,7 +110,9 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       state,
       material.id,
       keepsEditedReference ? session : undefined,
-      session && !keepsEditedReference ? undefined : task,
+      // 新規記録は予定タスク範囲を上限にする。既存ログの編集は実績訂正なので、
+      // 自分の寄与を戻した教材全体の未完了量まで入力できるようにする。
+      session ? undefined : task,
     );
   }, [material, session, state, subjectId, task]);
 
@@ -118,15 +125,17 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
 
   const updateAmountDone = (nextAmount: number) => {
     setAmountDone(nextAmount);
-    // 完了タスクは保存時に全範囲へ正規化される。実績量を減らした時は「途中まで」へ
-    // 同時に切り替え、編集した問題数が全量へ戻される食い違いを防ぐ。
-    if (taskId && nextAmount < remainingAmount) setCompleted(false);
+    // 完了判定の基準は入力可能上限ではなく、元タスクの予定量。
+    // 予定量未満へ減らした時だけ「途中まで」へ切り替える。
+    if (taskId && taskCompletionAmount > 0 && nextAmount < taskCompletionAmount) setCompleted(false);
   };
 
   const updateCompleted = (nextCompleted: boolean) => {
     setCompleted(nextCompleted);
-    // 「完了した」を選ぶ場合は、保存時に全量へ正規化される値を先に画面へ反映する。
-    if (nextCompleted && taskId) setAmountDone(remainingAmount);
+    // 「完了した」を選ぶ場合は元タスクの予定量まで補う。教材の残量全体へは増やさない。
+    if (nextCompleted && taskId && taskCompletionAmount > 0) {
+      setAmountDone((current) => Math.max(current, taskCompletionAmount));
+    }
   };
 
   const save = () => {
@@ -163,8 +172,15 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       }
     }
     const preservesReference = !session || (session.subjectId === subjectId && session.materialId === selectedMaterialId);
+    const detachesTaskReference = shouldDetachEditedTaskReference(
+      session,
+      preservesReference,
+      amountDone,
+      taskCompletionAmount,
+    );
+    const preservesTaskReference = preservesReference && !detachesTaskReference;
     const input = {
-      taskId: preservesReference ? session?.taskId ?? preset?.taskId ?? null : null,
+      taskId: preservesTaskReference ? session?.taskId ?? preset?.taskId ?? null : null,
       subjectId,
       materialId: selectedMaterialId,
       minutes: Math.min(600, Math.max(1, minutes)),
@@ -172,15 +188,15 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       focus,
       memo,
       source: session?.source ?? preset?.source ?? 'manual',
-      // 教材・科目を変更した編集では旧教材の表示名を残さず、検索・履歴表示も新しい参照へ同期する。
-      rangeLabel: preservesReference
+      // 教材・科目変更または予定量超過の編集では旧タスク表示を残さず、教材実績として再計画する。
+      rangeLabel: preservesTaskReference
         ? session?.rangeLabel ?? preset?.rangeLabel ?? material?.name ?? ''
         : material?.name ?? '',
       completedTask: Boolean(
-        preservesReference
+        preservesTaskReference
         && (session?.taskId ?? preset?.taskId)
         && completed
-        && amountDone >= remainingAmount,
+        && (taskCompletionAmount <= 0 || amountDone >= taskCompletionAmount),
       ),
       taskLocator: preset?.taskLocator,
       date: preset && !session ? undefined : recordDate,
@@ -218,6 +234,14 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     toast(result.message ?? '記録を削除して進捗を再計算しました');
     onClose();
   };
+
+  const exceedsOriginalTaskAmount = Boolean(
+    session?.taskId
+    && taskCompletionAmount > 0
+    && amountDone > taskCompletionAmount
+    && session.subjectId === subjectId
+    && session.materialId === selectedMaterialId
+  );
 
   return (
     <Sheet open={open} onClose={onClose} title={session ? '学習記録を編集' : preset?.source === 'timer' ? 'おつかれさま!記録しよう' : '勉強を記録'}>
@@ -344,6 +368,9 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
             onChange={updateAmountDone}
             ariaLabel="今回やった量"
           />
+          {exceedsOriginalTaskAmount && (
+            <div className="field-hint">予定の{taskCompletionAmount}{material?.unit ?? ''}を超えた分も実績として保存し、残り予定を再計算します。</div>
+          )}
         </div>
       )}
 

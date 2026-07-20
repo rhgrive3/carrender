@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { addDays, today } from '../src/lib/date';
-import { recordAmountInputLimit } from '../src/lib/recordEditCapacity';
+import {
+  recordAmountInputLimit,
+  recordTaskCompletionAmount,
+  shouldDetachEditedTaskReference,
+} from '../src/lib/recordEditCapacity';
 import { emptyState } from '../src/state/AppContext';
 import type { AppState, Material, StudySession, StudyTask } from '../src/types';
 
@@ -98,7 +102,44 @@ assert.equal(
 assert.equal(
   recordAmountInputLimit(state, material.id, session, task),
   10,
-  'タスク記録の編集では差し戻し後も元タスク81〜90の10問を上限にする',
+  '新規タスク記録の上限計算へタスクを渡した場合は元タスク81〜90の10問に制限する',
+);
+
+const oneProblemTask: StudyTask = {
+  ...task,
+  id: 'one-problem-task',
+  rangeLabel: '81',
+  rangeStart: 81,
+  rangeEnd: 81,
+  materialRange: { start: 81, end: 81 },
+  amount: 1,
+  estimatedMinutes: 10,
+};
+const oneProblemSession: StudySession = {
+  ...session,
+  id: 'one-problem-session',
+  taskId: oneProblemTask.id,
+  amountDone: 1,
+  rangeLabel: oneProblemTask.rangeLabel,
+  progressRangesAdded: [{ start: 81, end: 81 }],
+  taskSnapshotBefore: oneProblemTask,
+  completedTask: true,
+};
+assert.equal(recordTaskCompletionAmount(oneProblemTask, oneProblemSession), 1, '完了判定の基準は教材残量ではなく元タスクの1問');
+assert.equal(
+  shouldDetachEditedTaskReference(oneProblemSession, true, 2, 1),
+  true,
+  '1問予定の完了ログを2問へ増やす編集はタスク範囲を外して自由実績へ変換する',
+);
+assert.equal(
+  shouldDetachEditedTaskReference(oneProblemSession, true, 1, 1),
+  false,
+  '元タスク量と同じ1問の編集はタスク参照を維持する',
+);
+assert.equal(
+  shouldDetachEditedTaskReference(oneProblemSession, false, 2, 1),
+  false,
+  '教材・科目を変更した編集は既存の参照変更処理へ任せる',
 );
 
 const overlappingSession: StudySession = {
@@ -127,4 +168,4 @@ assert.equal(
   '寄与範囲のない旧記録は現在の残量より大きくても既存入力値を維持できる',
 );
 
-console.log('✅ record edit capacity regressions passed');
+console.log('✅ record edit capacity and task-overrun policy regressions passed');

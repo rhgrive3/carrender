@@ -80,6 +80,8 @@ export function recordAmountInputLimit(
 
   let completedWithoutEditedSession = completed;
   if (ownContribution.length > 0 && session) {
+    // rebuildMaterialProgressと同じく、全新形式記録の寄与を一度外してから、
+    // 編集対象以外を戻す。複数記録が同じ範囲を持つ不整合データでも過剰に空けない。
     const materialSessions = state.sessions.filter((entry) => entry.materialId === material.id);
     const sessionIsInState = materialSessions.some((entry) => entry.id === session.id);
     const beforeContributions = [
@@ -100,6 +102,7 @@ export function recordAmountInputLimit(
   let limit = sumRangeLengths(eligible);
   if (task && !explicit) limit = Math.min(limit, Math.max(0, task.amount));
 
+  // 旧形式記録には寄与範囲がない。保存前から値を入力不能にしないため、既存値は維持する。
   if (session?.materialId === material.id && ownContribution.length === 0) {
     limit = Math.max(limit, session.amountDone);
   }
