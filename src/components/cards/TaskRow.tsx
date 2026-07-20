@@ -86,7 +86,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
         </div>
         {!isDone && (
           <div className="task-actions" role="group" aria-label={`${task.title}の操作`}>
-            {!ownsActiveTimer && task.status !== 'doing' && lock !== 'none' && (
+            {!ownsActiveTimer && lock !== 'none' && (
               <button type="button" className="task-action-btn" aria-label={`${task.title}のロックを解除`} onClick={() => dispatch({ type: 'UNLOCK_TASK', taskId: task.id })}>
                 <span className="ta-icon" aria-hidden="true"><Unlock size={15} strokeWidth={2.4} /></span>
                 <span className="ta-label">解除</span>
