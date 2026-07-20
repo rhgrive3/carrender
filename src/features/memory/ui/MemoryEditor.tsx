@@ -183,8 +183,6 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
         {!itemId && <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => navigate({ name: 'editor', setId, bulk: true })}><Table2 size={18} aria-hidden="true" />まとめて追加</button>}
       </div>
 
-      <div className="memory-simple-editor-note">別解がある場合だけ「別の英語を追加」を使ってください。問題形式や細かい採点設定は廃止しました。</div>
-
       <fieldset className="memory-editor-card card" disabled={saving}>
         {draft.senses.map((sense, senseIndex) => (
           <fieldset className="memory-sense-editor memory-simple-card-editor" key={sense.id ?? `new-${senseIndex}`}>
