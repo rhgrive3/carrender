@@ -3,6 +3,7 @@ import { Check, CircleCheck, Play, SkipForward, Unlock } from 'lucide-react';
 import type { StudyTask } from '../../types';
 import { useApp } from '../../state/AppContext';
 import { useTimer } from '../timer/TimerContext';
+import { openTimerOverlay } from '../timer/openTimerOverlay';
 import { SubjectChip, TaskTypeChip } from '../ui/bits';
 import { RecordSheet } from '../forms/RecordSheet';
 import { useToast } from '../ui/Toast';
@@ -26,9 +27,14 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
   const subject = state.subjects.find((s) => s.id === task.subjectId);
   const isDone = task.status === 'done';
   const isDoing = task.status === 'doing';
+  const ownsActiveTimer = timer.target?.taskId === task.id;
   const lock = task.placementLock ?? (task.generatedBy === 'manual' ? (task.scheduledStart ? 'time' : 'date') : 'none');
 
   const startTimer = () => {
+    if (ownsActiveTimer) {
+      openTimerOverlay();
+      return;
+    }
     const started = timer.start({
       taskId: task.id,
       subjectId: task.subjectId,
@@ -93,13 +99,15 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
                 <span className="ta-label">延期</span>
               </button>
             )}
-            <button type="button" className="task-action-btn" aria-label={`${task.title}を完了として記録`} onClick={() => setRecordOpen(true)}>
-              <span className="ta-icon" aria-hidden="true"><Check size={15} strokeWidth={2.8} /></span>
-              <span className="ta-label">完了</span>
-            </button>
-            <button type="button" className="task-action-btn primary" aria-label={`${task.title}のタイマーを${isDoing ? '再開' : '開始'}`} onClick={startTimer}>
+            {!ownsActiveTimer && (
+              <button type="button" className="task-action-btn" aria-label={`${task.title}を完了として記録`} onClick={() => setRecordOpen(true)}>
+                <span className="ta-icon" aria-hidden="true"><Check size={15} strokeWidth={2.8} /></span>
+                <span className="ta-label">完了</span>
+              </button>
+            )}
+            <button type="button" className="task-action-btn primary" aria-label={`${task.title}のタイマーを${ownsActiveTimer ? '開く' : '開始'}`} onClick={startTimer}>
               <span className="ta-icon" aria-hidden="true"><Play size={15} strokeWidth={2.4} fill="currentColor" /></span>
-              <span className="ta-label">{isDoing ? '続ける' : '開始'}</span>
+              <span className="ta-label">{ownsActiveTimer ? '続ける' : '開始'}</span>
             </button>
           </div>
         )}
