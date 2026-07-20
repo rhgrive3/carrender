@@ -24,14 +24,20 @@ export function QuickStartSheet({ open, onClose }: { open: boolean; onClose: () 
     [state.materials, subjectId],
   );
   const subject = state.subjects.find((s) => s.id === subjectId);
-  const material = state.materials.find((m) => m.id === materialId);
+  // 選択中の科目で表示可能な教材だけを開始対象にする。
+  // 教材の科目変更・休止・アーカイブが別画面で行われても、古いIDを記録へ持ち込まない。
+  const material = materials.find((m) => m.id === materialId);
 
   useEffect(() => {
     if (!open) return;
     setSubjectId((current) => state.subjects.some((item) => item.id === current) ? current : state.subjects[0]?.id ?? '');
-    setMaterialId((current) => state.materials.some((item) => item.id === current && !item.archived && !item.paused) ? current : '');
     setMode(state.settings.timer.defaultMode);
-  }, [open, state.materials, state.settings.timer.defaultMode, state.subjects]);
+  }, [open, state.settings.timer.defaultMode, state.subjects]);
+
+  useEffect(() => {
+    if (!open) return;
+    setMaterialId((current) => materials.some((item) => item.id === current) ? current : '');
+  }, [materials, open]);
 
   const start = () => {
     if (!subject) return;
@@ -39,7 +45,7 @@ export function QuickStartSheet({ open, onClose }: { open: boolean; onClose: () 
       {
         taskId: null,
         subjectId: subject.id,
-        materialId: materialId || null,
+        materialId: material?.id ?? null,
         title: material ? material.name : `${subject.name}の学習`,
         rangeLabel: material ? 'フリー学習' : '自由に学習',
       },
