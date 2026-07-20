@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CheckSquare, Clipboard, Download, FileJson, ShieldAlert, Upload } from 'lucide-react';
 import {
   CHATGPT_CONTENT_REQUEST,
@@ -92,13 +92,17 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
   const [aiText, setAiText] = useState('');
   const [aiPreview, setAiPreview] = useState<AiImportPreview>();
   const [aiSelected, setAiSelected] = useState<Set<string>>(new Set());
+  const [aiInspecting, setAiInspecting] = useState(false);
   const mountedRef = useRef(false);
   const saveInFlightRef = useRef(false);
   const exportInFlightRef = useRef(false);
+  const aiInspectInFlightRef = useRef(false);
+  const aiInspectionGenerationRef = useRef(0);
   const fileReadGenerationRef = useRef<Record<TextFileTarget, number>>({ import: 0, ai: 0 });
   const repositoryRef = useRef(repository);
+  const aiPreviewSourceRef = useRef<{ repository: NonNullable<typeof repository>; text: string } | undefined>(undefined);
   repositoryRef.current = repository;
-  const busy = saving || exporting;
+  const busy = saving || exporting || aiInspecting;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -106,10 +110,24 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
       mountedRef.current = false;
       saveInFlightRef.current = false;
       exportInFlightRef.current = false;
+      aiInspectInFlightRef.current = false;
+      aiInspectionGenerationRef.current += 1;
+      aiPreviewSourceRef.current = undefined;
       fileReadGenerationRef.current.import += 1;
       fileReadGenerationRef.current.ai += 1;
     };
   }, []);
+
+  useLayoutEffect(() => {
+    aiInspectionGenerationRef.current += 1;
+    aiInspectInFlightRef.current = false;
+    aiPreviewSourceRef.current = undefined;
+    fileReadGenerationRef.current.ai += 1;
+    setAiInspecting(false);
+    setAiText('');
+    setAiPreview(undefined);
+    setAiSelected(new Set());
+  }, [repository]);
 
   const beginSave = (): boolean => {
     if (saveInFlightRef.current) return false;
@@ -138,6 +156,22 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
   const isCurrentRepository = (actionRepository: NonNullable<typeof repository>): boolean =>
     mountedRef.current && repositoryRef.current === actionRepository;
 
+  const isCurrentAiInspection = (
+    generation: number,
+    actionRepository: NonNullable<typeof repository>,
+  ): boolean => mountedRef.current
+    && aiInspectionGenerationRef.current === generation
+    && repositoryRef.current === actionRepository;
+
+  const invalidateAiInspection = (): void => {
+    aiInspectionGenerationRef.current += 1;
+    aiInspectInFlightRef.current = false;
+    aiPreviewSourceRef.current = undefined;
+    setAiInspecting(false);
+    setAiPreview(undefined);
+    setAiSelected(new Set());
+  };
+
   const refreshAfterSave = async (): Promise<void> => {
     try {
       await refresh();
@@ -158,6 +192,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
 
   const loadTextFile = async (file: File | undefined, target: TextFileTarget) => {
     if (!file || busy) return;
+    if (target === 'ai') invalidateAiInspection();
     const generation = fileReadGenerationRef.current[target] + 1;
     fileReadGenerationRef.current[target] = generation;
     if (file.size > 5_000_000) {
@@ -167,7 +202,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
     try {
       const value = await file.text();
       if (!mountedRef.current || fileReadGenerationRef.current[target] !== generation) return;
-      if (target === 'ai') { setAiText(value); setAiPreview(undefined); }
+      if (target === 'ai') setAiText(value);
       else setText(value);
     } catch {
       if (mountedRef.current && fileReadGenerationRef.current[target] === generation) toast('ファイルを読み込めませんでした');
@@ -374,27 +409,59 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
   };
 
   const inspectAi = async () => {
-    if (!repository || busy) return;
-    const preview = previewAiImport(aiText, await repository.loadContent());
-    if (!mountedRef.current) return;
-    setAiPreview(preview);
-    setAiSelected(new Set(preview.entries.filter((entry) => entry.kind === 'new').map((entry) => entry.key)));
+    const actionRepository = repository;
+    const sourceText = aiText;
+    if (!actionRepository || busy || aiInspectInFlightRef.current || !sourceText.trim()) return;
+    aiInspectInFlightRef.current = true;
+    const generation = aiInspectionGenerationRef.current + 1;
+    aiInspectionGenerationRef.current = generation;
+    aiPreviewSourceRef.current = undefined;
+    setAiInspecting(true);
+    setAiPreview(undefined);
+    setAiSelected(new Set());
+    try {
+      const content = await actionRepository.loadContent();
+      if (!isCurrentAiInspection(generation, actionRepository)) return;
+      const preview = previewAiImport(sourceText, content);
+      if (!isCurrentAiInspection(generation, actionRepository)) return;
+      aiPreviewSourceRef.current = { repository: actionRepository, text: sourceText };
+      setAiPreview(preview);
+      setAiSelected(new Set(preview.entries.filter((entry) => entry.kind === 'new').map((entry) => entry.key)));
+    } catch (caught) {
+      if (isCurrentAiInspection(generation, actionRepository)) {
+        toast(caught instanceof Error ? caught.message : 'AI差分を確認できませんでした');
+      }
+    } finally {
+      if (isCurrentAiInspection(generation, actionRepository)) {
+        aiInspectInFlightRef.current = false;
+        setAiInspecting(false);
+      }
+    }
   };
 
   const importAi = async () => {
-    if (!repository || !aiPreview || !beginSave()) return;
+    if (!repository || !aiPreview) return;
+    const previewSource = aiPreviewSourceRef.current;
+    if (!previewSource || previewSource.repository !== repository || previewSource.text !== aiText) {
+      invalidateAiInspection();
+      toast('入力内容が変わっています。もう一度差分を確認してください');
+      return;
+    }
+    if (!beginSave()) return;
+    const actionRepository = repository;
     const actionPreview = aiPreview;
     const actionSelected = new Set(aiSelected);
     const actionSetId = targetSetId;
     try {
-      const count = await applyAiImport({ repository, preview: actionPreview, selectedKeys: actionSelected, setId: actionSetId || undefined });
+      const count = await applyAiImport({ repository: actionRepository, preview: actionPreview, selectedKeys: actionSelected, setId: actionSetId || undefined });
+      if (!isCurrentRepository(actionRepository)) return;
       await refreshAfterSave();
+      if (!isCurrentRepository(actionRepository)) return;
       requestSyncSafely();
-      if (!mountedRef.current) return;
       toast(`${count}件のAI差分を未確認データとして追加しました`);
       navigate(actionSetId ? { name: 'set', setId: actionSetId } : { name: 'home' });
     } catch (caught) {
-      if (mountedRef.current) toast(caught instanceof Error ? caught.message : 'AI差分を追加できませんでした');
+      if (isCurrentRepository(actionRepository)) toast(caught instanceof Error ? caught.message : 'AI差分を追加できませんでした');
     } finally {
       finishSave();
     }
@@ -408,7 +475,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
       </div>
       <div className="segmented memory-import-tabs" role="tablist" aria-label="取込と出力">
         {([['import', '取込'], ['export', '出力'], ['ai', 'AI差分']] as const).map(([value, label]) => (
-          <button type="button" role="tab" aria-selected={tab === value} disabled={busy} className={tab === value ? 'active' : ''} key={value} onClick={() => setTab(value)}>{label}</button>
+          <button type="button" role="tab" aria-selected={tab === value} disabled={busy} className={tab === value ? 'active' : ''} key={value} onClick={() => { if (value !== tab) invalidateAiInspection(); setTab(value); }}>{label}</button>
         ))}
       </div>
 
@@ -505,12 +572,12 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
 
       {tab === 'ai' && (
         <div className="memory-ai-import">
-          <fieldset disabled={saving} className="memory-import-input-group">
+          <fieldset disabled={saving || aiInspecting} aria-busy={saving || aiInspecting} className="memory-import-input-group">
             <div className="card">
               <p className="memory-ai-manual-note"><b>ChatGPTアプリから受け取ったファイルを手動で確認します。</b> CarrenderからAIへ通信することはありません。</p>
-              <div className="field"><label htmlFor="memory-ai-json">ChatGPTが返したAI用JSON</label><textarea id="memory-ai-json" className="memory-import-textarea" value={aiText} onChange={(event) => { invalidateTextFileRead('ai'); setAiText(event.target.value); setAiPreview(undefined); }} /></div>
+              <div className="field"><label htmlFor="memory-ai-json">ChatGPTが返したAI用JSON</label><textarea id="memory-ai-json" className="memory-import-textarea" value={aiText} onChange={(event) => { invalidateTextFileRead('ai'); invalidateAiInspection(); setAiText(event.target.value); }} /></div>
               <input type="file" accept=".json,application/json" aria-label="ChatGPTが返したJSONファイルを選択" onChange={(event) => void loadTextFile(event.target.files?.[0], 'ai')} />
-              <button type="button" className="btn btn-primary" disabled={!aiText.trim()} onClick={() => void inspectAi()}>差分を確認</button>
+              <button type="button" className="btn btn-primary" aria-busy={aiInspecting} disabled={aiInspecting || !aiText.trim()} onClick={() => void inspectAi()}>{aiInspecting ? '確認中…' : '差分を確認'}</button>
             </div>
             {aiPreview && (
               <div className="card memory-ai-preview">
@@ -525,7 +592,7 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
                     <label key={entry.key}><input type="checkbox" disabled={entry.kind === 'delete'} checked={entry.kind !== 'delete' && aiSelected.has(entry.key)} onChange={(event) => setAiSelected((current) => { const next = new Set(current); if (event.target.checked) next.add(entry.key); else next.delete(entry.key); return next; })} /><span><b>{entry.kind === 'new' ? '新規' : entry.kind === 'delete' ? '削除要求（適用しません）' : '変更'}・{entry.entityType}</b><small>{entry.id}{entry.changedFields.length > 0 ? `・${entry.changedFields.join('、')}` : ''}</small>{entry.current && <code>元：{JSON.stringify(entry.current)}</code>}<code>{entry.kind === 'delete' ? '削除後：適用対象外' : `新：${JSON.stringify(entry.incoming)}`}</code></span></label>
                   ))}
                 </div>
-                <button type="button" className="btn btn-primary" aria-busy={saving} disabled={saving || aiSelected.size === 0 || aiPreview.counts.invalid > 0} onClick={() => void importAi()}>{saving ? '追加中…' : '選択項目だけ追加'}</button>
+                <button type="button" className="btn btn-primary" aria-busy={saving} disabled={saving || aiInspecting || aiSelected.size === 0 || aiPreview.counts.invalid > 0} onClick={() => void importAi()}>{saving ? '追加中…' : '選択項目だけ追加'}</button>
               </div>
             )}
           </fieldset>
