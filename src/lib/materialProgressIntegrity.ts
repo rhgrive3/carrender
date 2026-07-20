@@ -17,7 +17,7 @@ export interface CompletedTaskHistoryRepair {
   sessionId: string;
   taskId: string;
   taskTitle: string;
-  previousStatus: StudyTask['status'] | 'missing';
+  previousStatus: StudyTask['status'];
   scheduledDate: string;
 }
 
@@ -69,9 +69,12 @@ function isCompletedMaterialWork(task: StudyTask, material: Material): boolean {
 }
 
 /**
- * 完了記録は残っているのに、記録編集や再計算の途中で対応タスクだけが消えたり
- * plannedへ戻った旧データを修復する。taskSnapshotBeforeは完了操作直前の不変履歴なので、
- * そこから当時の日付・範囲を復元し、今日のチェック表示と達成率を守る。
+ * 完了記録は残っているのに、対応タスクがplannedへ戻った旧データを修復する。
+ * taskSnapshotBeforeは完了操作直前の不変履歴なので、そこから当時の日付・範囲を復元し、
+ * 今日のチェック表示と達成率を守る。
+ *
+ * タスク自体が存在しない場合は、明示削除と旧不具合による消失を判別できない。
+ * 使用者の削除操作を起動時修復で取り消さないため、欠損タスクは復元しない。
  */
 export function reconcileCompletedTaskHistory(state: AppState): CompletedTaskHistoryIntegrityResult {
   const repairs: CompletedTaskHistoryRepair[] = [];
@@ -86,27 +89,23 @@ export function reconcileCompletedTaskHistory(state: AppState): CompletedTaskHis
     const taskId = session.taskId!;
     const snapshot = session.taskSnapshotBefore!;
     const currentIndex = indexById.get(taskId);
-    const current = currentIndex === undefined ? undefined : tasks[currentIndex];
-    if (current?.status === 'done') continue;
+    if (currentIndex === undefined) continue;
+    const current = tasks[currentIndex];
+    if (current.status === 'done') continue;
 
     const restored: StudyTask = {
       ...snapshot,
       id: taskId,
       status: 'done',
-      completedAt: current?.completedAt ?? session.updatedAt ?? session.startedAt,
+      completedAt: current.completedAt ?? session.updatedAt ?? session.startedAt,
       updatedAt: session.updatedAt ?? session.startedAt,
     };
-    if (currentIndex === undefined) {
-      indexById.set(taskId, tasks.length);
-      tasks.push(restored);
-    } else {
-      tasks[currentIndex] = restored;
-    }
+    tasks[currentIndex] = restored;
     repairs.push({
       sessionId: session.id,
       taskId,
       taskTitle: restored.title,
-      previousStatus: current?.status ?? 'missing',
+      previousStatus: current.status,
       scheduledDate: restored.scheduledDate,
     });
   }
