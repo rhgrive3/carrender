@@ -37,4 +37,38 @@ const preservedDeletion = reconcileCompletedTaskHistory(explicitlyDeletedState);
 assert.equal(preservedDeletion.repairs.length, 0, '欠損タスクを推測で復元しない');
 assert.strictEqual(preservedDeletion.state, explicitlyDeletedState, '明示削除済み状態を変更しない');
 
-console.log('✅ completed task history repair and explicit deletion preservation passed');
+const latestDate = '2026-07-21';
+const latestNow = '2026-07-21T10:30:00.000Z';
+const latestSnapshot = {
+  ...snapshot,
+  title: '英作文（再設定後）',
+  rangeLabel: '第2問',
+  scheduledDate: latestDate,
+  scheduledStart: '10:00',
+  scheduledEnd: '10:30',
+  updatedAt: latestNow,
+} satisfies StudyTask;
+const latestSession = {
+  ...session,
+  id: 'done-session-latest',
+  date: latestDate,
+  startedAt: latestNow,
+  rangeLabel: latestSnapshot.rangeLabel,
+  taskSnapshotBefore: latestSnapshot,
+  updatedAt: latestNow,
+} satisfies StudySession;
+const repeatedCompletionState = {
+  ...base,
+  tasks: [{ ...latestSnapshot, status: 'planned' }],
+  sessions: [latestSession, session],
+} satisfies AppState;
+const repairedRepeatedCompletion = reconcileCompletedTaskHistory(repeatedCompletionState);
+const latestRestored = repairedRepeatedCompletion.state.tasks[0];
+assert.equal(repairedRepeatedCompletion.repairs.length, 1, '同一タスクは一度だけ修復する');
+assert.equal(repairedRepeatedCompletion.repairs[0]?.sessionId, latestSession.id, '最新の完了記録を採用する');
+assert.equal(latestRestored.status, 'done');
+assert.equal(latestRestored.title, latestSnapshot.title, '古いタイトルへ巻き戻さない');
+assert.equal(latestRestored.rangeLabel, latestSnapshot.rangeLabel, '古い範囲へ巻き戻さない');
+assert.equal(latestRestored.scheduledDate, latestDate, '古い予定日へ巻き戻さない');
+
+console.log('✅ completed task history repair, deletion preservation, and latest completion precedence passed');
