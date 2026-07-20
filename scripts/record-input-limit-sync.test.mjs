@@ -11,8 +11,8 @@ assert.match(
 
 assert.match(
   source,
-  /<NumericInput[\s\S]*?value=\{amountDone\}[\s\S]*?max=\{remainingAmount\}[\s\S]*?onChange=\{setAmountDone\}/,
-  '記録量入力は補正済みstateと同じ上限を利用する',
+  /<NumericInput[\s\S]*?value=\{amountDone\}[\s\S]*?max=\{remainingAmount\}[\s\S]*?onChange=\{updateAmountDone\}/,
+  '記録量入力は補正済みstateと同じ上限を利用し、完了状態との整合処理を通す',
 );
 
 console.log('✅ record input limit sync contract passed');
