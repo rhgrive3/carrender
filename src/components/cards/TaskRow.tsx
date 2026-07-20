@@ -25,6 +25,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
 
   const subject = state.subjects.find((s) => s.id === task.subjectId);
   const isDone = task.status === 'done';
+  const isDoing = task.status === 'doing';
   const lock = task.placementLock ?? (task.generatedBy === 'manual' ? (task.scheduledStart ? 'time' : 'date') : 'none');
 
   const startTimer = () => {
@@ -42,6 +43,10 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
   };
 
   const postpone = () => {
+    if (isDoing) {
+      toast('計測中のタスクは延期できません。タイマーを終了してから操作してください');
+      return;
+    }
     const result = execute({ type: 'POSTPONE_TASK', taskId: task.id });
     toast(result.message ?? '明日以降に再配置しました');
   };
@@ -59,6 +64,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
             <SubjectChip subject={subject} />
             <TaskTypeChip type={task.type} />
             <span className="task-time">{lock === 'time' ? '時刻固定' : lock === 'date' ? '日付固定' : '自動'}</span>
+            {isDoing && <span className="status-badge status-accent">進行中</span>}
             {showDate && (
               <time className="task-time" dateTime={task.scheduledDate}>
                 {task.scheduledDate.slice(5).replace('-', '/')}
@@ -71,27 +77,29 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
             <span className="task-time"> ・{task.estimatedMinutes}分</span>
             {task.scheduledStart && <span className="task-time"> ・{task.scheduledStart}〜</span>}
           </div>
-          <span className="sr-only" id={statusId}>{isDone ? '完了済み' : '未完了'}</span>
+          <span className="sr-only" id={statusId}>{isDone ? '完了済み' : isDoing ? '計測中' : '未完了'}</span>
         </div>
         {!isDone && (
           <div className="task-actions" role="group" aria-label={`${task.title}の操作`}>
-            {lock !== 'none' && (
+            {!isDoing && lock !== 'none' && (
               <button type="button" className="task-action-btn" aria-label={`${task.title}のロックを解除`} onClick={() => dispatch({ type: 'UNLOCK_TASK', taskId: task.id })}>
                 <span className="ta-icon" aria-hidden="true"><Unlock size={15} strokeWidth={2.4} /></span>
                 <span className="ta-label">解除</span>
               </button>
             )}
-            <button type="button" className="task-action-btn" aria-label={`${task.title}を延期`} onClick={postpone}>
-              <span className="ta-icon" aria-hidden="true"><SkipForward size={15} strokeWidth={2.4} /></span>
-              <span className="ta-label">延期</span>
-            </button>
+            {!isDoing && (
+              <button type="button" className="task-action-btn" aria-label={`${task.title}を延期`} onClick={postpone}>
+                <span className="ta-icon" aria-hidden="true"><SkipForward size={15} strokeWidth={2.4} /></span>
+                <span className="ta-label">延期</span>
+              </button>
+            )}
             <button type="button" className="task-action-btn" aria-label={`${task.title}を完了として記録`} onClick={() => setRecordOpen(true)}>
               <span className="ta-icon" aria-hidden="true"><Check size={15} strokeWidth={2.8} /></span>
               <span className="ta-label">完了</span>
             </button>
-            <button type="button" className="task-action-btn primary" aria-label={`${task.title}のタイマーを開始`} onClick={startTimer}>
+            <button type="button" className="task-action-btn primary" aria-label={`${task.title}のタイマーを${isDoing ? '再開' : '開始'}`} onClick={startTimer}>
               <span className="ta-icon" aria-hidden="true"><Play size={15} strokeWidth={2.4} fill="currentColor" /></span>
-              <span className="ta-label">開始</span>
+              <span className="ta-label">{isDoing ? '続ける' : '開始'}</span>
             </button>
           </div>
         )}
