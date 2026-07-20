@@ -9,6 +9,7 @@ import {
   Play,
   RefreshCw,
   Settings,
+  SkipForward,
   Sparkles,
   Timer,
   TriangleAlert,
@@ -24,6 +25,7 @@ import { EmptyState, ProgressBar } from '../components/ui/bits';
 import { TaskRow } from '../components/cards/TaskRow';
 import { Confetti } from '../components/ui/Confetti';
 import { useToast } from '../components/ui/Toast';
+import { RecordSheet } from '../components/forms/RecordSheet';
 import type { StudyTask } from '../types';
 
 export function plannedTaskCompletionRate(tasks: readonly StudyTask[]): number {
@@ -59,6 +61,7 @@ export function TodayScreen({
   const toast = useToast();
   const [celebrate, setCelebrate] = useState(0);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [recordTask, setRecordTask] = useState<StudyTask | null>(null);
   const t = today();
 
   const analytics = useMemo(() => computeAnalytics(state, t), [state, t]);
@@ -116,6 +119,11 @@ export function TodayScreen({
     });
   };
 
+  const postponeTopTask = (task: StudyTask) => {
+    const result = execute({ type: 'POSTPONE_TASK', taskId: task.id });
+    toast(result.message ?? 'このタスクを明日以降へ移しました');
+  };
+
   return (
     <div className="screen today-v2">
       <Confetti trigger={celebrate} />
@@ -155,9 +163,17 @@ export function TodayScreen({
               <div className="next-action-duration">
                 <strong>{topTask.estimatedMinutes}</strong><span>分</span>
               </div>
-              <button className="btn btn-primary next-action-button" onClick={() => startTask(topTask)}>
-                <Play size={18} fill="currentColor" aria-hidden="true" />
-                {topTask.status === 'doing' ? '学習を続ける' : '勉強を始める'}
+              <div className="row" style={{ gap: 8, width: '100%' }}>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => startTask(topTask)}>
+                  <Play size={18} fill="currentColor" aria-hidden="true" />
+                  {topTask.status === 'doing' ? '学習を続ける' : '勉強を始める'}
+                </button>
+                <button className="btn btn-secondary" onClick={() => setRecordTask(topTask)}>
+                  <CheckCircle2 size={18} aria-hidden="true" />完了を記録
+                </button>
+              </div>
+              <button className="today-rest-action" onClick={() => postponeTopTask(topTask)}>
+                <SkipForward size={16} aria-hidden="true" />明日以降へ
               </button>
               <div className="next-action-footer">
                 <span>今日あと{pending.length}件 · {formatMinutes(remainingMinutes)}</span>
@@ -312,6 +328,28 @@ export function TodayScreen({
       )}
 
       {quickOpen && <QuickStartSheet open onClose={() => setQuickOpen(false)} />}
+      {recordTask && (
+        <RecordSheet
+          open
+          onClose={() => setRecordTask(null)}
+          preset={{
+            taskId: recordTask.id,
+            subjectId: recordTask.subjectId,
+            materialId: recordTask.materialId,
+            minutes: recordTask.estimatedMinutes,
+            rangeLabel: `${recordTask.title} ${recordTask.rangeLabel}`,
+            source: 'manual',
+            taskLocator: {
+              sourceId: recordTask.sourceId,
+              range: recordTask.materialRange ?? (Number.isFinite(recordTask.rangeStart) && Number.isFinite(recordTask.rangeEnd)
+                ? { start: recordTask.rangeStart!, end: recordTask.rangeEnd! }
+                : undefined),
+              type: recordTask.type,
+            },
+          }}
+          onDone={() => setCelebrate((count) => count + 1)}
+        />
+      )}
     </div>
   );
 }
