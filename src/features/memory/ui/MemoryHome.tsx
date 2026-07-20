@@ -137,6 +137,7 @@ export function MemoryHome() {
 
   const start = async (summary: SetSummary) => {
     if (!repository || startInFlight.current || summary.eligible === 0) return;
+    if (activeSession && !window.confirm(`前回の暗記学習（回答${activeSession.answerCount}回）が途中です。終了して新しく10問始めますか？`)) return;
     const targetRepository = repository;
     const actionToken = startActionTokenRef.current + 1;
     startActionTokenRef.current = actionToken;
