@@ -116,6 +116,19 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     setAmountDone((current) => Math.min(remainingAmount, Math.max(0, current)));
   }, [open, remainingAmount, selectedMaterialId]);
 
+  const updateAmountDone = (nextAmount: number) => {
+    setAmountDone(nextAmount);
+    // 完了タスクは保存時に全範囲へ正規化される。実績量を減らした時は「途中まで」へ
+    // 同時に切り替え、編集した問題数が全量へ戻される食い違いを防ぐ。
+    if (taskId && nextAmount < remainingAmount) setCompleted(false);
+  };
+
+  const updateCompleted = (nextCompleted: boolean) => {
+    setCompleted(nextCompleted);
+    // 「完了した」を選ぶ場合は、保存時に全量へ正規化される値を先に画面へ反映する。
+    if (nextCompleted && taskId) setAmountDone(remainingAmount);
+  };
+
   const save = () => {
     if (actionInFlightRef.current) return;
     actionInFlightRef.current = true;
@@ -163,7 +176,12 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
       rangeLabel: preservesReference
         ? session?.rangeLabel ?? preset?.rangeLabel ?? material?.name ?? ''
         : material?.name ?? '',
-      completedTask: Boolean(preservesReference && (session?.taskId ?? preset?.taskId) && completed),
+      completedTask: Boolean(
+        preservesReference
+        && (session?.taskId ?? preset?.taskId)
+        && completed
+        && amountDone >= remainingAmount,
+      ),
       taskLocator: preset?.taskLocator,
       date: preset && !session ? undefined : recordDate,
       startTime: preset && !session ? undefined : startTime,
@@ -307,7 +325,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
               { value: 'no', label: '途中まで' },
             ]}
             value={completed ? 'yes' : 'no'}
-            onChange={(v) => setCompleted(v === 'yes')}
+            onChange={(v) => updateCompleted(v === 'yes')}
           />
         </div>
       )}
@@ -323,7 +341,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
             min={0}
             max={remainingAmount}
             placeholder={`例: ${quota || task?.amount || 10}`}
-            onChange={setAmountDone}
+            onChange={updateAmountDone}
             ariaLabel="今回やった量"
           />
         </div>
