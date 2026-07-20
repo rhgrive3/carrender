@@ -25,6 +25,8 @@ assert.match(todaySource, /topTaskOwnsActiveTimer && <span className="status-bad
 assert.match(taskRowSource, /const ownsActiveTimer = timer\.target\?\.taskId === task\.id/, '通常タスク行は実タイマー所有を正本にする');
 assert.doesNotMatch(taskRowSource, /const isDoing = task\.status === 'doing'/, '古いdoing状態を現在の計測状態として扱わない');
 assert.match(taskRowSource, /!ownsActiveTimer && \([\s\S]*aria-label=\{`\$\{task\.title\}を延期`\}/, '実際に計測中のタスクだけ延期操作を表示しない');
+assert.match(taskRowSource, /!ownsActiveTimer && lock !== 'none'[\s\S]*ロックを解除/, '古いdoing状態でも実タイマーがなければ予定ロックを解除できる');
+assert.doesNotMatch(taskRowSource, /task\.status !== 'doing'[\s\S]*ロックを解除/, '保存上の古いdoing状態だけでロック解除を隠さない');
 assert.match(taskRowSource, /if \(ownsActiveTimer\) \{[\s\S]*計測中のタスクは延期できません/, '操作関数を直接呼ばれても実タイマー所有中は延期しない');
 assert.match(taskRowSource, /if \(ownsActiveTimer\) \{[\s\S]*openTimerOverlay\(\)/, '通常タスク行の続行操作は既存タイマーを開く');
 assert.match(taskRowSource, /!ownsActiveTimer && \([\s\S]*完了として記録/, '計測中タスクに別の手動記録を作らせない');
