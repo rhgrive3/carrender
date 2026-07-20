@@ -114,7 +114,7 @@ const initiallyCompleted = appReducer(state, {
   type: 'RECORD_SESSION',
   input: {
     taskId: task.id,
-    subjectId: subject.id,
+    subjectId: 'subject',
     materialId: material.id,
     minutes: 110,
     amountDone: task.amount,
