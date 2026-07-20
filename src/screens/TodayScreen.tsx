@@ -18,6 +18,7 @@ import {
 import { QuickStartSheet } from '../components/timer/QuickStartSheet';
 import { useApp } from '../state/AppContext';
 import { useTimer } from '../components/timer/TimerContext';
+import { openTimerOverlay } from '../components/timer/openTimerOverlay';
 import { computeAnalytics } from '../lib/analytics';
 import { availableMinutesOn, computeDayStatus, futureFreeSlotsOn, subtractBusySlots, taskBusySlots } from '../lib/scheduler';
 import { diffDays, formatDateJa, formatMinutes, minutesToHM, today } from '../lib/date';
@@ -89,6 +90,7 @@ export function TodayScreen({
 
   const topTask = pending[0] ?? null;
   const topSubject = topTask ? state.subjects.find((subject) => subject.id === topTask.subjectId) : null;
+  const topTaskOwnsActiveTimer = Boolean(topTask && timer.target?.taskId === topTask.id);
   const remainingTasks = todayTasks.filter((task) => task.id !== topTask?.id);
   const plannedMinutes = todayTasks.filter((task) => task.status !== 'skipped').reduce((sum, task) => sum + task.estimatedMinutes, 0);
   const remainingMinutes = pending.reduce((sum, task) => sum + task.estimatedMinutes, 0);
@@ -107,6 +109,10 @@ export function TodayScreen({
   const hasPlanWarning = !analytics.capacity.ok || conflictCount > 0 || unscheduledCount > 0;
 
   const startTask = (task: StudyTask) => {
+    if (timer.target?.taskId === task.id) {
+      openTimerOverlay();
+      return;
+    }
     const started = timer.start({
       taskId: task.id,
       subjectId: task.subjectId,
@@ -169,11 +175,13 @@ export function TodayScreen({
               <div className="next-action-buttons">
                 <button className="btn btn-primary" onClick={() => startTask(topTask)}>
                   <Play size={18} fill="currentColor" aria-hidden="true" />
-                  {topTask.status === 'doing' ? '学習を続ける' : '勉強を始める'}
+                  {topTaskOwnsActiveTimer ? '学習を続ける' : '勉強を始める'}
                 </button>
-                <button className="btn btn-secondary" onClick={() => setRecordTask(topTask)}>
-                  <CheckCircle2 size={18} aria-hidden="true" />完了を記録
-                </button>
+                {!topTaskOwnsActiveTimer && (
+                  <button className="btn btn-secondary" onClick={() => setRecordTask(topTask)}>
+                    <CheckCircle2 size={18} aria-hidden="true" />完了を記録
+                  </button>
+                )}
               </div>
               {topTask.status !== 'doing' && (
                 <button className="today-rest-action" onClick={() => postponeTopTask(topTask)}>
