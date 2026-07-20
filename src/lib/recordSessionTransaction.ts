@@ -119,7 +119,7 @@ function recordTaskOverrun(
 
   const sessionId = action.type === 'UPDATE_SESSION'
     ? action.sessionId
-    : recorded.sessions.at(-1)?.id;
+    : recorded.sessions[recorded.sessions.length - 1]?.id;
   const baseSession = sessionId ? recorded.sessions.find((session) => session.id === sessionId) : undefined;
   const material = recorded.materials.find((item) => item.id === action.input.materialId);
   if (!baseSession || !material) return recorded;
