@@ -17,17 +17,24 @@ const session = {
   startedAt: now, minutes: 30, amountDone: 1, rangeLabel: snapshot.rangeLabel, focus: 4,
   memo: '', source: 'manual', taskSnapshotBefore: snapshot, completedTask: true, updatedAt: now,
 } satisfies StudySession;
-const state = {
+const base = {
   ...emptyState(), onboarded: true,
   subjects: [{ id: 'subject', name: '英語', color: '#4f7cff', importance: 3, weakness: 3 }],
-  tasks: [], sessions: [session],
+  sessions: [session],
 } satisfies AppState;
 
-const repaired = reconcileCompletedTaskHistory(state);
+const plannedState = { ...base, tasks: [snapshot] } satisfies AppState;
+const repaired = reconcileCompletedTaskHistory(plannedState);
 const restored = repaired.state.tasks.find((task) => task.id === snapshot.id);
 assert.equal(repaired.repairs.length, 1);
 assert.equal(restored?.status, 'done');
 assert.equal(restored?.scheduledDate, date);
 assert.equal(restored?.rangeLabel, snapshot.rangeLabel);
 assert.strictEqual(reconcileCompletedTaskHistory(repaired.state).state, repaired.state);
-console.log('✅ missing completed task history repair passed');
+
+const explicitlyDeletedState = { ...base, tasks: [] } satisfies AppState;
+const preservedDeletion = reconcileCompletedTaskHistory(explicitlyDeletedState);
+assert.equal(preservedDeletion.repairs.length, 0, '欠損タスクを推測で復元しない');
+assert.strictEqual(preservedDeletion.state, explicitlyDeletedState, '明示削除済み状態を変更しない');
+
+console.log('✅ completed task history repair and explicit deletion preservation passed');
