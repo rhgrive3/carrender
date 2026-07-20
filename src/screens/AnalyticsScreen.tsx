@@ -101,7 +101,7 @@ export function AnalyticsScreen({ onNavigate }: { onNavigate?: (tab: ShellTab) =
   if (state.sessions.length === 0 && state.tasks.length === 0) {
     return (
       <div className="screen analytics-v2">
-        <div className="screen-header"><div><h1 className="screen-title">分析</h1><div className="screen-sub">次の改善につながる提案</div></div></div>
+        <div className="screen-header"><div><h1 className="screen-title">振り返り</h1><div className="screen-sub">次の改善につながる提案</div></div></div>
         <EmptyState icon="📊" title="分析するデータがまだありません">
           勉強を記録すると、期限の見込みと改善案がここに表示されます。
         </EmptyState>
@@ -112,7 +112,7 @@ export function AnalyticsScreen({ onNavigate }: { onNavigate?: (tab: ShellTab) =
   return (
     <div className="screen analytics-v2">
       <div className="screen-header">
-        <div><h1 className="screen-title">分析</h1><div className="screen-sub">見るだけで終わらない、次の改善</div></div>
+        <div><h1 className="screen-title">振り返り</h1><div className="screen-sub">見るだけで終わらない、次の改善</div></div>
       </div>
 
       <section className="analytics-outlook" aria-labelledby="outlook-title">

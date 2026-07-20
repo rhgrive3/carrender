@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { History, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ui/Toast';
 import { formatDateShort, formatMinutes } from '../lib/date';
@@ -31,15 +31,7 @@ export function PlanHistoryScreen() {
   );
 
   return (
-    <div className="screen">
-      <div className="screen-header">
-        <div>
-          <div className="screen-title">計画履歴</div>
-          <div className="screen-sub">再計算前後の差分と、直近1年より前の月次集計</div>
-        </div>
-        <History size={24} strokeWidth={2.2} aria-hidden="true" />
-      </div>
-
+    <div className="plan-history-content">
       <div className="card">
         <div className="section-label" style={{ marginTop: 0 }}>復元について</div>
         <p className="faint" style={{ margin: 0 }}>

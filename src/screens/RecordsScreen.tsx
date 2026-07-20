@@ -67,7 +67,7 @@ export function RecordsScreen() {
   const [editSession, setEditSession] = useState<StudySession | null>(null);
   const [period, setPeriod] = useState<Period>('week');
   const [offset, setOffset] = useState(0);
-  const [view, setView] = useState<'overview' | 'log'>('overview');
+  const [view, setView] = useState<'overview' | 'log'>('log');
   const [logQuery, setLogQuery] = useState('');
   const [logSubject, setLogSubject] = useState('all');
   const [logDate, setLogDate] = useState('');
@@ -156,7 +156,7 @@ export function RecordsScreen() {
     <div className="screen records-v2">
       <div className="screen-header">
         <div>
-          <div className="screen-title">記録</div>
+          <h1 className="screen-title">記録</h1>
           <div className="screen-sub">
             今週 {formatMinutes(analytics.weekMinutes)} ・ 今月 {formatMinutes(analytics.monthMinutes)} ・ 🔥 {analytics.streakDays}日連続
           </div>
@@ -172,7 +172,7 @@ export function RecordsScreen() {
       </div>
 
       <div className="segmented record-view-switch" role="tablist" aria-label="記録画面の切替">
-        <button role="tab" aria-selected={view === 'overview'} className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}>概要</button>
+        <button role="tab" aria-selected={view === 'overview'} className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}>集計</button>
         <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'active' : ''} onClick={() => setView('log')}>学習ログ</button>
       </div>
 

@@ -16,7 +16,12 @@ export function PlanHistoryLauncher({ inline = false }: { inline?: boolean }) {
       >
         <ListRestart size={19} strokeWidth={2.2} aria-hidden="true" />
       </button>
-      <Sheet open={open} onClose={() => setOpen(false)} title="計画履歴">
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title="計画履歴"
+        subtitle="再計算前後の差分と、直近1年より前の月次集計"
+      >
         <PlanHistoryScreen />
       </Sheet>
     </>

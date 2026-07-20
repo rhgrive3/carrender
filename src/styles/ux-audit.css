@@ -27,7 +27,7 @@
 }
 
 .today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) .next-action-topline,
-.today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) > .row,
+.today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) .next-action-buttons,
 .today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) .today-rest-action,
 .today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) .next-action-footer,
 .today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) > .progress-track {
@@ -74,15 +74,19 @@
   line-height: 1;
 }
 
-.today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) > .row {
-  flex-wrap: wrap;
+.today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) .next-action-buttons {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  width: 100%;
   margin-top: 2px;
 }
 
-.today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) > .row .btn {
+.today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) .next-action-buttons .btn {
   min-height: 44px;
   padding-inline: 14px;
   font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) .today-rest-action {
@@ -102,24 +106,7 @@
   margin-top: -2px;
 }
 
-/* 教材一覧と選択中教材は、管理画面らしい情報密度に寄せる。 */
-.materials-master-detail {
-  align-items: start;
-  gap: 14px;
-}
-
-.material-list-item.material-shelf-card > .material-list-main {
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  gap: 10px;
-  min-height: 78px;
-  padding: 10px;
-}
-
-.material-cover-tile {
-  width: 40px;
-  height: 52px;
-}
-
+/* 教材詳細は、管理画面らしい情報密度に寄せる。 */
 .material-detail-panel {
   display: grid;
   gap: 10px;
@@ -148,10 +135,6 @@
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.material-detail-head > svg {
-  display: none;
 }
 
 .material-progress-display {
@@ -273,8 +256,8 @@
     padding: 13px 14px;
   }
 
-  .today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) > .row .btn {
-    flex: 1 1 150px;
+  .today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) .next-action-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .material-list-item.material-shelf-card > .material-list-main {

@@ -1,12 +1,16 @@
 import { useEffect, useId, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { ArrowLeft, X } from 'lucide-react';
 
 interface SheetProps {
   open: boolean;
   onClose: () => void;
   title?: string;
+  subtitle?: string;
+  onBack?: () => void;
+  backLabel?: string;
+  className?: string;
   children: ReactNode;
 }
 
@@ -154,9 +158,11 @@ export function trapModalTabKey(e: KeyboardEvent, root: HTMLElement) {
 }
 
 /** モバイル向けボトムシート */
-export function Sheet({ open, onClose, title, children }: SheetProps) {
+export function Sheet({ open, onClose, title, subtitle, onBack, backLabel = '前の画面へ戻る', className, children }: SheetProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const backdropPointerRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const titleId = useId();
   const dialogName = title?.trim() || '操作パネル';
@@ -177,7 +183,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         // 日本語IMEの変換候補を閉じるEscapeまでシートの閉操作として扱うと、
         // 入力途中の内容を失うため、composition中のキーイベントは無視する。
         if (e.isComposing || e.keyCode === 229) return;
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (!sheetRef.current) return;
@@ -193,7 +199,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         prevFocus.focus();
       }
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -219,10 +225,19 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         backdropPointerRef.current = null;
       }}
     >
-      <div className="sheet" ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : dialogName}>
-        <div className="sheet-grabber" aria-hidden="true" />
+      <div className={`sheet${className ? ` ${className}` : ''}`} ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : dialogName}>
         <div className="sheet-title-row">
-          {title && <h2 className="sheet-title" id={titleId}>{title}</h2>}
+          {onBack && (
+            <button className="sheet-back" type="button" aria-label={backLabel} onClick={onBack}>
+              <ArrowLeft size={19} strokeWidth={2.2} aria-hidden="true" />
+            </button>
+          )}
+          {title && (
+            <div className="sheet-title-copy">
+              <h2 className="sheet-title" id={titleId}>{title}</h2>
+              {subtitle && <p className="sheet-subtitle">{subtitle}</p>}
+            </div>
+          )}
           <button className="sheet-close" type="button" aria-label={`${dialogName}を閉じる`} onClick={onClose}>
             <X size={18} strokeWidth={2.2} aria-hidden="true" />
           </button>

@@ -3,12 +3,47 @@
     margin-bottom: var(--space-4);
   }
 
+  .materials-primary-tabs {
+    margin-bottom: var(--space-3);
+  }
+
+  .materials-secondary-filter {
+    width: fit-content;
+    margin-bottom: var(--space-3);
+  }
+
+  .materials-secondary-filter .segmented {
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--border);
+    background: var(--bg-elev1);
+  }
+
+  .materials-secondary-filter .segmented button {
+    min-width: 92px;
+    min-height: 42px;
+    padding-inline: var(--space-3);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .materials-secondary-filter .segmented button.active {
+    background: var(--bg-elev2);
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+
   .materials-add-button {
     display: inline-flex;
     align-items: center;
     gap: 7px;
     min-height: 44px;
     padding: 0 var(--space-4);
+  }
+
+  .materials-master-detail {
+    align-items: start;
+    gap: 14px;
   }
 
   .materials-overview {
@@ -110,7 +145,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 13px;
     border: 1px solid var(--border);
     border-radius: 999px;
@@ -190,12 +225,12 @@
 
   .material-list-item.material-shelf-card > .material-list-main {
     display: grid;
-    grid-template-columns: 48px minmax(0, 1fr) auto;
+    grid-template-columns: 40px minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--space-3);
     min-width: 0;
-    min-height: 94px;
-    padding: var(--space-3);
+    min-height: 78px;
+    padding: 10px;
     border: 0;
     background: transparent;
     color: var(--text);
@@ -209,8 +244,8 @@
   .material-cover-tile {
     display: grid;
     place-items: center;
-    width: 48px;
-    height: 64px;
+    width: 40px;
+    height: 52px;
     border: 1px solid color-mix(in srgb, currentColor 20%, var(--border));
     border-radius: 8px 11px 11px 8px;
     background: color-mix(in srgb, currentColor 12%, var(--bg-elev2));
@@ -317,17 +352,6 @@
     color: var(--accent);
   }
 
-  .material-detail-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin-top: var(--space-5);
-  }
-
-  .material-detail-actions .btn-primary {
-    flex: 1 1 180px;
-  }
-
   .materials-empty-filter {
     margin-top: var(--space-5);
   }
@@ -366,12 +390,12 @@
     }
 
     .material-list-item.material-shelf-card > .material-list-main {
-      grid-template-columns: 42px minmax(0, 1fr);
+      grid-template-columns: 40px minmax(0, 1fr);
     }
 
     .material-cover-tile {
-      width: 42px;
-      height: 56px;
+      width: 40px;
+      height: 52px;
     }
 
     .material-card-state {
@@ -388,4 +412,13 @@
       min-width: 52px;
     }
   }
+}
+
+.material-detail-sheet .material-detail-panel {
+  position: static;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }

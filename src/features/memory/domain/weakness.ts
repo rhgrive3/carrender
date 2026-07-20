@@ -248,15 +248,3 @@ export function computeWeakness(input: WeaknessInput): WeaknessResult {
     + 0.08 * components.manualWeakScore;
   return { score: Math.round(100 * clamp(weighted) * 100) / 100, components };
 }
-
-export function assessmentCounts(assessment: Assessment): Pick<
-  MemoryStat,
-  'correctCount' | 'partialCount' | 'incorrectCount' | 'skippedCount'
-> {
-  return {
-    correctCount: assessment === 'correct' ? 1 : 0,
-    partialCount: assessment === 'partial' ? 1 : 0,
-    incorrectCount: assessment === 'incorrect' ? 1 : 0,
-    skippedCount: assessment === 'skipped' ? 1 : 0,
-  };
-}

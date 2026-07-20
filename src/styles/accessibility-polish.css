@@ -87,13 +87,58 @@ html {
   .segmented button,
   .period-nav button,
   .day-column-header,
-  .noise-toggle {
+  .timer-icon-button {
     min-width: 44px;
     min-height: 44px;
   }
 
   .segmented button {
     padding-inline: 12px;
+  }
+}
+
+/* 320px級の端末では操作列を下段へ送り、本文と3〜4個の操作を無理に横並びにしない。 */
+@media (max-width: 359px) {
+  .today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) .next-action-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .today-task-stack,
+  .today-task-stack .task-card {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .today-task-stack .task-card:not(.done) {
+    display: grid;
+    grid-template-columns: 5px minmax(0, 1fr);
+    gap: 8px 10px;
+  }
+
+  .today-task-stack .task-card:not(.done) .subject-bar {
+    grid-row: 1 / span 2;
+  }
+
+  .today-task-stack .task-card:not(.done) .task-main,
+  .today-task-stack .task-card:not(.done) .task-actions {
+    grid-column: 2;
+  }
+
+  .today-task-stack .task-card:not(.done) .task-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .today-task-stack .task-card:has(.task-actions button:nth-child(4)) .task-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .today-task-stack .task-action-btn {
+    width: 100%;
+    min-width: 0;
+    height: 44px;
   }
 }
 

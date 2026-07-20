@@ -7,11 +7,12 @@ const escapeBranch = sheetSource.match(/if \(e\.key === 'Escape'\) \{([\s\S]*?)\
 assert.ok(escapeBranch, 'Escapeキーの処理が存在する');
 assert.match(escapeBranch, /e\.isComposing/, 'IME変換中のEscapeではシートを閉じない');
 assert.match(escapeBranch, /e\.keyCode === 229/, 'IMEがcomposition状態を正しく公開しない環境も保護する');
-assert.match(escapeBranch, /onClose\(\)/, '通常のEscapeではシートを閉じる');
+assert.match(escapeBranch, /onCloseRef\.current\(\)/, '通常のEscapeでは最新の閉じる処理を呼ぶ');
 assert.ok(
-  escapeBranch.indexOf('e.isComposing') < escapeBranch.indexOf('onClose()'),
+  escapeBranch.indexOf('e.isComposing') < escapeBranch.indexOf('onCloseRef.current()'),
   'IME判定を閉操作より先に行う',
 );
+assert.match(sheetSource, /onCloseRef\.current = onClose/, '親の再描画後も最新の閉じる処理を参照する');
 
 assert.match(sheetSource, /closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)/, '祖先側で非表示・非活性になった要素をフォーカス候補から除外する');
 assert.match(sheetSource, /closest\('fieldset\[disabled\]'\)/, 'disabledなfieldset配下の操作不能要素をフォーカス候補から除外する');

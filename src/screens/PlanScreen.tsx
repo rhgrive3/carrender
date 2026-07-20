@@ -73,7 +73,7 @@ export function PlanScreen() {
     <div className="screen">
       <div className="screen-header">
         <div>
-          <div className="screen-title">計画</div>
+          <h1 className="screen-title">計画</h1>
           <div className="screen-sub">これから1週間の学習ブロック</div>
         </div>
         <div className="row" style={{ gap: 4 }}>
@@ -788,7 +788,7 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
           style={{ flex: 1 }}
           disabled={isDone}
           onClick={() => {
-            timer.start({
+            const started = timer.start({
               taskId: task.id,
               subjectId: task.subjectId,
               materialId: task.materialId,
@@ -798,6 +798,10 @@ function TaskEditSheet({ task, onClose }: { task: StudyTask; onClose: () => void
               range: task.materialRange ?? (Number.isFinite(task.rangeStart) && Number.isFinite(task.rangeEnd) ? { start: task.rangeStart!, end: task.rangeEnd! } : undefined),
               type: task.type,
             });
+            if (!started) {
+              toast(`「${timer.target?.title ?? '学習'}」を計測中です。画面下のタイマーから再開できます`);
+              return;
+            }
             onClose();
           }}
         >

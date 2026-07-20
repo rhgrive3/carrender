@@ -43,6 +43,7 @@ const STATUS_UI = {
 
 export function TodayScreen({
   onOpenSettings,
+  onOpenPlan,
   onOpenMemory,
   memorySetCount = 0,
   hasActiveMemorySession = false,
@@ -50,6 +51,7 @@ export function TodayScreen({
   recentMemorySession,
 }: {
   onOpenSettings: () => void;
+  onOpenPlan?: () => void;
   onOpenMemory?: () => void;
   memorySetCount?: number;
   hasActiveMemorySession?: boolean;
@@ -105,7 +107,7 @@ export function TodayScreen({
   const hasPlanWarning = !analytics.capacity.ok || conflictCount > 0 || unscheduledCount > 0;
 
   const startTask = (task: StudyTask) => {
-    timer.start({
+    const started = timer.start({
       taskId: task.id,
       subjectId: task.subjectId,
       materialId: task.materialId,
@@ -117,6 +119,7 @@ export function TodayScreen({
         : undefined),
       type: task.type,
     });
+    if (!started) toast(`「${timer.target?.title ?? '学習'}」を計測中です。画面下のタイマーから再開できます`);
   };
 
   const postponeTopTask = (task: StudyTask) => {
@@ -163,8 +166,8 @@ export function TodayScreen({
               <div className="next-action-duration">
                 <strong>{topTask.estimatedMinutes}</strong><span>分</span>
               </div>
-              <div className="row" style={{ gap: 8, width: '100%' }}>
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => startTask(topTask)}>
+              <div className="next-action-buttons">
+                <button className="btn btn-primary" onClick={() => startTask(topTask)}>
                   <Play size={18} fill="currentColor" aria-hidden="true" />
                   {topTask.status === 'doing' ? '学習を続ける' : '勉強を始める'}
                 </button>
@@ -225,6 +228,11 @@ export function TodayScreen({
                   {unscheduledCount > 0 && ` 予定に入れられていない学習が${unscheduledCount}件あります。`}
                 </span>
               </div>
+              {onOpenPlan && (
+                <button type="button" className="status-banner-action" onClick={onOpenPlan}>
+                  計画を見る <ChevronRight size={15} strokeWidth={2.4} aria-hidden="true" />
+                </button>
+              )}
             </div>
           )}
 

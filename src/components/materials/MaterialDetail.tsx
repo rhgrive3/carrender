@@ -1,4 +1,4 @@
-import { ChevronRight, Flag, Pencil, Timer } from 'lucide-react';
+import { Flag, Pencil, Timer } from 'lucide-react';
 import { useApp } from '../../state/AppContext';
 import type { Material } from '../../types';
 import { diffDays, formatDateShort, formatMinutes, today } from '../../lib/date';
@@ -28,7 +28,6 @@ export function MaterialDetail({ material, onEdit, onStart, timerActive }: {
           <span className="subject-chip" style={{ background: `${subject?.color}20`, color: subject?.color }}>{subject?.name}</span>
           <h2>{material.name}</h2>
         </div>
-        <ChevronRight size={20} aria-hidden="true" />
       </div>
       <div className="material-progress-display">
         <strong>{Math.round(rate * 100)}%</strong>

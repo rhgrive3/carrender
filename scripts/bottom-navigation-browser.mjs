@@ -65,7 +65,7 @@ try {
             <button type="button">計画</button>
             <button type="button">教材</button>
             <button type="button">記録</button>
-            <button type="button">分析</button>
+            <button type="button">振り返り</button>
           </nav>
         </body>
       </html>`);

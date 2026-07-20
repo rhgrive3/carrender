@@ -16,7 +16,6 @@ const MEMORY_SCREEN_LABELS = {
   studySetup: '暗記学習設定',
   study: '暗記学習',
   result: '暗記学習結果',
-  analytics: '暗記分析',
 } as const;
 
 const repositoryKeys = new WeakMap<object, string>();
@@ -44,7 +43,6 @@ export function MemoryFeature() {
     case 'studySetup': content = <MemoryStudySetup initialSetIds={view.setIds} />; break;
     case 'study': content = <MemoryStudy sessionId={view.sessionId} />; break;
     case 'result': content = <MemoryResult sessionId={view.sessionId} />; break;
-    case 'analytics': content = <MemoryHome />; break;
   }
 
   return (

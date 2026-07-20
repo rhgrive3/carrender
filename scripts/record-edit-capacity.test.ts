@@ -3,7 +3,6 @@ import { addDays, today } from '../src/lib/date';
 import {
   recordAmountInputLimit,
   recordTaskCompletionAmount,
-  shouldDetachEditedTaskReference,
 } from '../src/lib/recordEditCapacity';
 import { emptyState } from '../src/state/AppContext';
 import type { AppState, Material, StudySession, StudyTask } from '../src/types';
@@ -126,21 +125,6 @@ const oneProblemSession: StudySession = {
   completedTask: true,
 };
 assert.equal(recordTaskCompletionAmount(oneProblemTask, oneProblemSession), 1, '完了判定の基準は教材残量ではなく元タスクの1問');
-assert.equal(
-  shouldDetachEditedTaskReference(oneProblemSession, true, 2, 1),
-  true,
-  '1問予定の完了ログを2問へ増やす編集はタスク範囲を外して自由実績へ変換する',
-);
-assert.equal(
-  shouldDetachEditedTaskReference(oneProblemSession, true, 1, 1),
-  false,
-  '元タスク量と同じ1問の編集はタスク参照を維持する',
-);
-assert.equal(
-  shouldDetachEditedTaskReference(oneProblemSession, false, 2, 1),
-  false,
-  '教材・科目を変更した編集は既存の参照変更処理へ任せる',
-);
 
 const overlappingSession: StudySession = {
   ...session,

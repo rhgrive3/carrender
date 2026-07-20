@@ -28,7 +28,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
   const lock = task.placementLock ?? (task.generatedBy === 'manual' ? (task.scheduledStart ? 'time' : 'date') : 'none');
 
   const startTimer = () => {
-    timer.start({
+    const started = timer.start({
       taskId: task.id,
       subjectId: task.subjectId,
       materialId: task.materialId,
@@ -38,6 +38,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
       range: task.materialRange ?? (Number.isFinite(task.rangeStart) && Number.isFinite(task.rangeEnd) ? { start: task.rangeStart!, end: task.rangeEnd! } : undefined),
       type: task.type,
     });
+    if (!started) toast(`「${timer.target?.title ?? '学習'}」を計測中です。画面下のタイマーから再開できます`);
   };
 
   const postpone = () => {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { useApp } from '../../state/AppContext';
 import type { Material } from '../../types';
@@ -7,9 +7,22 @@ import { today } from '../../lib/date';
 import { EmptyState } from '../ui/bits';
 import { MaterialDetail } from './MaterialDetail';
 import { MaterialShelfCard } from './MaterialShelfCard';
+import { Sheet } from '../ui/Sheet';
 
 const FORECAST_ORDER = { risk: 0, behind: 1, onTrack: 2, ahead: 3 } as const;
 type MaterialSort = 'urgency' | 'deadline' | 'progress' | 'name';
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+}
 
 export function MaterialShelf({ materials: source, activeTimerMaterialId, onEdit, onStart, onRestore }: {
   materials: Material[];
@@ -24,6 +37,7 @@ export function MaterialShelf({ materials: source, activeTimerMaterialId, onEdit
   const [query, setQuery] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('all');
   const [sort, setSort] = useState<MaterialSort>('urgency');
+  const wideDetail = useMediaQuery('(min-width: 860px)');
   const subjectById = useMemo(() => new Map(state.subjects.map((subject) => [subject.id, subject])), [state.subjects]);
   const forecastById = useMemo(() => new Map(source.map((material) => [material.id, computeMaterialForecast(state, material.id, t)])), [source, state, t]);
   const subjectCounts = useMemo(() => {
@@ -54,6 +68,7 @@ export function MaterialShelf({ materials: source, activeTimerMaterialId, onEdit
     return unknown.length > 0 ? [...known, { id: 'unknown', name: 'その他', color: 'var(--accent)', importance: 3, weakness: 3, materials: unknown }] : known;
   }, [materials, state.subjects]);
   const selected = materials.find((material) => material.id === selectedId) ?? materials[0] ?? null;
+  const mobileSelected = materials.find((material) => material.id === selectedId) ?? null;
   const attentionCount = source.filter((material) => ['risk', 'behind'].includes(forecastById.get(material.id)?.status ?? '')).length;
   const todayTarget = Math.round(source.reduce((sum, material) => sum + (material.archived ? 0 : todayQuotaFor(state, material.id, t)), 0));
   const clearFilters = () => { setQuery(''); setSubjectFilter('all'); };
@@ -87,11 +102,29 @@ export function MaterialShelf({ materials: source, activeTimerMaterialId, onEdit
               const forecast = forecastById.get(material.id);
               const status = material.doneAmount >= material.totalAmount ? '完了' : forecast?.status === 'risk' ? '危険' : forecast?.status === 'behind' ? '遅れ' : forecast?.status === 'ahead' ? '余裕' : '順調';
               const statusClass = forecast?.status === 'risk' ? 'critical' : forecast?.status === 'behind' ? 'warning' : '';
-              return <MaterialShelfCard key={material.id} material={material} subject={subjectById.get(material.subjectId)} selected={selected?.id === material.id} status={status} statusClass={statusClass} activeTimer={activeTimerMaterialId === material.id} onSelect={() => setSelectedId(material.id)} onStart={() => onStart(material)} onEdit={() => onEdit(material)} onRestore={() => onRestore(material)} />;
+              return <MaterialShelfCard key={material.id} material={material} subject={subjectById.get(material.subjectId)} selected={(wideDetail ? selected?.id : selectedId) === material.id} status={status} statusClass={statusClass} activeTimer={activeTimerMaterialId === material.id} onSelect={() => setSelectedId(material.id)} onStart={() => onStart(material)} onEdit={() => onEdit(material)} onRestore={() => onRestore(material)} />;
             })}</div></section>)}
           </div>
-          {selected && <MaterialDetail material={selected} onEdit={() => onEdit(selected)} onStart={() => onStart(selected)} timerActive={activeTimerMaterialId === selected.id} />}
+          {wideDetail && selected && <MaterialDetail material={selected} onEdit={() => onEdit(selected)} onStart={() => onStart(selected)} timerActive={activeTimerMaterialId === selected.id} />}
         </div>
+      )}
+      {!wideDetail && (
+        <Sheet open={Boolean(mobileSelected)} onClose={() => setSelectedId(null)} title="教材の詳細" className="material-detail-sheet">
+          {mobileSelected && (
+            <MaterialDetail
+              material={mobileSelected}
+              onEdit={() => {
+                setSelectedId(null);
+                onEdit(mobileSelected);
+              }}
+              onStart={() => {
+                setSelectedId(null);
+                onStart(mobileSelected);
+              }}
+              timerActive={activeTimerMaterialId === mobileSelected.id}
+            />
+          )}
+        </Sheet>
       )}
     </>
   );

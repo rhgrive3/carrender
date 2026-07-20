@@ -11,8 +11,7 @@ export type MemoryView =
   | { name: 'import'; setId?: string }
   | { name: 'studySetup'; setIds: string[] }
   | { name: 'study'; sessionId: string }
-  | { name: 'result'; sessionId: string }
-  | { name: 'analytics'; setIds: string[] };
+  | { name: 'result'; sessionId: string };
 
 interface MemoryContextValue {
   repository: MemoryRepository | null;

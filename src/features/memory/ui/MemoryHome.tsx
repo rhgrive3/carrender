@@ -185,7 +185,7 @@ export function MemoryHome() {
   return (
     <section className="memory-home memory-simple-home" aria-busy={isStarting}>
       <div className="memory-toolbar">
-        <div><h2>暗記カード</h2><p>セットを選んで、苦手中心に10問ずつ覚える</p></div>
+        <div><h2 className="sr-only">暗記カード一覧</h2><p>セットを選んで、苦手中心に10問ずつ覚える</p></div>
         <div className="memory-toolbar-actions">
           <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'import' })}><Download size={18} aria-hidden="true" />取込・出力</button>
           {summaries.length === 1 ? (
@@ -202,7 +202,7 @@ export function MemoryHome() {
         <span className={`memory-sync-dot ${syncStatus}`} aria-hidden="true" />
         {syncStatus === 'offline' ? 'オフライン・端末へ保存済み' : syncStatus === 'syncing' ? '同期中' : syncStatus === 'conflict' ? '差分確認が必要' : syncStatus === 'error' ? '同期失敗・端末へは保存済み' : '端末へ保存済み'}
         {pendingCount > 0 && `・同期待ち ${pendingCount}件`}
-        {syncStatus === 'error' && syncError && <span className="memory-sync-error">・{syncError}</span>}
+        {syncStatus === 'error' && syncError && <span className="memory-sync-error" title={syncError}>・{syncError}</span>}
         {conflictCount > 0 && <button type="button" className="memory-inline-button" disabled={isStarting} onClick={() => setConflictsOpen(true)}>競合</button>}
         <button type="button" className="memory-inline-button" disabled={isStarting || syncStatus === 'syncing'} aria-busy={syncStatus === 'syncing'} onClick={() => void requestSync(true).catch(() => undefined)} aria-label={syncStatus === 'syncing' ? '暗記データを同期中' : '暗記データを同期'}><RefreshCw size={15} aria-hidden="true" /></button>
       </div>

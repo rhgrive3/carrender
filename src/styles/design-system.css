@@ -930,30 +930,6 @@
     border-radius: inherit;
   }
 
-  .material-list-state {
-    color: var(--ok);
-    font-size: 0.6875rem;
-    font-weight: 800;
-    white-space: nowrap;
-  }
-
-  .material-list-state.warning { color: var(--warn); }
-  .material-list-state.critical { color: var(--danger); }
-
-  .material-restore {
-    position: absolute;
-    right: 4px;
-    bottom: 4px;
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border: 0;
-    border-radius: var(--radius-control);
-    background: var(--bg-elev2);
-    color: var(--text-sub);
-  }
-
   .material-detail-panel {
     padding: clamp(20px, 4vw, 30px);
   }
@@ -1087,7 +1063,6 @@
 
   @media (max-width: 520px) {
     .material-detail-metrics { grid-template-columns: 1fr; }
-    .material-list-state { display: none; }
   }
 
   .records-v2 {
@@ -1196,16 +1171,6 @@
     .record-log-filters {
       grid-template-columns: minmax(260px, 1fr) minmax(160px, auto) minmax(170px, auto);
     }
-
-    .record-log-list {
-      columns: 2;
-      column-gap: var(--space-4);
-    }
-
-    .record-log-list > .row,
-    .record-log-list > .task-card {
-      break-inside: avoid;
-    }
   }
 
   .plan-change-preview {
@@ -1251,14 +1216,6 @@
     background: var(--bg-elev1);
   }
 
-  @media (min-width: 1024px) and (orientation: landscape) {
-    .bottom-nav {
-      width: min(calc(100vw - 48px), 820px);
-      bottom: 14px;
-      border: 1px solid var(--border);
-      border-radius: 20px;
-    }
-  }
 }
 
 @layer utilities {

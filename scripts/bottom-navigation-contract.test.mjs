@@ -6,7 +6,7 @@ const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'ut
 const contractCss = readFileSync(new URL('../src/styles/layoutContracts.css', import.meta.url), 'utf8');
 const accessibilityCss = readFileSync(new URL('../src/styles/accessibility-polish.css', import.meta.url), 'utf8');
 
-for (const label of ['今日', '計画', '教材', '記録', '分析']) {
+for (const label of ['今日', '計画', '教材', '記録', '振り返り']) {
   assert.match(appSource, new RegExp(`label: '${label}'`), `主要ナビに「${label}」を残す`);
 }
 

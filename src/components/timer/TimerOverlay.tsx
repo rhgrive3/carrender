@@ -1,6 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CloudRain, Coffee, Pause, Play, SkipForward, Trash2, VolumeX, Wind, X } from 'lucide-react';
+import {
+  Check,
+  CheckCircle2,
+  CloudRain,
+  Coffee,
+  Maximize2,
+  Minimize2,
+  MoreHorizontal,
+  Pause,
+  Play,
+  SkipForward,
+  Trash2,
+  Wind,
+  X,
+} from 'lucide-react';
 import { useTimer } from './TimerContext';
 import { useApp } from '../../state/AppContext';
 import { formatHM } from '../../lib/date';
@@ -19,6 +34,8 @@ export function TimerOverlay() {
   const [recordDismissed, setRecordDismissed] = useState(false);
   const [noise, setNoiseState] = useState<NoiseType>(() => getNoise());
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
 
   const active = timer.target !== null;
   const showRecordSheet = Boolean(timer.target && timer.pendingRecord && !recordDismissed);
@@ -26,7 +43,7 @@ export function TimerOverlay() {
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!active || showRecordSheet || !overlayRef.current) return;
+    if (!active || showRecordSheet || minimized || !overlayRef.current) return;
     const root = overlayRef.current;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const restoreModalIsolation = acquireModalIsolation(root);
@@ -44,7 +61,7 @@ export function TimerOverlay() {
       restoreModalIsolation();
       previousFocus?.focus();
     };
-  }, [active, showRecordSheet]);
+  }, [active, minimized, showRecordSheet]);
 
   // 画面を消灯させない(設定でオフ可能)
   useWakeLock(active && timer.running && state.settings.timer.keepScreenOn);
@@ -60,7 +77,11 @@ export function TimerOverlay() {
   }, [active, timer.running, isBreak, noise]);
 
   useEffect(() => {
-    if (!active) setConfirmDiscard(false);
+    if (!active) {
+      setConfirmDiscard(false);
+      setControlsOpen(false);
+      setMinimized(false);
+    }
   }, [active]);
 
   useEffect(() => {
@@ -72,7 +93,10 @@ export function TimerOverlay() {
       <RecordSheet
         open
         // 閉じてもタイマー自体は消さない。次回起動でもこの記録を再開できる。
-        onClose={() => setRecordDismissed(true)}
+        onClose={() => {
+          setRecordDismissed(true);
+          setMinimized(true);
+        }}
         preset={{
           taskId: timer.target.taskId,
           subjectId: timer.target.subjectId,
@@ -98,132 +122,224 @@ export function TimerOverlay() {
     timer.finish();
     stopNoise();
     setConfirmDiscard(false);
+    setControlsOpen(false);
+    setMinimized(false);
     setRecordDismissed(false);
   };
 
   const handleDiscard = () => {
     stopNoise();
     setConfirmDiscard(false);
+    setControlsOpen(false);
+    setMinimized(false);
     timer.discard();
-  };
-
-  const cycleNoise = () => {
-    const order: NoiseType[] = ['off', 'white', 'rain'];
-    const next = order[(order.indexOf(noise) + 1) % order.length];
-    setNoiseState(next);
   };
 
   const remainingSec = timer.phaseDurationSec !== null ? Math.max(0, timer.phaseDurationSec - timer.phaseElapsedSec) : 0;
   const phaseLabel = timer.phase === 'work' ? '集中' : timer.phase === 'break' ? '休憩' : '長い休憩';
   const cyclesUntilLong = timer.pomodoro.cyclesUntilLongBreak;
+  const displaySec = timer.mode === 'pomodoro' ? remainingSec : timer.phaseElapsedSec;
+  const phaseProgress = timer.phaseDurationSec
+    ? Math.min(1, Math.max(0, timer.phaseElapsedSec / timer.phaseDurationSec))
+    : null;
+  const dialStyle = phaseProgress === null
+    ? undefined
+    : ({ '--timer-progress': `${phaseProgress * 360}deg` } as CSSProperties);
+
+  if (minimized) {
+    return createPortal(
+      <button
+        type="button"
+        className={`timer-mini ${isBreak ? 'break' : ''}`}
+        onClick={() => setMinimized(false)}
+        aria-label={`${timer.pendingRecord ? '保存待ちの学習記録' : `${phaseLabel}タイマー ${formatHM(displaySec)}`}を開く`}
+      >
+        <span className={`timer-mini-indicator ${timer.running ? 'running' : ''}`} aria-hidden="true" />
+        <span className="timer-mini-copy">
+          <strong>{timer.pendingRecord ? '学習記録を保存' : timer.target.title}</strong>
+          <span>{timer.pendingRecord ? '時間と教材の情報が残っています' : `${phaseLabel}${timer.running ? '' : '・一時停止中'}`}</span>
+        </span>
+        {!timer.pendingRecord && <span className="timer-mini-clock" aria-hidden="true">{formatHM(displaySec)}</span>}
+        <Maximize2 size={17} strokeWidth={2.2} aria-hidden="true" />
+      </button>,
+      document.body,
+    );
+  }
 
   return createPortal(
     <>
       <div className="timer-overlay" role="dialog" aria-modal="true" aria-label="学習タイマー" ref={overlayRef} tabIndex={-1}>
         <div className="timer-topbar">
-          <Segmented
-            ariaLabel="タイマーの種類"
-            options={[
-              { value: 'stopwatch', label: 'ストップウォッチ' },
-              { value: 'pomodoro', label: '🍅 ポモドーロ' },
-            ]}
-            value={timer.mode}
-            onChange={(m) => timer.setMode(m)}
-          />
+          <button type="button" className="timer-icon-button" onClick={() => setMinimized(true)} aria-label="タイマーを最小化">
+            <Minimize2 size={20} strokeWidth={2.1} aria-hidden="true" />
+          </button>
+          <div className="timer-topbar-copy">
+            <strong>{isBreak ? phaseLabel : 'フォーカス中'}</strong>
+            <span>{timer.mode === 'pomodoro' ? 'ポモドーロ' : 'ストップウォッチ'}</span>
+          </div>
           <button
             type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => setConfirmDiscard(true)}
+            className={`timer-icon-button ${noise !== 'off' ? 'active' : ''}`}
+            onClick={() => setControlsOpen(true)}
+            aria-label={`タイマーのオプションを開く（環境音: ${NOISE_LABEL[noise]}）`}
+            aria-expanded={controlsOpen}
           >
-            破棄
+            <MoreHorizontal size={21} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
 
         {timer.pendingRecord ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, width: '100%' }}>
-            <div style={{ fontWeight: 800, fontSize: 18 }}>終了したタイマーの記録が残ってる</div>
-            <div className="muted">保存するか破棄するまで、時間とタスク情報は端末に残るで。</div>
-            <button type="button" className="btn btn-primary" onClick={() => setRecordDismissed(false)}>記録を続ける</button>
-          </div>
-        ) : <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22, width: '100%' }}>
-          {subject && (
-            <span className="subject-chip" style={{ background: `${subject.color}26`, color: subject.color, fontSize: 14, padding: '6px 14px' }}>
-              {subject.name}
-            </span>
-          )}
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>{timer.target.title}</div>
-            <div className="muted">{timer.target.rangeLabel}</div>
-            {task && <div className="faint" style={{ marginTop: 5 }}>予定 {task.estimatedMinutes}分</div>}
-          </div>
-
-          {timer.mode === 'pomodoro' && (
-            <div className={`timer-phase-badge ${isBreak ? 'break' : ''}`}>
-              {isBreak ? <Coffee size={14} strokeWidth={2.4} aria-hidden="true" /> : '🍅'} {phaseLabel}
-              {timer.phaseDurationSec !== null && ` ${Math.round(timer.phaseDurationSec / 60)}分`}
+          <div className="timer-pending-state">
+            <span className="timer-pending-icon" aria-hidden="true"><CheckCircle2 size={30} strokeWidth={2.1} /></span>
+            <div>
+              <h2>学習時間を保存しましょう</h2>
+              <p>時間とタスク情報は端末に保存済みです。内容を確認して記録を完了できます。</p>
             </div>
-          )}
-
-          <div className={`timer-clock ${timer.running ? 'timer-pulse' : ''} ${isBreak ? 'timer-clock-break' : ''}`} aria-live="off">
-            {timer.mode === 'pomodoro' ? formatHM(remainingSec) : formatHM(timer.phaseElapsedSec)}
+            <button type="button" className="btn btn-primary btn-block" onClick={() => setRecordDismissed(false)}>
+              記録内容を確認
+            </button>
           </div>
+        ) : (
+          <>
+            <div className="timer-stage">
+              <div className="timer-task-context">
+                {subject && (
+                  <span className="subject-chip" style={{ background: `${subject.color}26`, color: subject.color }}>
+                    {subject.name}
+                  </span>
+                )}
+                <h1>{timer.target.title}</h1>
+                <p>{timer.target.rangeLabel}</p>
+                {task && <span>予定 {task.estimatedMinutes}分</span>}
+              </div>
 
-          {timer.mode === 'pomodoro' && (
-            <>
-              <div className="timer-cycles" aria-label={`${timer.cycle}回の集中を完了`}>
-                {Array.from({ length: cyclesUntilLong }, (_, i) => {
-                  const posInRound = timer.cycle % cyclesUntilLong;
-                  const roundDone = timer.cycle > 0 && posInRound === 0 && timer.phase === 'longBreak';
-                  const filled = roundDone ? cyclesUntilLong : posInRound;
-                  return <span key={i} className={`timer-cycle-dot ${i < filled ? 'done' : ''}`} aria-hidden="true" />;
-                })}
-                <span className="faint" style={{ marginLeft: 8 }}>累計 {timer.cycle}🍅</span>
+              <div
+                className={`timer-dial-shell ${timer.mode === 'stopwatch' ? 'stopwatch' : ''} ${isBreak ? 'break' : ''}`}
+                style={dialStyle}
+              >
+                <div className="timer-dial-inner">
+                  <span className="timer-dial-kicker">
+                    {timer.mode === 'pomodoro'
+                      ? <>{isBreak ? <Coffee size={14} strokeWidth={2.3} aria-hidden="true" /> : '●'} {phaseLabel}</>
+                      : '経過時間'}
+                  </span>
+                  <div className={`timer-clock ${isBreak ? 'timer-clock-break' : ''}`} aria-live="off">
+                    {formatHM(displaySec)}
+                  </div>
+                  <span className="timer-dial-status" aria-live="polite">
+                    {timer.running
+                      ? timer.mode === 'pomodoro' && timer.phaseDurationSec !== null
+                        ? `${Math.round(timer.phaseDurationSec / 60)}分セッション`
+                        : '計測中'
+                      : '一時停止中'}
+                  </span>
+                </div>
               </div>
-              <div className="faint" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                実勉強時間 {formatHM(timer.workSec)}
-              </div>
+
+              {timer.mode === 'pomodoro' && (
+                <div className="timer-session-meta">
+                  <div className="timer-cycles" aria-label={`${timer.cycle}回の集中を完了`}>
+                    {Array.from({ length: cyclesUntilLong }, (_, i) => {
+                      const posInRound = timer.cycle % cyclesUntilLong;
+                      const roundDone = timer.cycle > 0 && posInRound === 0 && timer.phase === 'longBreak';
+                      const filled = roundDone ? cyclesUntilLong : posInRound;
+                      return <span key={i} className={`timer-cycle-dot ${i < filled ? 'done' : ''}`} aria-hidden="true" />;
+                    })}
+                    <span>累計 {timer.cycle}回</span>
+                  </div>
+                  <span>実勉強 {formatHM(timer.workSec)}</span>
+                </div>
+              )}
+
               {isBreak && (
-                <button type="button" className="btn btn-secondary btn-sm" onClick={timer.skipBreak}>
-                  <SkipForward size={14} strokeWidth={2.4} aria-hidden="true" /> 休憩をスキップ
+                <button type="button" className="timer-skip-action" onClick={timer.skipBreak}>
+                  <SkipForward size={15} strokeWidth={2.4} aria-hidden="true" /> 休憩をスキップ
                 </button>
               )}
-            </>
-          )}
 
-          <div className="timer-status-slot" aria-live="polite">
-            {!timer.running && <span className="status-badge status-warn">一時停止中</span>}
-          </div>
+              {noise !== 'off' && (
+                <div className="timer-noise-status" aria-label={`環境音: ${NOISE_LABEL[noise]}`}>
+                  {noise === 'white'
+                    ? <Wind size={14} strokeWidth={2.2} aria-hidden="true" />
+                    : <CloudRain size={14} strokeWidth={2.2} aria-hidden="true" />}
+                  {NOISE_LABEL[noise]}
+                </div>
+              )}
+            </div>
 
-          <button type="button" className={`noise-toggle ${noise !== 'off' ? 'on' : ''}`} onClick={cycleNoise} aria-label={`環境音を切り替え(現在: ${NOISE_LABEL[noise]})`}>
-            {noise === 'off' ? (
-              <VolumeX size={15} strokeWidth={2.2} aria-hidden="true" />
-            ) : noise === 'white' ? (
-              <Wind size={15} strokeWidth={2.2} aria-hidden="true" />
-            ) : (
-              <CloudRain size={15} strokeWidth={2.2} aria-hidden="true" />
-            )}
-            {NOISE_LABEL[noise]}
-          </button>
-        </div>}
-
-        {!timer.pendingRecord && <div style={{ width: '100%', maxWidth: 420, display: 'flex', gap: 12 }}>
-          {timer.running ? (
-            <button type="button" className="btn btn-secondary btn-block" onClick={timer.pause}>
-              <Pause size={15} strokeWidth={2.4} fill="currentColor" aria-hidden="true" /> 一時停止
-            </button>
-          ) : (
-            <button type="button" className="btn btn-secondary btn-block" onClick={timer.resume}>
-              <Play size={15} strokeWidth={2.4} fill="currentColor" aria-hidden="true" /> 再開
-            </button>
-          )}
-          <button type="button" className="btn btn-primary btn-block" onClick={handleFinish}>
-            <Check size={16} strokeWidth={2.8} aria-hidden="true" /> 終了して記録
-          </button>
-        </div>}
+            <div className="timer-controls">
+              {timer.running ? (
+                <button type="button" className="timer-control-primary" onClick={timer.pause}>
+                  <Pause size={19} strokeWidth={2.5} fill="currentColor" aria-hidden="true" /> 一時停止
+                </button>
+              ) : (
+                <button type="button" className="timer-control-primary" onClick={timer.resume}>
+                  <Play size={19} strokeWidth={2.5} fill="currentColor" aria-hidden="true" /> 再開
+                </button>
+              )}
+              <button type="button" className="timer-control-secondary" onClick={handleFinish}>
+                <Check size={18} strokeWidth={2.7} aria-hidden="true" /> 終了して記録
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
+      <Sheet open={controlsOpen} onClose={() => setControlsOpen(false)} title="タイマーのオプション">
+        <div className="timer-option-section">
+          <div className="timer-option-heading">
+            <strong>タイマーの種類</strong>
+            <span>計測済みの勉強時間は引き継がれます</span>
+          </div>
+          {timer.running ? (
+            <div className="timer-option-locked">
+              <span>{timer.mode === 'pomodoro' ? '🍅 ポモドーロ' : 'ストップウォッチ'}</span>
+              <small>変更するには一度タイマーを停止してください</small>
+            </div>
+          ) : (
+            <Segmented
+              ariaLabel="タイマーの種類"
+              options={[
+                { value: 'stopwatch', label: 'ストップウォッチ' },
+                { value: 'pomodoro', label: '🍅 ポモドーロ' },
+              ]}
+              value={timer.mode}
+              onChange={timer.setMode}
+            />
+          )}
+        </div>
+
+        <div className="timer-option-section">
+          <div className="timer-option-heading">
+            <strong>環境音</strong>
+            <span>集中フェーズの計測中だけ再生します</span>
+          </div>
+          <Segmented
+            ariaLabel="環境音"
+            options={[
+              { value: 'off', label: 'オフ' },
+              { value: 'white', label: 'ホワイト' },
+              { value: 'rain', label: '雨音' },
+            ]}
+            value={noise}
+            onChange={setNoiseState}
+          />
+        </div>
+
+        <button
+          type="button"
+          className="btn btn-danger btn-block"
+          onClick={() => {
+            setControlsOpen(false);
+            setConfirmDiscard(true);
+          }}
+        >
+          <Trash2 size={15} strokeWidth={2.3} aria-hidden="true" /> 記録せずタイマーを破棄
+        </button>
+      </Sheet>
+
       <Sheet open={confirmDiscard} onClose={() => setConfirmDiscard(false)} title="タイマーを破棄しますか?">
-        <p className="muted">記録は保存されません。</p>
+        <p className="muted">計測した時間は学習記録に保存されません。</p>
         <div className="timer-confirm-actions" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirmDiscard(false)}>
             <X size={14} strokeWidth={2.4} aria-hidden="true" /> キャンセル

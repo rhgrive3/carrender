@@ -5,7 +5,7 @@
   padding: calc(var(--safe-top) + 10px) 16px 0;
 }
 
-.sync-status-slot + .screen {
+.sync-status-slot ~ .shell-tab-panel:not([hidden]) .screen {
   padding-top: 10px;
 }
 

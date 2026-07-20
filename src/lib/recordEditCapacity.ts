@@ -38,24 +38,6 @@ export function recordTaskCompletionAmount(task?: StudyTask, session?: StudySess
 }
 
 /**
- * 完了済みタスクの実績を予定量より増やす編集は、元タスクの範囲では表現できない。
- * タスク参照を外して自由記録として保存し、実績量から予定を再構築する。
- */
-export function shouldDetachEditedTaskReference(
-  session: StudySession | undefined,
-  keepsEditedReference: boolean,
-  amountDone: number,
-  taskCompletionAmount: number,
-): boolean {
-  return Boolean(
-    session?.taskId
-    && keepsEditedReference
-    && taskCompletionAmount > 0
-    && amountDone > taskCompletionAmount
-  );
-}
-
-/**
  * 記録編集では、現在の残量だけでなく編集中セッションが追加した範囲も一度だけ
  * 利用可能量へ戻す。保存時のUPDATE_SESSIONが行う差し戻しと同じ前提に揃えることで、
  * 既存記録を増やせない・タスク範囲外まで入力できる、といった表示上限のずれを防ぐ。

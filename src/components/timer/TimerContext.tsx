@@ -6,7 +6,7 @@ import { useAuth } from '../../state/AuthContext';
 import { playChime, vibrate } from '../../lib/audio';
 import { showTimerNotification } from '../../lib/notify';
 
-export interface TimerTarget {
+interface TimerTarget {
   taskId: string | null;
   subjectId: string;
   materialId: string | null;
@@ -17,7 +17,7 @@ export interface TimerTarget {
   type?: 'new' | 'review' | 'mockReview' | 'pastExam';
 }
 
-export type TimerPhase = 'work' | 'break' | 'longBreak';
+type TimerPhase = 'work' | 'break' | 'longBreak';
 
 interface PersistedTimer {
   target: TimerTarget;
@@ -53,7 +53,8 @@ interface TimerContextValue {
   workSec: number;
   pendingRecord: boolean;
   pomodoro: PomodoroSettings;
-  start: (target: TimerTarget, mode?: TimerMode) => void;
+  /** 既存タイマーが無い時だけ開始する。開始できた場合はtrue。 */
+  start: (target: TimerTarget, mode?: TimerMode) => boolean;
   setMode: (mode: TimerMode) => void;
   pause: () => void;
   resume: () => void;
@@ -202,9 +203,12 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   }, [persisted?.runningSince, maybeAdvance]);
 
   const start = useCallback((target: TimerTarget, mode?: TimerMode) => {
+    // 最小化中も別導線から開始操作ができるため、Contextを単一の上書き防止境界にする。
+    // UI個別のチェックだけでは同一フレームの連打や新しい開始導線を防げない。
+    if (persistedRef.current) return false;
     const nowMs = Date.now();
     setNow(nowMs);
-    setPersisted({
+    const next: PersistedTimer = {
       target,
       mode: mode ?? settingsRef.current.defaultMode,
       runningSince: nowMs,
@@ -213,7 +217,10 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       phaseAccumulatedSec: 0,
       workCompletedSec: 0,
       owner: user?.username ?? '',
-    });
+    };
+    persistedRef.current = next;
+    setPersisted(next);
+    return true;
   }, [user?.username]);
 
   /** モード切替。それまでの実勉強時間は引き継ぐ */

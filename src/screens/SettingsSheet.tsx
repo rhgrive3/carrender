@@ -1,5 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlarmClock, BookOpen, CalendarCog, Database, Download, FileDown, Pin, Plus, Repeat, Target, Timer, Trophy, Upload, X } from 'lucide-react';
+import type { ReactNode } from 'react';
+import {
+  AlarmClock,
+  BookOpen,
+  CalendarCog,
+  ChevronRight,
+  Cloud,
+  Database,
+  Download,
+  FileDown,
+  Palette,
+  Pin,
+  Plus,
+  Repeat,
+  SlidersHorizontal,
+  Target,
+  Timer,
+  Trophy,
+  Upload,
+  UserRound,
+  X,
+} from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../state/AuthContext';
 import { Sheet } from '../components/ui/Sheet';
@@ -19,16 +40,75 @@ const SYNC_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   error: { label: '同期エラー(端末には保存済み)', cls: 'status-danger' },
 };
 
-export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+type SettingsPage = 'home' | 'goals' | 'schedule' | 'timer' | 'subjects' | 'appearance' | 'data';
+
+const SETTINGS_PAGES = new Set<SettingsPage>(['home', 'goals', 'schedule', 'timer', 'subjects', 'appearance', 'data']);
+
+const readSettingsPage = (value: unknown): SettingsPage =>
+  typeof value === 'string' && SETTINGS_PAGES.has(value as SettingsPage) ? value as SettingsPage : 'home';
+
+type NewEventDraft = {
+  title: string;
+  mode: 'weekly' | 'date' | 'range';
+  weekday: Weekday;
+  date: string;
+  startDate: string;
+  endDate: string;
+  start: string;
+  end: string;
+};
+
+type DayExceptionDraft = {
+  date: string;
+  load: DayLoad;
+  memo: string;
+  useWindow: boolean;
+  start: string;
+  end: string;
+};
+
+const createNewEventDraft = (): NewEventDraft => ({
+  title: '',
+  mode: 'weekly',
+  weekday: 1,
+  date: today(),
+  startDate: '',
+  endDate: '',
+  start: '08:00',
+  end: '16:00',
+});
+
+const createDayExceptionDraft = (): DayExceptionDraft => ({
+  date: today(),
+  load: 'normal',
+  memo: '',
+  useWindow: false,
+  start: '18:00',
+  end: '20:00',
+});
+
+const SETTINGS_PAGE_COPY: Record<Exclude<SettingsPage, 'home'>, { title: string; subtitle: string }> = {
+  goals: { title: '目標と学習方針', subtitle: 'ゴールと継続ペースを調整' },
+  schedule: { title: '時間とスケジュール', subtitle: '勉強できる時間を計画へ反映' },
+  timer: { title: 'タイマー', subtitle: '集中時間と通知をカスタマイズ' },
+  subjects: { title: '科目', subtitle: '科目名・色・優先度を管理' },
+  appearance: { title: '表示', subtitle: '端末に合わせてテーマを選択' },
+  data: { title: 'アカウントとデータ', subtitle: '同期・バックアップ・ログアウト' },
+};
+
+export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean; onClose: () => void; onDirtyChange?: (dirty: boolean) => void }) {
   const { state, dispatch, execute, syncStatus, syncConflict, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage } = useApp();
   const { user, logout, busy: authBusy } = useAuth();
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
   const syncInfo = SYNC_STATUS_LABEL[syncStatus] ?? SYNC_STATUS_LABEL.synced;
+  const [page, setPage] = useState<SettingsPage>('home');
 
   const [goalName, setGoalName] = useState(state.goal?.name ?? '');
   const [examDate, setExamDate] = useState(state.goal?.examDate ?? '');
   const [availability, setAvailability] = useState(state.availability);
+  const [selectedWeekday, setSelectedWeekday] = useState<Weekday>(1);
   const [events, setEvents] = useState(state.fixedEvents);
   const [studyDraft, setStudyDraft] = useState<StudySettingsDraft>(() => studySettingsDraft(state.settings));
   const [timerDraft, setTimerDraft] = useState<TimerSettings>(state.settings.timer);
@@ -37,36 +117,14 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   const [externalSections, setExternalSections] = useState<Set<'study' | 'timer' | 'weekly'>>(new Set());
   const [goalDirty, setGoalDirty] = useState(false);
   const [availabilityDirty, setAvailabilityDirty] = useState(false);
+  const [newEventDirty, setNewEventDirty] = useState(false);
+  const [dayExceptionDirty, setDayExceptionDirty] = useState(false);
+  const [subjectDraftDirty, setSubjectDraftDirty] = useState(false);
   const [otherExternalUpdate, setOtherExternalUpdate] = useState(false);
   const wasOpen = useRef(false);
   const remoteSnapshot = useRef({ study: '', timer: '', weekly: '', goal: '', availability: '', events: '' });
-  const [newEvent, setNewEvent] = useState<{
-    title: string;
-    mode: 'weekly' | 'date' | 'range';
-    weekday: Weekday;
-    date: string;
-    startDate: string;
-    endDate: string;
-    start: string;
-    end: string;
-  }>({
-    title: '',
-    mode: 'weekly',
-    weekday: 1,
-    date: today(),
-    startDate: '',
-    endDate: '',
-    start: '08:00',
-    end: '16:00',
-  });
-  const [dayException, setDayException] = useState<{
-    date: string;
-    load: DayLoad;
-    memo: string;
-    useWindow: boolean;
-    start: string;
-    end: string;
-  }>({ date: today(), load: 'normal', memo: '', useWindow: false, start: '18:00', end: '20:00' });
+  const [newEvent, setNewEvent] = useState<NewEventDraft>(createNewEventDraft);
+  const [dayException, setDayException] = useState<DayExceptionDraft>(createDayExceptionDraft);
 
   useEffect(() => {
     const signatures = {
@@ -78,6 +136,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       events: JSON.stringify(state.fixedEvents),
     };
     if (open && !wasOpen.current) {
+      setPage(readSettingsPage(window.history.state?.settingsPage));
       setGoalName(state.goal?.name ?? '');
       setExamDate(state.goal?.examDate ?? '');
       setAvailability(state.availability);
@@ -89,6 +148,11 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       setExternalSections(new Set());
       setGoalDirty(false);
       setAvailabilityDirty(false);
+      setNewEvent(createNewEventDraft());
+      setDayException(createDayExceptionDraft());
+      setNewEventDirty(false);
+      setDayExceptionDirty(false);
+      setSubjectDraftDirty(false);
       setOtherExternalUpdate(false);
     } else if (open) {
       const changed = (section: 'study' | 'timer' | 'weekly') => remoteSnapshot.current[section] && remoteSnapshot.current[section] !== signatures[section];
@@ -103,7 +167,67 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     wasOpen.current = open;
   }, [availabilityDirty, dirtySections, goalDirty, open, state.availability, state.fixedEvents, state.goal, state.settings]);
 
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      const sheet = pageRef.current?.closest<HTMLElement>('.sheet');
+      sheet?.scrollTo({ top: 0, behavior: 'auto' });
+      if (page !== 'home') sheet?.querySelector<HTMLButtonElement>('.sheet-back')?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, page]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPopState = (event: PopStateEvent) => {
+      if (event.state?.overlay !== 'settings') return;
+      const nextPage = readSettingsPage(event.state?.settingsPage);
+      if (page === 'subjects' && nextPage !== 'subjects' && subjectDraftDirty
+        && !window.confirm('保存されていない科目の変更があります。変更を破棄して設定一覧へ戻りますか？')) {
+        window.history.pushState(
+          { ...(event.state ?? {}), overlay: 'settings', settingsPage: 'subjects', settingsDepth: 2 },
+          '',
+          window.location.href,
+        );
+        return;
+      }
+      setPage(nextPage);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [open, page, subjectDraftDirty]);
+
   const markDirty = (section: 'study' | 'timer' | 'weekly') => setDirtySections((current) => new Set(current).add(section));
+  const updateNewEvent = (patch: Partial<NewEventDraft>) => {
+    setNewEvent((current) => ({ ...current, ...patch }));
+    setNewEventDirty(true);
+  };
+  const updateDayException = (patch: Partial<DayExceptionDraft>) => {
+    setDayException((current) => ({ ...current, ...patch }));
+    setDayExceptionDirty(true);
+  };
+  const loadDayException = (plan: DayPlanOverride) => {
+    if (dayExceptionDirty && !window.confirm('保存されていない日別例外の変更があります。変更を破棄して別の日を編集しますか？')) return;
+    const availabilityWindow = plan.availabilityWindows?.[0];
+    setDayException({
+      date: plan.date,
+      load: plan.load,
+      memo: plan.memo,
+      useWindow: Boolean(plan.availabilityWindows),
+      start: availabilityWindow?.start ?? '18:00',
+      end: availabilityWindow?.end ?? '20:00',
+    });
+    setDayExceptionDirty(false);
+  };
+  const navigateToPage = (nextPage: SettingsPage) => {
+    if (nextPage === page) return;
+    window.history.pushState(
+      { ...(window.history.state ?? {}), overlay: 'settings', settingsPage: nextPage, settingsDepth: 2 },
+      '',
+      window.location.href,
+    );
+    setPage(nextPage);
+  };
   const clearSection = (section: 'study' | 'timer' | 'weekly') => {
     setDirtySections((current) => { const next = new Set(current); next.delete(section); return next; });
     setExternalSections((current) => { const next = new Set(current); next.delete(section); return next; });
@@ -249,6 +373,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     setEvents(next);
     const result = execute({ type: 'UPDATE_FIXED_EVENTS', fixedEvents: next });
     setNewEvent({ ...newEvent, title: '' });
+    setNewEventDirty(false);
     toast(result.message ?? '固定予定を追加しました');
   };
 
@@ -264,6 +389,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       availabilityWindows: dayException.useWindow ? [{ start: dayException.start, end: dayException.end }] : null,
     };
     const result = execute({ type: 'UPDATE_DAY_PLAN', dayPlan });
+    setDayExceptionDirty(false);
     toast(result.message ?? '日別例外を保存しました');
   };
 
@@ -273,6 +399,16 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       sum + (window.start && window.end && window.start < window.end ? hmToMinutes(window.end) - hmToMinutes(window.start) : 0), 0);
     // 入力途中の start >= end でも行自体を消さない。保存時にまとめて検証する。
     setAvailability((prev) => prev.map((slot) => (slot.weekday === weekday ? { ...slot, windows, minutes } : slot)));
+  };
+
+  const copyAvailabilityWindows = (sourceWeekday: Weekday, targets: readonly Weekday[]) => {
+    const source = availability.find((slot) => slot.weekday === sourceWeekday);
+    if (!source) return;
+    setAvailabilityDirty(true);
+    setAvailability((current) => current.map((slot) => targets.includes(slot.weekday)
+      ? { ...slot, windows: source.windows.map((window) => ({ ...window })), minutes: source.minutes }
+      : slot));
+    toast(`${targets.length === 5 ? '平日' : '土日'}へ同じ時間帯をコピーしました。保存すると計画へ反映されます`);
   };
 
   const removeEvent = (id: string) => {
@@ -339,8 +475,150 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     return `平日${fmt(weekday)} ・ 日曜${fmt(weekend)}`;
   })();
 
+  const pageCopy = page === 'home' ? { title: '設定', subtitle: '学習環境を自分に合わせる' } : SETTINGS_PAGE_COPY[page];
+  const selectedAvailability = availability.find((slot) => slot.weekday === selectedWeekday) ?? availability[0];
+  const weeklySummary = state.settings.weeklyTargetMinutes > 0
+    ? `週${Math.round((state.settings.weeklyTargetMinutes / 60) * 10) / 10}時間`
+    : '目標時間なし';
+  const hasUnsavedDraft = goalDirty || availabilityDirty || newEventDirty || dayExceptionDirty || subjectDraftDirty || dirtySections.size > 0;
+
+  useEffect(() => {
+    onDirtyChange?.(open && hasUnsavedDraft);
+  }, [hasUnsavedDraft, onDirtyChange, open]);
+
+  useEffect(() => {
+    if (!open || !hasUnsavedDraft) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [hasUnsavedDraft, open]);
+
+  const returnToSettingsHome = () => {
+    if (window.history.state?.overlay === 'settings' && Number(window.history.state?.settingsDepth) === 2) {
+      window.history.back();
+      return;
+    }
+    setPage('home');
+  };
+
   return (
-    <Sheet open={open} onClose={onClose} title="設定">
+    <Sheet
+      open={open}
+      onClose={onClose}
+      onBack={page === 'home' ? undefined : returnToSettingsHome}
+      backLabel="設定の一覧へ戻る"
+      title={pageCopy.title}
+      subtitle={pageCopy.subtitle}
+      className="settings-sheet"
+    >
+      <div className="settings-page" data-settings-page={page} ref={pageRef}>
+      {page === 'home' && (
+        <>
+          <button type="button" className="settings-account-summary" onClick={() => navigateToPage('data')}>
+            <span className="settings-avatar" aria-hidden="true"><UserRound size={20} strokeWidth={2.1} /></span>
+            <span className="settings-account-copy">
+              <strong>{user?.username ?? '-'}</strong>
+              <span className={`settings-sync-state ${syncInfo.cls}`}>
+                <Cloud size={13} strokeWidth={2.2} aria-hidden="true" /> {syncInfo.label}
+              </span>
+            </span>
+            <ChevronRight size={18} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+
+          {(syncStatus === 'offline' || syncStatus === 'error' || syncConflict) && (
+            <button type="button" className="settings-attention" onClick={() => navigateToPage('data')}>
+              <span>{syncConflict ? '同期するデータを選ぶ必要があります' : '同期状態を確認してください'}</span>
+              <ChevronRight size={17} aria-hidden="true" />
+            </button>
+          )}
+
+          {hasUnsavedDraft && (
+            <button
+              type="button"
+              className="settings-unsaved-note"
+              onClick={() => navigateToPage(subjectDraftDirty ? 'subjects' : availabilityDirty || newEventDirty || dayExceptionDirty || dirtySections.has('study') ? 'schedule' : dirtySections.has('timer') ? 'timer' : 'goals')}
+            >
+              <span><strong>未保存の変更があります</strong><small>編集した項目を確認して保存してください</small></span>
+              <ChevronRight size={17} aria-hidden="true" />
+            </button>
+          )}
+
+          {state.isDemo && (
+            <div className="settings-demo-note">
+              <strong>デモデータを表示中</strong>
+              <span>本番利用を始める時は「アカウントとデータ」から初期化できます。</span>
+            </div>
+          )}
+
+          <section className="settings-group" aria-labelledby="settings-group-study">
+            <h3 id="settings-group-study">学習設定</h3>
+            <div className="settings-destination-list">
+              <SettingsDestination
+                icon={<Target size={18} />}
+                iconColor="var(--danger)"
+                title="目標と学習方針"
+                description="試験日・週間目標・復習"
+                value={weeklySummary}
+                onClick={() => navigateToPage('goals')}
+              />
+              <SettingsDestination
+                icon={<AlarmClock size={18} />}
+                iconColor="var(--accent)"
+                title="時間とスケジュール"
+                description="曜日・固定予定・日別の例外"
+                value={weekdaySummary}
+                onClick={() => navigateToPage('schedule')}
+              />
+              <SettingsDestination
+                icon={<Timer size={18} />}
+                iconColor="var(--accent-2)"
+                title="タイマー"
+                description="ポモドーロ・通知・消灯防止"
+                value={state.settings.timer.defaultMode === 'pomodoro' ? `${state.settings.timer.pomodoro.workMinutes}分集中` : 'ストップウォッチ'}
+                onClick={() => navigateToPage('timer')}
+              />
+              <SettingsDestination
+                icon={<BookOpen size={18} />}
+                iconColor="var(--ok)"
+                title="科目"
+                description="名前・色・優先度を編集"
+                value={`${state.subjects.length}科目`}
+                onClick={() => navigateToPage('subjects')}
+              />
+            </div>
+          </section>
+
+          <section className="settings-group" aria-labelledby="settings-group-app">
+            <h3 id="settings-group-app">アプリ</h3>
+            <div className="settings-destination-list">
+              <SettingsDestination
+                icon={<Palette size={18} />}
+                iconColor="var(--warn)"
+                title="表示"
+                description="ライト・ダーク・端末に合わせる"
+                value={state.settings.theme === 'auto' ? '自動' : state.settings.theme === 'dark' ? 'ダーク' : 'ライト'}
+                onClick={() => navigateToPage('appearance')}
+              />
+              <SettingsDestination
+                icon={<Database size={18} />}
+                iconColor="var(--text-sub)"
+                title="アカウントとデータ"
+                description="同期・バックアップ・ログアウト"
+                value={syncStatus === 'synced' ? '保存済み' : '確認が必要'}
+                onClick={() => navigateToPage('data')}
+              />
+            </div>
+          </section>
+
+          <p className="settings-version">StudyCommander v1.0</p>
+        </>
+      )}
+
+      {page === 'data' && (
+      <>
       {/* アカウント */}
       <div className="card" style={{ padding: 14, marginBottom: 14 }}>
         <div className="row spread">
@@ -382,23 +660,22 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           </div>
         )}
       </div>
+      </>
+      )}
 
-      {(externalSections.size > 0 || otherExternalUpdate) && (
+      {page !== 'home' && (externalSections.size > 0 || otherExternalUpdate) && (
         <div className="card status-warn" role="status" style={{ padding: 12, marginBottom: 14 }}>
           別の更新があります。編集中の入力は保持しています。保存すると、このセクションの入力項目だけを最新設定へ反映します。
         </div>
       )}
 
-      {/* デモデータ警告 */}
-      {state.isDemo && (
-        <div className="card" style={{ padding: 12, marginBottom: 14, borderColor: 'var(--warn)' }}>
-          <p style={{ fontSize: 13, lineHeight: 1.6 }}>
-            現在<b>デモデータ</b>を表示中です。本番利用の際は下の「データ管理」から初期化して自分のデータで始めてください。
-          </p>
-        </div>
-      )}
-
       {/* テーマ */}
+      {page === 'appearance' && (
+      <section className="settings-form-card" aria-labelledby="appearance-title">
+        <div className="settings-form-heading">
+          <span className="settings-form-icon" style={{ color: 'var(--warn)' }} aria-hidden="true"><Palette size={18} /></span>
+          <div><h3 id="appearance-title">カラーテーマ</h3><p>端末の外観設定に合わせることもできます。</p></div>
+        </div>
       <div className="field">
         <label>テーマ</label>
         <Segmented
@@ -412,10 +689,12 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           onChange={setTheme}
         />
       </div>
+      </section>
+      )}
 
       {/* 目標 */}
-      {state.goal && (
-        <Disclosure title="目標と試験日" icon={<Target size={16} strokeWidth={2.2} />} iconColor="var(--danger)" summary={`${state.goal.name} ・ ${formatDateShort(state.goal.examDate)}`}>
+      {page === 'goals' && state.goal && (
+        <Disclosure defaultOpen title="目標と試験日" icon={<Target size={16} strokeWidth={2.2} />} iconColor="var(--danger)" summary={`${state.goal.name} ・ ${formatDateShort(state.goal.examDate)}`}>
           <div className="field">
             <label htmlFor="st-goal">目標名</label>
             <input id="st-goal" value={goalName} onChange={(e) => { setGoalDirty(true); setGoalName(e.target.value); }} />
@@ -431,43 +710,59 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       )}
 
       {/* 勉強できる時間 */}
-      <Disclosure title="勉強できる時間" icon={<AlarmClock size={16} strokeWidth={2.2} />} iconColor="var(--accent)" summary={weekdaySummary}>
-      {availability.map((slot) => (
-        <div key={slot.weekday} className="card availability-card">
+      {page === 'schedule' && (
+      <Disclosure defaultOpen title="勉強できる時間" icon={<AlarmClock size={16} strokeWidth={2.2} />} iconColor="var(--accent)" summary={weekdaySummary}>
+      <div className="availability-week-strip" role="radiogroup" aria-label="編集する曜日">
+        {availability.map((slot) => (
+          <button
+            key={slot.weekday}
+            type="button"
+            role="radio"
+            aria-checked={selectedWeekday === slot.weekday}
+            className={selectedWeekday === slot.weekday ? 'active' : ''}
+            onClick={() => setSelectedWeekday(slot.weekday)}
+          >
+            <span>{WEEKDAY_LABELS[slot.weekday]}</span>
+            <small>{slot.minutes > 0 ? `${Math.round((slot.minutes / 60) * 10) / 10}h` : '休'}</small>
+          </button>
+        ))}
+      </div>
+      {selectedAvailability && (
+        <div className="card availability-card availability-editor">
           <div className="row spread">
-            <span style={{ fontWeight: 800, fontSize: 14 }}>{WEEKDAY_LABELS[slot.weekday]}曜日</span>
+            <span style={{ fontWeight: 800, fontSize: 14 }}>{WEEKDAY_LABELS[selectedAvailability.weekday]}曜日</span>
             <span className="muted" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {slot.minutes > 0 ? `${Math.floor(slot.minutes / 60)}h${slot.minutes % 60 > 0 ? `${slot.minutes % 60}m` : ''}` : '休み'}
+              {selectedAvailability.minutes > 0 ? `${Math.floor(selectedAvailability.minutes / 60)}h${selectedAvailability.minutes % 60 > 0 ? `${selectedAvailability.minutes % 60}m` : ''}` : '休み'}
             </span>
           </div>
-          {(slot.windows.length > 0 ? slot.windows : []).map((window, idx) => (
-            <div key={`${slot.weekday}-${idx}`} className="row mt-8" style={{ gap: 6 }}>
+          {selectedAvailability.windows.map((window, idx) => (
+            <div key={`${selectedAvailability.weekday}-${idx}`} className="row mt-8" style={{ gap: 6 }}>
               <input
-                aria-label={`${WEEKDAY_LABELS[slot.weekday]}曜日 ${idx + 1}枠目の開始`}
+                aria-label={`${WEEKDAY_LABELS[selectedAvailability.weekday]}曜日 ${idx + 1}枠目の開始`}
                 type="time"
                 value={window.start}
                 onChange={(e) => {
-                  const windows = slot.windows.map((w, i) => (i === idx ? { ...w, start: e.target.value } : w));
-                  updateAvailabilityWindows(slot.weekday, windows);
+                  const windows = selectedAvailability.windows.map((w, i) => (i === idx ? { ...w, start: e.target.value } : w));
+                  updateAvailabilityWindows(selectedAvailability.weekday, windows);
                 }}
                 style={inputStyle}
               />
               <span className="faint">〜</span>
               <input
-                aria-label={`${WEEKDAY_LABELS[slot.weekday]}曜日 ${idx + 1}枠目の終了`}
+                aria-label={`${WEEKDAY_LABELS[selectedAvailability.weekday]}曜日 ${idx + 1}枠目の終了`}
                 type="time"
                 value={window.end}
                 onChange={(e) => {
-                  const windows = slot.windows.map((w, i) => (i === idx ? { ...w, end: e.target.value } : w));
-                  updateAvailabilityWindows(slot.weekday, windows);
+                  const windows = selectedAvailability.windows.map((w, i) => (i === idx ? { ...w, end: e.target.value } : w));
+                  updateAvailabilityWindows(selectedAvailability.weekday, windows);
                 }}
                 style={inputStyle}
               />
               <button
                 className="btn btn-ghost btn-sm"
                 style={{ padding: '0 8px', minHeight: 44, fontSize: 17, flexShrink: 0 }}
-                aria-label={`${WEEKDAY_LABELS[slot.weekday]}曜日 ${idx + 1}枠目を削除`}
-                onClick={() => updateAvailabilityWindows(slot.weekday, slot.windows.filter((_, i) => i !== idx))}
+                aria-label={`${WEEKDAY_LABELS[selectedAvailability.weekday]}曜日 ${idx + 1}枠目を削除`}
+                onClick={() => updateAvailabilityWindows(selectedAvailability.weekday, selectedAvailability.windows.filter((_, i) => i !== idx))}
               >
                 <X size={16} strokeWidth={2.4} aria-hidden="true" />
               </button>
@@ -478,23 +773,28 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
               className="btn btn-secondary btn-sm"
               style={{ flex: 1 }}
               onClick={() => {
-                const last = slot.windows.length > 0 ? slot.windows[slot.windows.length - 1] : null;
-                const start = last?.end ?? (slot.weekday === 0 || slot.weekday === 6 ? '09:00' : '18:00');
-                updateAvailabilityWindows(slot.weekday, [...slot.windows, { start, end: minutesToHM(hmToMinutes(start) + 120) }]);
+                const last = selectedAvailability.windows.length > 0 ? selectedAvailability.windows[selectedAvailability.windows.length - 1] : null;
+                const start = last?.end ?? (selectedAvailability.weekday === 0 || selectedAvailability.weekday === 6 ? '09:00' : '18:00');
+                updateAvailabilityWindows(selectedAvailability.weekday, [...selectedAvailability.windows, { start, end: minutesToHM(hmToMinutes(start) + 120) }]);
               }}
             >
               時間帯を追加
             </button>
-            <button className="btn btn-ghost btn-sm" onClick={() => updateAvailabilityWindows(slot.weekday, [])}>
+            <button className="btn btn-ghost btn-sm" onClick={() => updateAvailabilityWindows(selectedAvailability.weekday, [])}>
               休みにする
             </button>
           </div>
+          <div className="availability-copy-actions" aria-label="時間帯を他の曜日へコピー">
+            <button type="button" onClick={() => copyAvailabilityWindows(selectedAvailability.weekday, [1, 2, 3, 4, 5])}>平日にコピー</button>
+            <button type="button" onClick={() => copyAvailabilityWindows(selectedAvailability.weekday, [0, 6])}>土日にコピー</button>
+          </div>
         </div>
-      ))}
+      )}
       <button className="btn btn-secondary btn-sm btn-block" onClick={saveAvailability}>
         曜日ごとの時間を保存して再計算
       </button>
 
+      <Disclosure title="計画の詳細設定" icon={<SlidersHorizontal size={16} strokeWidth={2.2} />} iconColor="var(--text-sub)" summary={`${studyDraft.sessionMinMinutes}〜${studyDraft.sessionMaxMinutes}分 / コマ`}>
       <div className="section-label compact">1日・1コマの上限</div>
       <div className="field-row">
         <div className="field">
@@ -542,8 +842,11 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         上限を保存して再計算
       </button>
       </Disclosure>
+      </Disclosure>
+      )}
 
       {/* 復習の自動生成 */}
+      {page === 'goals' && (
       <Disclosure
         title="復習の自動生成"
         icon={<Repeat size={16} strokeWidth={2.2} />}
@@ -562,8 +865,10 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           オフにすると、教材の設定に関わらず復習タスクは自動生成されず、生成済みの未着手の復習タスクも計画から外れます。復習したい範囲は手動タスクで自由に追加できます
         </p>
       </Disclosure>
+      )}
 
       {/* 週間目標 */}
+      {page === 'goals' && (
       <Disclosure
         title="週間目標"
         icon={<Trophy size={16} strokeWidth={2.2} />}
@@ -588,14 +893,15 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           週間目標を保存
         </button>
       </Disclosure>
+      )}
 
       {/* タイマーと通知 */}
-      <Disclosure
-        title="タイマーと通知"
-        icon={<Timer size={16} strokeWidth={2.2} />}
-        iconColor="var(--accent-2)"
-        summary={`${state.settings.timer.defaultMode === 'pomodoro' ? 'ポモドーロ' : 'ストップウォッチ'} ・ ${state.settings.timer.pomodoro.workMinutes}分集中`}
-      >
+      {page === 'timer' && (
+      <section className="settings-form-card" aria-labelledby="timer-settings-title">
+        <div className="settings-form-heading">
+          <span className="settings-form-icon" style={{ color: 'var(--accent-2)' }} aria-hidden="true"><Timer size={18} /></span>
+          <div><h3 id="timer-settings-title">集中セッション</h3><p>開始時の既定値と、フェーズが変わる時の動作を設定します。</p></div>
+        </div>
         <div className="field">
           <label>標準のタイマー</label>
           <Segmented
@@ -679,9 +985,11 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           <input type="checkbox" checked={state.settings.timer.keepScreenOn} onChange={(e) => setTimerFlag('keepScreenOn', e.target.checked)} />
           タイマー中は画面を消灯しない
         </label>
-      </Disclosure>
+      </section>
+      )}
 
       {/* 固定予定 */}
+      {page === 'schedule' && (
       <Disclosure title="固定予定" icon={<Pin size={16} strokeWidth={2.2} />} iconColor="var(--warn)" summary={events.length > 0 ? `${events.length}件` : '学校・塾など'}>
       {events.map((ev) => (
         <div key={ev.id} className="row" style={{ marginBottom: 8 }}>
@@ -705,7 +1013,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             { value: 'range', label: '期間' },
           ]}
           value={newEvent.mode}
-          onChange={(mode) => setNewEvent({ ...newEvent, mode })}
+          onChange={(mode) => updateNewEvent({ mode })}
         />
       </div>
       <div className="field-row">
@@ -713,7 +1021,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           <input
             aria-label="予定名"
             value={newEvent.title}
-            onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
+            onChange={(e) => updateNewEvent({ title: e.target.value })}
             placeholder="予定名(例: 部活)"
           />
         </div>
@@ -722,7 +1030,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             <select
               aria-label="曜日"
               value={newEvent.weekday}
-              onChange={(e) => setNewEvent({ ...newEvent, weekday: Number(e.target.value) as Weekday })}
+              onChange={(e) => updateNewEvent({ weekday: Number(e.target.value) as Weekday })}
             >
               {WEEKDAY_LABELS.map((label, i) => (
                 <option key={label} value={i}>
@@ -731,14 +1039,14 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
               ))}
             </select>
           ) : newEvent.mode === 'date' ? (
-            <input aria-label="日付" type="date" value={newEvent.date} onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })} />
+            <input aria-label="日付" type="date" value={newEvent.date} onChange={(e) => updateNewEvent({ date: e.target.value })} />
           ) : (
             <div className="row" style={{ gap: 8 }}>
               <input
                 aria-label="期間開始日"
                 type="date"
                 value={newEvent.startDate}
-                onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+                onChange={(e) => updateNewEvent({ startDate: e.target.value })}
               />
               <span className="faint">〜</span>
               <input
@@ -746,7 +1054,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
                 type="date"
                 value={newEvent.endDate}
                 min={newEvent.startDate || undefined}
-                onChange={(e) => setNewEvent({ ...newEvent, endDate: e.target.value })}
+                onChange={(e) => updateNewEvent({ endDate: e.target.value })}
               />
             </div>
           )}
@@ -760,7 +1068,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
               id="fixed-start-date"
               type="date"
               value={newEvent.startDate}
-              onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+              onChange={(e) => updateNewEvent({ startDate: e.target.value })}
             />
           </div>
           <div className="field" style={{ marginBottom: 8 }}>
@@ -770,27 +1078,29 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
               type="date"
               value={newEvent.endDate}
               min={newEvent.startDate || undefined}
-              onChange={(e) => setNewEvent({ ...newEvent, endDate: e.target.value })}
+              onChange={(e) => updateNewEvent({ endDate: e.target.value })}
             />
           </div>
         </div>
       )}
       <div className="row" style={{ marginBottom: 8 }}>
-        <input aria-label="開始時刻" type="time" value={newEvent.start} onChange={(e) => setNewEvent({ ...newEvent, start: e.target.value })} style={inputStyle} />
+        <input aria-label="開始時刻" type="time" value={newEvent.start} onChange={(e) => updateNewEvent({ start: e.target.value })} style={inputStyle} />
         <span className="faint">〜</span>
-        <input aria-label="終了時刻" type="time" value={newEvent.end} onChange={(e) => setNewEvent({ ...newEvent, end: e.target.value })} style={inputStyle} />
+        <input aria-label="終了時刻" type="time" value={newEvent.end} onChange={(e) => updateNewEvent({ end: e.target.value })} style={inputStyle} />
         <button className="btn btn-secondary btn-sm" onClick={addEvent}>
           追加
         </button>
       </div>
       </Disclosure>
+      )}
 
       {/* 日別例外 */}
+      {page === 'schedule' && (
       <Disclosure title="日別の例外" icon={<CalendarCog size={16} strokeWidth={2.2} />} iconColor="var(--accent)" summary={state.dayPlans.length > 0 ? `${state.dayPlans.length}件` : '模試・休養日など'}>
       <div className="field-row">
         <div className="field">
           <label htmlFor="st-ex-date">日付</label>
-          <input id="st-ex-date" type="date" value={dayException.date} onChange={(e) => setDayException({ ...dayException, date: e.target.value })} />
+          <input id="st-ex-date" type="date" value={dayException.date} onChange={(e) => updateDayException({ date: e.target.value })} />
         </div>
         <div className="field">
           <label>負荷</label>
@@ -803,24 +1113,24 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
               { value: 'rest', label: '休養' },
             ]}
             value={dayException.load}
-            onChange={(load) => setDayException({ ...dayException, load })}
+            onChange={(load) => updateDayException({ load })}
           />
         </div>
       </div>
       <label className="check-row" style={{ marginBottom: 10 }}>
-        <input type="checkbox" checked={dayException.useWindow} onChange={(e) => setDayException({ ...dayException, useWindow: e.target.checked })} />
+        <input type="checkbox" checked={dayException.useWindow} onChange={(e) => updateDayException({ useWindow: e.target.checked })} />
         この日だけ勉強可能時間を上書きする
       </label>
       {dayException.useWindow && (
         <div className="row" style={{ marginBottom: 8 }}>
-          <input aria-label="例外開始時刻" type="time" value={dayException.start} onChange={(e) => setDayException({ ...dayException, start: e.target.value })} style={inputStyle} />
+          <input aria-label="例外開始時刻" type="time" value={dayException.start} onChange={(e) => updateDayException({ start: e.target.value })} style={inputStyle} />
           <span className="faint">〜</span>
-          <input aria-label="例外終了時刻" type="time" value={dayException.end} onChange={(e) => setDayException({ ...dayException, end: e.target.value })} style={inputStyle} />
+          <input aria-label="例外終了時刻" type="time" value={dayException.end} onChange={(e) => updateDayException({ end: e.target.value })} style={inputStyle} />
         </div>
       )}
       <div className="field">
         <label htmlFor="st-ex-memo">メモ</label>
-        <input id="st-ex-memo" value={dayException.memo} onChange={(e) => setDayException({ ...dayException, memo: e.target.value })} placeholder="例: 模試、復習日、明日は2時間だけ" />
+        <input id="st-ex-memo" value={dayException.memo} onChange={(e) => updateDayException({ memo: e.target.value })} placeholder="例: 模試、復習日、明日は2時間だけ" />
       </div>
       <button className="btn btn-secondary btn-sm btn-block" onClick={saveDayException}>
         例外を保存して再計算
@@ -832,10 +1142,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             if (plans.length === 0) return null;
             return <div key={group}><div className="faint mt-8">{group === 'future' ? '今後の例外' : '過去の例外'}</div>{plans.map((plan) => (
               <div key={plan.date} className="mini-block">
-                <button type="button" className="btn btn-ghost" style={{ flex: 1, justifyContent: 'flex-start', minWidth: 0 }} onClick={() => {
-                  const window = plan.availabilityWindows?.[0];
-                  setDayException({ date: plan.date, load: plan.load, memo: plan.memo, useWindow: Boolean(plan.availabilityWindows), start: window?.start ?? '18:00', end: window?.end ?? '20:00' });
-                }}><span style={{ fontWeight: 800 }}>{formatDateShort(plan.date)}</span><span className="faint">{plan.load === 'rest' ? '休養' : plan.load === 'light' ? '軽め' : plan.load === 'heavy' ? '重め' : '通常'}</span>{plan.memo && <span className="muted text-ellipsis">{plan.memo}</span>}</button>
+                <button type="button" className="btn btn-ghost" style={{ flex: 1, justifyContent: 'flex-start', minWidth: 0 }} onClick={() => loadDayException(plan)}><span style={{ fontWeight: 800 }}>{formatDateShort(plan.date)}</span><span className="faint">{plan.load === 'rest' ? '休養' : plan.load === 'light' ? '軽め' : plan.load === 'heavy' ? '重め' : '通常'}</span>{plan.memo && <span className="muted text-ellipsis">{plan.memo}</span>}</button>
                 <button type="button" className="icon-btn danger" aria-label={`${formatDateShort(plan.date)}の例外を削除`} onClick={() => {
                   if (!window.confirm('この日別例外を削除し、曜日テンプレートへ戻しますか？')) return;
                   execute({ type: 'DELETE_DAY_PLAN', date: plan.date }); toast('日別例外を削除して再計算しました');
@@ -846,11 +1153,13 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         </div>
       )}
       </Disclosure>
+      )}
 
-      <SubjectManager />
+      {page === 'subjects' && <SubjectManager onDirtyChange={setSubjectDraftDirty} />}
 
       {/* データ管理 */}
-      <Disclosure title="データ管理" icon={<Database size={16} strokeWidth={2.2} />} iconColor="var(--text-sub)" summary="バックアップ（変更履歴は除外）">
+      {page === 'data' && (
+      <Disclosure defaultOpen title="データ管理" icon={<Database size={16} strokeWidth={2.2} />} iconColor="var(--text-sub)" summary="バックアップ（変更履歴は除外）">
       <p className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 10 }}>
         教材・現在の予定・学習記録・未達履歴・設定を保存します。容量を抑えるため、復元に不要な「計画の変更履歴」はバックアップに含めません。
       </p>
@@ -881,27 +1190,74 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         すべてのデータを初期化
       </button>
       </Disclosure>
+      )}
 
-      <p className="faint" style={{ textAlign: 'center', marginTop: 18 }}>
+      {page === 'data' && <p className="faint" style={{ textAlign: 'center', marginTop: 18 }}>
         StudyCommander v1.0 ・ データはアカウントに紐づけてクラウドに保存されます
-      </p>
+      </p>}
+      </div>
     </Sheet>
   );
 }
 
-function SubjectManager() {
+function SettingsDestination({
+  icon,
+  iconColor,
+  title,
+  description,
+  value,
+  onClick,
+}: {
+  icon: ReactNode;
+  iconColor: string;
+  title: string;
+  description: string;
+  value: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className="settings-destination" onClick={onClick}>
+      <span className="settings-destination-icon" style={{ color: iconColor }} aria-hidden="true">{icon}</span>
+      <span className="settings-destination-copy">
+        <strong>{title}</strong>
+        <span>{description}</span>
+      </span>
+      <span className="settings-destination-value">{value}</span>
+      <ChevronRight className="settings-destination-chevron" size={18} strokeWidth={2.2} aria-hidden="true" />
+    </button>
+  );
+}
+
+function SubjectManager({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
   const { state, execute } = useApp();
   const toast = useToast();
   const [editing, setEditing] = useState<Subject | null>(null);
   const [mergeTarget, setMergeTarget] = useState('');
-  const startAdd = () => setEditing({ id: genId('subj'), name: '', color: '#6366f1', importance: 3, weakness: 3 });
+  const persistedSubject = editing ? state.subjects.find((subject) => subject.id === editing.id) : undefined;
+  const editingDirty = Boolean(editing && (persistedSubject
+    ? JSON.stringify(editing) !== JSON.stringify(persistedSubject)
+    : editing.name.trim() || editing.color !== '#6366f1' || editing.importance !== 3 || editing.weakness !== 3));
+  const switchEditingTarget = (next: Subject) => {
+    if (editing?.id === next.id) return;
+    if (editingDirty && !window.confirm('保存されていない科目の変更があります。変更を破棄して別の科目を編集しますか？')) return;
+    setEditing(next);
+    setMergeTarget('');
+  };
+  const startAdd = () => switchEditingTarget({ id: genId('subj'), name: '', color: '#6366f1', importance: 3, weakness: 3 });
+
+  useEffect(() => {
+    onDirtyChange(editingDirty);
+  }, [editingDirty, onDirtyChange]);
+
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+
   const referenced = editing ? state.materials.some((item) => item.subjectId === editing.id)
     || state.tasks.some((item) => item.subjectId === editing.id)
     || state.sessions.some((item) => item.subjectId === editing.id) : false;
-  return (
-    <Disclosure title="科目管理" icon={<BookOpen size={16} strokeWidth={2.2} />} iconColor="var(--accent)" summary={`${state.subjects.length}科目`}>
+  const content = (
+    <>
       {state.subjects.map((subject) => (
-        <button type="button" className="btn btn-secondary btn-block mt-8" key={subject.id} onClick={() => { setEditing({ ...subject }); setMergeTarget(''); }}>
+        <button type="button" className="btn btn-secondary btn-block mt-8" key={subject.id} onClick={() => switchEditingTarget({ ...subject })}>
           <span className="subject-chip" style={{ background: `${subject.color}26`, color: subject.color }}>{subject.name}</span>
           <span className="faint">重要度{subject.importance}・苦手度{subject.weakness}</span>
         </button>
@@ -933,7 +1289,16 @@ function SubjectManager() {
           {state.subjects.length <= 1 && <p className="field-hint">最後の1科目は削除できません。</p>}
         </div>
       )}
-    </Disclosure>
+    </>
+  );
+  return (
+    <section className="settings-form-card" aria-labelledby="subject-manager-title">
+      <div className="settings-form-heading">
+        <span className="settings-form-icon" style={{ color: 'var(--accent)' }} aria-hidden="true"><BookOpen size={18} /></span>
+        <div><h3 id="subject-manager-title">登録済みの科目</h3><p>教材・タスク・記録に使う表示をまとめて変更できます。</p></div>
+      </div>
+      {content}
+    </section>
   );
 }
 

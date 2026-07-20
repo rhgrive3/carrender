@@ -43,7 +43,7 @@ const TABS: { id: Tab; label: string; Icon: (p: { active: boolean }) => JSX.Elem
   { id: 'plan', label: '計画', Icon: IconPlan },
   { id: 'materials', label: '教材', Icon: IconBook },
   { id: 'records', label: '記録', Icon: IconTimer },
-  { id: 'analytics', label: '分析', Icon: IconChart },
+  { id: 'analytics', label: '振り返り', Icon: IconChart },
 ];
 
 function Shell() {
@@ -65,8 +65,12 @@ function Shell() {
   const [materialsPane, setMaterialsPane] = useState<MaterialsPane>(initialRoute.materialsPane);
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set([initialRoute.tab]));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpenRef = useRef(false);
+  const settingsDirtyRef = useRef(false);
+  const settingsCloseApprovedRef = useRef(false);
   const scrollPositions = useRef<Partial<Record<Tab, number>>>({});
   const activeTabRef = useRef<Tab>(initialRoute.tab);
+  const wasOnboardedRef = useRef(state.onboarded);
   const [memoryTodaySummary, setMemoryTodaySummary] = useState<{
     weakCount: number;
     recent?: { answerCount: number; needsReviewCount: number };
@@ -76,6 +80,14 @@ function Shell() {
     storeShellTab(typeof window === 'undefined' ? null : window.sessionStorage, tab);
     activeTabRef.current = tab;
   }, [tab]);
+
+  useLayoutEffect(() => {
+    const newlyOnboarded = state.onboarded && !wasOnboardedRef.current;
+    wasOnboardedRef.current = state.onboarded;
+    if (!newlyOnboarded) return;
+    scrollPositions.current = {};
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [state.onboarded]);
 
   const navigateShell = useCallback((nextTab: Tab, nextMaterialsPane: MaterialsPane = materialsPane) => {
     if (nextTab === tab && (nextTab !== 'materials' || nextMaterialsPane === materialsPane)) {
@@ -108,7 +120,7 @@ function Shell() {
   const openSettings = useCallback(() => {
     if (!settingsOpen) {
       window.history.pushState(
-        { ...(window.history.state ?? {}), shellTab: tab, materialsPane, overlay: 'settings' },
+        { ...(window.history.state ?? {}), shellTab: tab, materialsPane, overlay: 'settings', settingsPage: 'home', settingsDepth: 1 },
         '',
         window.location.href,
       );
@@ -117,12 +129,25 @@ function Shell() {
   }, [materialsPane, settingsOpen, tab]);
 
   const closeSettings = useCallback(() => {
+    if (settingsDirtyRef.current && !window.confirm('保存されていない変更があります。変更を破棄して設定を閉じますか？')) return;
+    settingsCloseApprovedRef.current = true;
     if (window.history.state?.overlay === 'settings') {
-      window.history.back();
+      const settingsDepth = Number(window.history.state?.settingsDepth) === 2 ? 2 : 1;
+      window.history.go(-settingsDepth);
       return;
     }
+    settingsCloseApprovedRef.current = false;
+    settingsDirtyRef.current = false;
     setSettingsOpen(false);
   }, []);
+
+  const handleSettingsDirtyChange = useCallback((dirty: boolean) => {
+    settingsDirtyRef.current = dirty;
+  }, []);
+
+  useEffect(() => {
+    settingsOpenRef.current = settingsOpen;
+  }, [settingsOpen]);
 
   useEffect(() => {
     window.history.scrollRestoration = 'manual';
@@ -144,6 +169,22 @@ function Shell() {
     const onPopState = (event: PopStateEvent) => {
       scrollPositions.current[activeTabRef.current] = window.scrollY;
       const route = readShellRoute(window.location.hash, 'today');
+      const leavingSettings = settingsOpenRef.current && event.state?.overlay !== 'settings';
+      const approved = settingsCloseApprovedRef.current;
+      settingsCloseApprovedRef.current = false;
+
+      if (leavingSettings && !approved && settingsDirtyRef.current) {
+        if (!window.confirm('保存されていない変更があります。変更を破棄して設定を閉じますか？')) {
+          window.history.pushState(
+            { ...(event.state ?? {}), shellTab: route.tab, materialsPane: route.materialsPane, overlay: 'settings', settingsPage: 'home', settingsDepth: 1 },
+            '',
+            shellRouteHref(route.tab, route.materialsPane),
+          );
+          setSettingsOpen(true);
+          return;
+        }
+      }
+
       setTab(route.tab);
       setMaterialsPane(route.materialsPane);
       setSettingsOpen(event.state?.overlay === 'settings');
@@ -233,6 +274,7 @@ function Shell() {
         <div className="shell-tab-panel" hidden={tab !== 'today'} aria-hidden={tab !== 'today'}>
         {visitedTabs.has('today') && <TodayScreen
           onOpenSettings={openSettings}
+          onOpenPlan={() => navigateShell('plan')}
           memorySetCount={memorySets.length}
           hasActiveMemorySession={Boolean(activeMemorySession)}
           memoryWeakCount={memoryTodaySummary.weakCount}
@@ -257,7 +299,7 @@ function Shell() {
           {visitedTabs.has('analytics') && <AnalyticsScreen onNavigate={navigateShell} />}
         </div>
 
-        <SettingsSheet open={settingsOpen} onClose={closeSettings} />
+        <SettingsSheet open={settingsOpen} onClose={closeSettings} onDirtyChange={handleSettingsDirtyChange} />
         <TimerOverlay />
       </div>
 

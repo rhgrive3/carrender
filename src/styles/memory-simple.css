@@ -123,16 +123,6 @@
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-.memory-simple-editor-note {
-  margin-bottom: 12px;
-  border-radius: 12px;
-  background: var(--accent-soft);
-  color: var(--text-sub);
-  padding: 11px 13px;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
 .memory-simple-card-editor {
   background: var(--bg-elev2);
 }
@@ -214,17 +204,6 @@
   cursor: pointer;
 }
 
-.memory-simple-card-kicker {
-  display: inline-flex;
-  align-self: center;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  padding: 5px 10px;
-  font-size: 11px;
-  font-weight: 800;
-}
-
 .memory-simple-study-card h1 {
   white-space: pre-wrap;
 }
@@ -302,18 +281,23 @@
 }
 
 @media (max-width: 460px) {
-  .memory-toolbar {
-    align-items: flex-start;
-  }
-
-  .memory-toolbar-actions {
+  .memory-simple-home .memory-toolbar {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+    gap: 10px;
   }
 
-  .memory-toolbar-actions .btn {
-    min-width: 44px;
+  .memory-simple-home .memory-toolbar-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .memory-simple-home .memory-toolbar-actions .btn {
+    min-width: 0;
     padding-inline: 10px;
+    white-space: nowrap;
   }
 
   .memory-simple-assessment {

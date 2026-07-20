@@ -1,5 +1,4 @@
 const LEASE_PREFIX = 'studycommander_main_writer_lease_v1:';
-export const MAIN_STATE_WRITER_LEASE_CHANGED_EVENT = 'studycommander-main-writer-lease-changed';
 export const MAIN_STATE_WRITER_LEASE_MS = 15_000;
 export const MAIN_STATE_WRITER_HEARTBEAT_MS = 5_000;
 const MAIN_STATE_WRITER_CLOCK_SKEW_TOLERANCE_MS = MAIN_STATE_WRITER_HEARTBEAT_MS;
@@ -80,17 +79,6 @@ export function mayAcquireMainStateWriterLease(
     || current.holderId === candidateHolderId;
 }
 
-function notify(owner: string, active: boolean): void {
-  if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(MAIN_STATE_WRITER_LEASE_CHANGED_EVENT, {
-    detail: { owner, active },
-  }));
-}
-
-export function currentMainStateWriterHolderId(): string {
-  return holderId;
-}
-
 export function readMainStateWriterLease(owner: string, store: StorageLike | null = storage()): MainStateWriterLease | null {
   if (!store || !owner.trim()) return null;
   return parseMainStateWriterLease(store.getItem(keyFor(owner)));
@@ -120,7 +108,6 @@ export function ensureMainStateWriterLease(
     const verified = readMainStateWriterLease(owner, store);
     const active = verified?.holderId === candidateHolderId
       && isPlausibleActiveLease(verified, owner, now);
-    if (candidateHolderId === holderId) notify(owner, active);
     return active;
   } catch {
     return true;
@@ -150,7 +137,6 @@ export function releaseMainStateWriterLease(
   if (current?.holderId !== candidateHolderId) return;
   try {
     store.removeItem(keyFor(owner));
-    if (candidateHolderId === holderId) notify(owner, false);
   } catch {
     // Best effort during pagehide.
   }
