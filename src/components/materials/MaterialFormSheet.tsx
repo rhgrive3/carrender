@@ -8,12 +8,15 @@ import { Sheet } from '../ui/Sheet';
 import { useToast } from '../ui/Toast';
 import { UNIT_OPTIONS } from '../../data/defaults';
 import { validateMaterialDates } from '../../lib/materialValidation';
+import { useTimer } from '../timer/TimerContext';
 
 export function MaterialFormSheet({ material, onClose }: { material: Material | null; onClose: () => void }) {
   const { state, execute } = useApp();
+  const timer = useTimer();
   const toast = useToast();
   const t = today();
   const isEdit = material !== null;
+  const timerLocksMaterialIdentity = Boolean(material && timer.target?.materialId === material.id);
 
   const [name, setName] = useState(material?.name ?? '');
   const [subjectId, setSubjectId] = useState(material?.subjectId ?? state.subjects[0]?.id ?? '');
@@ -45,6 +48,10 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
   const [round, setRound] = useState(material?.round ?? 1);
 
   const save = () => {
+    if (timerLocksMaterialIdentity && material && subjectId !== material.subjectId) {
+      toast('この教材を計測中です。タイマーを終了してから科目を変更してください');
+      return;
+    }
     if (!name.trim() || !subjectId || totalAmount <= 0) {
       toast('教材名・科目・総量を入力してください');
       return;
@@ -100,6 +107,10 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
 
   const remove = (deleteSessions = false) => {
     if (!material) return;
+    if (timerLocksMaterialIdentity) {
+      toast('この教材を計測中です。タイマーを終了してから削除してください');
+      return;
+    }
     const description = deleteSessions
       ? '教材・関連タスク・この教材の学習記録を完全に削除します。分析の集計も減り、取り消せるのは15秒間です。'
       : '教材と未完了タスクを削除します。完了済みタスクと過去の学習記録は集計のため保持します。';
@@ -122,11 +133,12 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       </div>
       <div className="field">
         <label htmlFor="mf-subject">科目</label>
-        <select id="mf-subject" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+        <select id="mf-subject" value={subjectId} disabled={timerLocksMaterialIdentity} aria-describedby={timerLocksMaterialIdentity ? 'mf-timer-lock-hint' : undefined} onChange={(e) => setSubjectId(e.target.value)}>
           {state.subjects.map((s) => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
+        {timerLocksMaterialIdentity && <small id="mf-timer-lock-hint" className="field-hint">計測中は記録先を守るため、科目変更と教材削除はできません。</small>}
       </div>
       <div className="field">
         <label htmlFor="mf-total">総量（{unit}）</label>
@@ -236,8 +248,8 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       </Disclosure>
 
       <button className="btn btn-primary btn-block mt-12" onClick={save}>{isEdit ? '保存して再計算' : '追加して計画に反映'}</button>
-      {isEdit && <button className="btn btn-danger btn-block mt-12" onClick={() => remove(false)}>教材を削除（記録は保持）</button>}
-      {isEdit && material && state.sessions.some((session) => session.materialId === material.id) && <button className="btn btn-ghost btn-block mt-8 danger" onClick={() => remove(true)}>教材と学習記録を完全削除</button>}
+      {isEdit && <button className="btn btn-danger btn-block mt-12" disabled={timerLocksMaterialIdentity} onClick={() => remove(false)}>教材を削除（記録は保持）</button>}
+      {isEdit && material && state.sessions.some((session) => session.materialId === material.id) && <button className="btn btn-ghost btn-block mt-8 danger" disabled={timerLocksMaterialIdentity} onClick={() => remove(true)}>教材と学習記録を完全削除</button>}
     </Sheet>
   );
 }
