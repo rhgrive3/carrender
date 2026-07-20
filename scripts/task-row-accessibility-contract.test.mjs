@@ -11,7 +11,7 @@ test('task card exposes a named article and heading', () => {
 
 test('task card exposes status and details to assistive technology', () => {
   assert.match(source, /aria-describedby=\{`\$\{detailsId\} \$\{statusId\}`\}/);
-  assert.match(source, /id=\{statusId\}>\{isDone \? '完了済み' : isDoing \? '計測中' : '未完了'\}<\/span>/);
+  assert.match(source, /id=\{statusId\}>\{isDone \? '完了済み' : ownsActiveTimer \? '計測中' : '未完了'\}<\/span>/);
 });
 
 test('task actions are grouped and buttons declare their type', () => {

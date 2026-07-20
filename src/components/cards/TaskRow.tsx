@@ -26,7 +26,6 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
 
   const subject = state.subjects.find((s) => s.id === task.subjectId);
   const isDone = task.status === 'done';
-  const isDoing = task.status === 'doing';
   const ownsActiveTimer = timer.target?.taskId === task.id;
   const lock = task.placementLock ?? (task.generatedBy === 'manual' ? (task.scheduledStart ? 'time' : 'date') : 'none');
 
@@ -49,7 +48,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
   };
 
   const postpone = () => {
-    if (isDoing) {
+    if (ownsActiveTimer) {
       toast('計測中のタスクは延期できません。タイマーを終了してから操作してください');
       return;
     }
@@ -70,7 +69,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
             <SubjectChip subject={subject} />
             <TaskTypeChip type={task.type} />
             <span className="task-time">{lock === 'time' ? '時刻固定' : lock === 'date' ? '日付固定' : '自動'}</span>
-            {isDoing && <span className="status-badge status-accent">進行中</span>}
+            {ownsActiveTimer && <span className="status-badge status-accent">進行中</span>}
             {showDate && (
               <time className="task-time" dateTime={task.scheduledDate}>
                 {task.scheduledDate.slice(5).replace('-', '/')}
@@ -83,17 +82,17 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
             <span className="task-time"> ・{task.estimatedMinutes}分</span>
             {task.scheduledStart && <span className="task-time"> ・{task.scheduledStart}〜</span>}
           </div>
-          <span className="sr-only" id={statusId}>{isDone ? '完了済み' : isDoing ? '計測中' : '未完了'}</span>
+          <span className="sr-only" id={statusId}>{isDone ? '完了済み' : ownsActiveTimer ? '計測中' : '未完了'}</span>
         </div>
         {!isDone && (
           <div className="task-actions" role="group" aria-label={`${task.title}の操作`}>
-            {!isDoing && lock !== 'none' && (
+            {!ownsActiveTimer && task.status !== 'doing' && lock !== 'none' && (
               <button type="button" className="task-action-btn" aria-label={`${task.title}のロックを解除`} onClick={() => dispatch({ type: 'UNLOCK_TASK', taskId: task.id })}>
                 <span className="ta-icon" aria-hidden="true"><Unlock size={15} strokeWidth={2.4} /></span>
                 <span className="ta-label">解除</span>
               </button>
             )}
-            {!isDoing && (
+            {!ownsActiveTimer && (
               <button type="button" className="task-action-btn" aria-label={`${task.title}を延期`} onClick={postpone}>
                 <span className="ta-icon" aria-hidden="true"><SkipForward size={15} strokeWidth={2.4} /></span>
                 <span className="ta-label">延期</span>
