@@ -68,11 +68,15 @@ function isCompletedMaterialWork(task: StudyTask, material: Material): boolean {
   return sourceType === 'material';
 }
 
+function completionOperationAt(session: AppState['sessions'][number]): string {
+  return session.updatedAt ?? session.startedAt;
+}
+
 /**
  * 完了記録は残っているのに、対応タスクがplannedへ戻った旧データを修復する。
  * taskSnapshotBeforeは完了操作直前の不変履歴なので、そこから当時の日付・範囲を復元し、
  * 今日のチェック表示と達成率を守る。同一タスクを複数回完了した履歴がある場合は、
- * 最後の完了操作を正として古いスナップショットへ巻き戻さない。
+ * 学習開始時刻ではなく最後に保存・更新された完了操作を正として古いスナップショットへ巻き戻さない。
  *
  * タスク自体が存在しない場合は、明示削除と旧不具合による消失を判別できない。
  * 使用者の削除操作を起動時修復で取り消さないため、欠損タスクは復元しない。
@@ -85,7 +89,9 @@ export function reconcileCompletedTaskHistory(state: AppState): CompletedTaskHis
   const latestCompletedSessionByTask = new Map<string, AppState['sessions'][number]>();
   const completedSessions = state.sessions
     .filter((session) => session.completedTask && session.taskId && session.taskSnapshotBefore)
-    .sort((left, right) => right.startedAt.localeCompare(left.startedAt) || right.id.localeCompare(left.id));
+    .sort((left, right) => completionOperationAt(right).localeCompare(completionOperationAt(left))
+      || right.startedAt.localeCompare(left.startedAt)
+      || right.id.localeCompare(left.id));
   for (const session of completedSessions) {
     if (!latestCompletedSessionByTask.has(session.taskId!)) {
       latestCompletedSessionByTask.set(session.taskId!, session);
