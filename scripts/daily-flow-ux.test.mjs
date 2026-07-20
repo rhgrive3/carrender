@@ -27,6 +27,8 @@ assert.doesNotMatch(taskRowSource, /const isDoing = task\.status === 'doing'/, '
 assert.match(taskRowSource, /!ownsActiveTimer && \([\s\S]*aria-label=\{`\$\{task\.title\}を延期`\}/, '実際に計測中のタスクだけ延期操作を表示しない');
 assert.match(taskRowSource, /!ownsActiveTimer && lock !== 'none'[\s\S]*ロックを解除/, '古いdoing状態でも実タイマーがなければ予定ロックを解除できる');
 assert.doesNotMatch(taskRowSource, /task\.status !== 'doing'[\s\S]*ロックを解除/, '保存上の古いdoing状態だけでロック解除を隠さない');
+assert.match(taskRowSource, /const unlock = \(\) => \{[\s\S]*task\.status === 'doing'[\s\S]*type: 'UPDATE_TASK'[\s\S]*status: 'planned'[\s\S]*placementLock: 'none'/, '古いdoing状態の解除操作は未着手へ戻してロックを実際に外す');
+assert.match(taskRowSource, /onClick=\{unlock\}/, 'ロック解除ボタンは復旧処理を通す');
 assert.match(taskRowSource, /if \(ownsActiveTimer\) \{[\s\S]*計測中のタスクは延期できません/, '操作関数を直接呼ばれても実タイマー所有中は延期しない');
 assert.match(taskRowSource, /if \(ownsActiveTimer\) \{[\s\S]*openTimerOverlay\(\)/, '通常タスク行の続行操作は既存タイマーを開く');
 assert.match(taskRowSource, /!ownsActiveTimer && \([\s\S]*完了として記録/, '計測中タスクに別の手動記録を作らせない');

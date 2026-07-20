@@ -56,6 +56,34 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
     toast(result.message ?? '明日以降に再配置しました');
   };
 
+  const unlock = () => {
+    if (ownsActiveTimer) return;
+    if (task.status === 'doing') {
+      // 旧保存データでdoingだけが残った場合、Reducerの計測中保護を迂回せず、
+      // まず通常の未着手状態へ戻した同じ更新でロックも解除する。
+      dispatch({
+        type: 'UPDATE_TASK',
+        task: {
+          ...task,
+          status: 'planned',
+          placementLock: 'none',
+          manualScheduling: task.manualScheduling
+            ? {
+                ...task.manualScheduling,
+                placementPolicy: 'flexibleBeforeDeadline',
+                fixedDate: undefined,
+                fixedStartTime: undefined,
+              }
+            : undefined,
+          generatedBy: task.sourceType === 'manual' ? task.generatedBy : 'auto',
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+    dispatch({ type: 'UNLOCK_TASK', taskId: task.id });
+  };
+
   return (
     <>
       <article
@@ -87,7 +115,7 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
         {!isDone && (
           <div className="task-actions" role="group" aria-label={`${task.title}の操作`}>
             {!ownsActiveTimer && lock !== 'none' && (
-              <button type="button" className="task-action-btn" aria-label={`${task.title}のロックを解除`} onClick={() => dispatch({ type: 'UNLOCK_TASK', taskId: task.id })}>
+              <button type="button" className="task-action-btn" aria-label={`${task.title}のロックを解除`} onClick={unlock}>
                 <span className="ta-icon" aria-hidden="true"><Unlock size={15} strokeWidth={2.4} /></span>
                 <span className="ta-label">解除</span>
               </button>
