@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../src/features/memory/ui/MemoryImportExport.tsx', import.meta.url), 'utf8');
+const feature = await readFile(new URL('../src/features/memory/ui/MemoryFeature.tsx', import.meta.url), 'utf8');
 
 assert.match(source, /useRef\(false\)[\s\S]*saveInFlightRef/u, '取込保存は同期ロックで多重実行を防ぐ');
 assert.match(source, /const refreshAfterSave = async[\s\S]*try \{[\s\S]*await refresh\(\);[\s\S]*catch/u, '保存成功後の一覧更新失敗を取込失敗から分離する');
@@ -29,5 +30,9 @@ assert.match(source, /previewSource\.repository !== repository \|\| previewSourc
 assert.match(source, /<fieldset disabled=\{saving \|\| aiInspecting\} aria-busy=\{saving \|\| aiInspecting\}/u, 'AI差分確認中は入力・ファイル選択・追加操作を固定する');
 assert.match(source, /aria-busy=\{aiInspecting\}[\s\S]*\{aiInspecting \? '確認中…' : '差分を確認'\}/u, 'AI差分確認中であることを表示し支援技術へ伝える');
 assert.doesNotMatch(source, /previewAiImport\(aiText, await repository\.loadContent\(\)\)/u, '入力stateを非同期完了時に直接参照する旧確認処理へ戻さない');
+
+assert.match(feature, /const repositoryKeys = new WeakMap<object, string>\(\)/u, 'repositoryインスタンスごとに画面世代を識別する');
+assert.match(feature, /const \{ view, repository \} = useMemory\(\)/u, '暗記画面が現在のrepositoryを所有者境界として参照する');
+assert.match(feature, /<Fragment key=\{repositoryScreenKey\(repository\)\}>/u, '所有者切替時に旧画面をアンマウントして進行中の非同期UI反映を無効化する');
 
 console.log('memory import save resilience contract: ok');
