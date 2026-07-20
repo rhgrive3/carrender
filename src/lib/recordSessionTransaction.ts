@@ -1,6 +1,12 @@
-import type { AppState, ISODate, StudySession, StudyTask } from '../types';
+import type { AppState, ISODate, Material, StudySession, StudyTask, UnitRange } from '../types';
 import { appReducer, type Action } from '../state/AppContext';
 import { generateReviewTasks } from './review';
+import {
+  normalizeUnitRanges,
+  remainingUnitRanges,
+  sumRangeLengths,
+  updateMinutesPerUnitEstimate,
+} from './scheduler';
 
 type SessionMutationAction = Extract<Action, { type: 'RECORD_SESSION' | 'UPDATE_SESSION' }>;
 
@@ -9,11 +15,158 @@ interface DetachedCompletion {
   completedTask: StudyTask;
 }
 
+interface TaskOverrun {
+  task: StudyTask;
+  requestedAmount: number;
+}
+
+function taskRange(task: StudyTask): UnitRange | undefined {
+  return task.materialRange
+    ?? (task.rangeStart !== null && task.rangeStart !== undefined && task.rangeEnd !== null && task.rangeEnd !== undefined
+      ? { start: task.rangeStart, end: task.rangeEnd }
+      : undefined);
+}
+
+function sameLocatorTask(task: StudyTask, action: SessionMutationAction): boolean {
+  const locator = action.input.taskLocator;
+  if (!locator?.sourceId || task.sourceId !== locator.sourceId || task.materialId !== action.input.materialId) return false;
+  if (locator.type && task.type !== locator.type) return false;
+  if (!locator.range) return true;
+  const range = taskRange(task);
+  return range?.start === locator.range.start && range.end === locator.range.end;
+}
+
+function referencedTask(state: AppState, action: SessionMutationAction): StudyTask | undefined {
+  const exact = action.input.taskId
+    ? state.tasks.find((task) => task.id === action.input.taskId)
+    : undefined;
+  if (exact) return exact;
+  const located = state.tasks.find((task) => task.status !== 'done' && sameLocatorTask(task, action));
+  if (located) return located;
+  if (action.type !== 'UPDATE_SESSION') return undefined;
+  const previous = state.sessions.find((session) => session.id === action.sessionId);
+  return previous?.taskSnapshotBefore;
+}
+
+function taskOverrunToApply(state: AppState, action: SessionMutationAction): TaskOverrun | null {
+  const requestedAmount = Math.max(0, Math.floor(action.input.amountDone));
+  if (!action.input.completedTask || !action.input.materialId) return null;
+  const task = referencedTask(state, action);
+  if (!task || task.materialId !== action.input.materialId || task.subjectId !== action.input.subjectId) return null;
+  const plannedAmount = Math.max(0, Math.floor(task.amount));
+  return plannedAmount > 0 && requestedAmount > plannedAmount ? { task, requestedAmount } : null;
+}
+
+function clipRanges(ranges: UnitRange[], start: number, end: number): UnitRange[] {
+  return ranges.flatMap((range) => {
+    const clippedStart = Math.max(range.start, start);
+    const clippedEnd = Math.min(range.end, end);
+    return clippedStart <= clippedEnd ? [{ start: clippedStart, end: clippedEnd }] : [];
+  });
+}
+
+function takeFirstRanges(ranges: UnitRange[], amount: number): UnitRange[] {
+  const result: UnitRange[] = [];
+  let remaining = Math.max(0, amount);
+  for (const range of ranges) {
+    if (remaining <= 0) break;
+    const length = range.end - range.start + 1;
+    const take = Math.min(length, remaining);
+    result.push({ start: range.start, end: range.start + take - 1 });
+    remaining -= take;
+  }
+  return result;
+}
+
+/** 予定範囲の直後を優先し、なければ前方の未完了範囲へ追加実績を割り当てる。 */
+function extraProgressRanges(material: Material, task: StudyTask, amount: number): UnitRange[] {
+  const total = Math.max(0, Math.floor(material.totalAmount));
+  const completed = normalizeUnitRanges(
+    material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []),
+    total,
+  );
+  const remaining = remainingUnitRanges(total, completed);
+  const range = taskRange(task);
+  if (!range) return takeFirstRanges(remaining, amount);
+  const after = clipRanges(remaining, range.end + 1, total);
+  const before = clipRanges(remaining, 1, range.start - 1);
+  return takeFirstRanges([...after, ...before], amount);
+}
+
 /**
- * 完了済みタスクの実績量を元の予定量より増やす編集では、進捗計算だけを
- * 教材全体へ広げるため入力上は一時的にtaskIdを外している。
- * そのまま保存すると、再計算時に「今日完了したタスク」まで履歴から消えるため、
- * 元の完了タスクと編集・削除用snapshotを復元する。
+ * タイマー終了・記録編集で予定量を超えた場合、まず元タスクを通常どおり完了し、
+ * 超過分だけを教材の追加実績として同じセッションへ加える。これにより完了タスクを
+ * taskless記録へ変換せず、再計算後も今日のチェック表示と達成率を保持できる。
+ */
+function recordTaskOverrun(
+  state: AppState,
+  action: SessionMutationAction,
+  overrun: TaskOverrun,
+  replanFrom: ISODate,
+): AppState {
+  const plannedAmount = Math.max(1, Math.floor(overrun.task.amount));
+  const baseInput = {
+    ...action.input,
+    taskId: overrun.task.id,
+    amountDone: plannedAmount,
+    completedTask: true,
+  };
+  const baseAction: SessionMutationAction = action.type === 'UPDATE_SESSION'
+    ? { ...action, input: baseInput }
+    : { ...action, input: baseInput };
+  const recorded = appReducer(state, baseAction);
+  if (recorded === state) return state;
+
+  const sessionId = action.type === 'UPDATE_SESSION'
+    ? action.sessionId
+    : recorded.sessions.at(-1)?.id;
+  const baseSession = sessionId ? recorded.sessions.find((session) => session.id === sessionId) : undefined;
+  const material = recorded.materials.find((item) => item.id === action.input.materialId);
+  if (!baseSession || !material) return recorded;
+
+  const extraNeeded = Math.max(0, overrun.requestedAmount - baseSession.amountDone);
+  const extraRanges = extraProgressRanges(material, overrun.task, extraNeeded);
+  const actualExtra = sumRangeLengths(extraRanges);
+  if (actualExtra <= 0) return recorded;
+
+  const total = Math.max(0, Math.floor(material.totalAmount));
+  const currentRanges = normalizeUnitRanges(
+    material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []),
+    total,
+  );
+  const completedRanges = normalizeUnitRanges([...currentRanges, ...extraRanges], total);
+  const sessions = recorded.sessions.map((session) => session.id === baseSession.id
+    ? {
+        ...session,
+        amountDone: baseSession.amountDone + actualExtra,
+        progressRangesAdded: normalizeUnitRanges([...(baseSession.progressRangesAdded ?? []), ...extraRanges], total),
+        updatedAt: new Date().toISOString(),
+      }
+    : session);
+  let materials = recorded.materials.map((item) => item.id === material.id
+    ? { ...item, completedRanges, doneAmount: sumRangeLengths(completedRanges) }
+    : item);
+  materials = materials.map((item) => {
+    if (item.id !== material.id) return item;
+    const estimate = updateMinutesPerUnitEstimate(item, sessions, recorded.settings.estimateAlpha ?? 0.2);
+    return {
+      ...item,
+      minutesPerUnit: estimate.appliedEstimate,
+      estimatedMinutesPerUnit: estimate.suggestedEstimate ?? item.estimatedMinutesPerUnit,
+    };
+  });
+
+  return appReducer({ ...recorded, sessions, materials }, {
+    type: 'RESCHEDULE_FROM',
+    fromDate: replanFrom,
+    reason: '予定量を超えた学習実績の反映',
+  });
+}
+
+/**
+ * 完了済みタスクの実績量を元の予定量より増やす旧編集経路では、進捗計算だけを
+ * 教材全体へ広げるため入力上は一時的にtaskIdを外していた。
+ * 旧画面・旧保存操作が残っていても完了タスクを消さないための互換処理。
  */
 function detachedCompletionToPreserve(state: AppState, action: SessionMutationAction): DetachedCompletion | null {
   if (action.type !== 'UPDATE_SESSION') return null;
@@ -88,6 +241,9 @@ export function applyRecordSessionTransaction(
   action: SessionMutationAction,
   replanFrom: ISODate,
 ): AppState {
+  const overrun = taskOverrunToApply(state, action);
+  if (overrun) return recordTaskOverrun(state, action, overrun, replanFrom);
+
   const detached = detachedCompletionToPreserve(state, action);
   const recordedBase = appReducer(state, action);
   if (recordedBase === state) return state;
