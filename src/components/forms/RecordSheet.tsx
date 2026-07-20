@@ -103,36 +103,6 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     () => state.materials.filter((m) => (!m.archived || m.id === session?.materialId) && m.subjectId === subjectId),
     [session?.materialId, state.materials, subjectId],
   );
-  const recentTargets = useMemo(() => {
-    const seen = new Set<string>();
-    const targets: Array<{
-      key: string;
-      subjectId: string;
-      materialId: string;
-      label: string;
-      subjectName: string;
-      minutes: number;
-    }> = [];
-    for (const item of [...state.sessions].sort((left, right) => right.startedAt.localeCompare(left.startedAt))) {
-      const key = `${item.subjectId}:${item.materialId ?? ''}`;
-      if (seen.has(key)) continue;
-      const recentSubject = state.subjects.find((subject) => subject.id === item.subjectId);
-      if (!recentSubject) continue;
-      const recentMaterial = item.materialId ? state.materials.find((material) => material.id === item.materialId && !material.archived) : undefined;
-      if (item.materialId && !recentMaterial) continue;
-      seen.add(key);
-      targets.push({
-        key,
-        subjectId: item.subjectId,
-        materialId: recentMaterial?.id ?? '',
-        label: recentMaterial?.name ?? '教材なし',
-        subjectName: recentSubject.name,
-        minutes: item.minutes,
-      });
-      if (targets.length >= 3) break;
-    }
-    return targets;
-  }, [state.materials, state.sessions, state.subjects]);
   const missingSubject = useMemo(
     () => missingRecordSubjectOption(state.subjects, subjectId),
     [state.subjects, subjectId],
@@ -355,30 +325,6 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     <Sheet open={open} onClose={onClose} title={session ? '学習記録を編集' : preset?.source === 'timer' ? 'おつかれさま!記録しよう' : '勉強を記録'}>
       {(!preset || session) && (
         <>
-          {!session && recentTargets.length > 0 && (
-            <div className="field">
-              <label>最近使った教材</label>
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                {recentTargets.map((target) => (
-                  <button
-                    key={target.key}
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    style={{ minWidth: 0, maxWidth: '100%' }}
-                    onClick={() => {
-                      setSubjectId(target.subjectId);
-                      setMaterialId(target.materialId);
-                      setMinutes(target.minutes);
-                      setAmountDone(0);
-                    }}
-                  >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{target.label}</span>
-                    <span className="faint">{target.subjectName}・{target.minutes}分</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           <div className="field">
             <label htmlFor="rec-subject">科目</label>
             <select
