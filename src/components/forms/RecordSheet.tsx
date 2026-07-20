@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Timer } from 'lucide-react';
+import { PenLine, Plus, Timer } from 'lucide-react';
 import { Sheet } from '../ui/Sheet';
-import { NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
+import { Disclosure, NumericInput, Rating, Segmented, Stepper } from '../ui/bits';
 import { useApp } from '../../state/AppContext';
 import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
@@ -48,7 +48,7 @@ function matchesPresetLocator(task: StudyTask, preset?: RecordPreset): boolean {
 }
 
 /**
- * 勉強記録シート。タイマー終了直後は最小限の入力(進んだ量・集中度)で保存できる。
+ * 勉強記録シート。予定からの完了記録は既定値をまとめ、必要な時だけ詳細を開く。
  */
 export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSheetProps) {
   const { state, execute } = useApp();
@@ -103,6 +103,36 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     () => state.materials.filter((m) => (!m.archived || m.id === session?.materialId) && m.subjectId === subjectId),
     [session?.materialId, state.materials, subjectId],
   );
+  const recentTargets = useMemo(() => {
+    const seen = new Set<string>();
+    const targets: Array<{
+      key: string;
+      subjectId: string;
+      materialId: string;
+      label: string;
+      subjectName: string;
+      minutes: number;
+    }> = [];
+    for (const item of [...state.sessions].sort((left, right) => right.startedAt.localeCompare(left.startedAt))) {
+      const key = `${item.subjectId}:${item.materialId ?? ''}`;
+      if (seen.has(key)) continue;
+      const recentSubject = state.subjects.find((subject) => subject.id === item.subjectId);
+      if (!recentSubject) continue;
+      const recentMaterial = item.materialId ? state.materials.find((material) => material.id === item.materialId && !material.archived) : undefined;
+      if (item.materialId && !recentMaterial) continue;
+      seen.add(key);
+      targets.push({
+        key,
+        subjectId: item.subjectId,
+        materialId: recentMaterial?.id ?? '',
+        label: recentMaterial?.name ?? '教材なし',
+        subjectName: recentSubject.name,
+        minutes: item.minutes,
+      });
+      if (targets.length >= 3) break;
+    }
+    return targets;
+  }, [state.materials, state.sessions, state.subjects]);
   const missingSubject = useMemo(
     () => missingRecordSubjectOption(state.subjects, subjectId),
     [state.subjects, subjectId],
@@ -258,104 +288,17 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     && amountDone > taskCompletionAmount
     && keepsSameTaskTarget
   );
+  const compactPreset = Boolean(preset && !session && hasTaskTarget);
+  const detailSummary = [
+    completed ? '完了' : '途中',
+    (material || task) ? `${amountDone}${material?.unit ?? ''}` : null,
+    focus ? `集中度${focus}` : null,
+    memo.trim() ? 'メモあり' : null,
+  ].filter(Boolean).join('・');
 
-  return (
-    <Sheet open={open} onClose={onClose} title={session ? '学習記録を編集' : preset?.source === 'timer' ? 'おつかれさま!記録しよう' : '勉強を記録'}>
-      {(!preset || session) && (
-        <>
-          <div className="field">
-            <label htmlFor="rec-subject">科目</label>
-            <select
-              id="rec-subject"
-              value={subjectId}
-              onChange={(e) => {
-                setSubjectId(e.target.value);
-                setMaterialId('');
-              }}
-            >
-              {missingSubject && <option value={missingSubject.id}>{missingSubject.label}</option>}
-              {state.subjects.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="rec-material">教材(任意)</label>
-            <select id="rec-material" value={materialId} onChange={(e) => setMaterialId(e.target.value)}>
-              <option value="">教材なし</option>
-              {missingMaterial && <option value={missingMaterial.id}>{missingMaterial.label}</option>}
-              {materials.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>学習時間(分)</label>
-            <Stepper value={minutes} onChange={setMinutes} step={5} min={5} max={600} suffix="分" label="学習時間" />
-          </div>
-          <div className="field-row">
-            <div className="field"><label htmlFor="rec-date">学習日</label><input id="rec-date" type="date" value={recordDate} max={today()} onChange={(e) => setRecordDate(e.target.value)} /></div>
-            <div className="field"><label htmlFor="rec-start">開始時刻</label><input id="rec-start" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} /></div>
-          </div>
-        </>
-      )}
-
-      {preset && (
-        <div className="card" style={{ marginBottom: 16, padding: 13 }}>
-          <div className="row spread">
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14.5 }}>{preset.rangeLabel || material?.name || '学習'}</div>
-              <div className="faint mt-8" aria-live="polite" aria-atomic="true">記録時間 {minutes}分</div>
-            </div>
-            <span className="status-badge status-accent iflex" style={{ gap: 4 }}>
-              <Timer size={12} strokeWidth={2.4} aria-hidden="true" /> タイマー
-            </span>
-          </div>
-          {preset.source === 'timer' && !session && (
-            <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
-              <label htmlFor="rec-timer-minutes">記録する学習時間</label>
-              <div className="row">
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  aria-label="記録する学習時間を5分減らす"
-                  disabled={minutes <= 1}
-                  onClick={() => setMinutes(Math.max(1, minutes - 5))}
-                >
-                  −5分
-                </button>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <NumericInput
-                    id="rec-timer-minutes"
-                    value={minutes}
-                    min={1}
-                    max={600}
-                    onChange={setMinutes}
-                    ariaLabel="記録する学習時間（分）"
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  aria-label="記録する学習時間を5分増やす"
-                  disabled={minutes >= 600}
-                  onClick={() => setMinutes(Math.min(600, minutes + 5))}
-                >
-                  ＋5分
-                </button>
-              </div>
-              <div className="field-hint">計測時間 {preset.minutes}分。実際の学習時間に合わせて1〜600分で変更できます。</div>
-              {minutes !== preset.minutes && (
-                <button type="button" className="btn btn-ghost btn-sm mt-8" onClick={() => setMinutes(preset.minutes)}>
-                  計測値に戻す
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {(hasTaskTarget) && (
+  const recordDetails = (
+    <>
+      {hasTaskTarget && (
         <div className="field">
           <label>このタスクは終わった?</label>
           <Segmented
@@ -405,9 +348,140 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
           <Plus size={14} strokeWidth={2.6} aria-hidden="true" /> メモを追加
         </button>
       )}
+    </>
+  );
+
+  return (
+    <Sheet open={open} onClose={onClose} title={session ? '学習記録を編集' : preset?.source === 'timer' ? 'おつかれさま!記録しよう' : '勉強を記録'}>
+      {(!preset || session) && (
+        <>
+          {!session && recentTargets.length > 0 && (
+            <div className="field">
+              <label>最近使った教材</label>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {recentTargets.map((target) => (
+                  <button
+                    key={target.key}
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ minWidth: 0, maxWidth: '100%' }}
+                    onClick={() => {
+                      setSubjectId(target.subjectId);
+                      setMaterialId(target.materialId);
+                      setMinutes(target.minutes);
+                      setAmountDone(0);
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{target.label}</span>
+                    <span className="faint">{target.subjectName}・{target.minutes}分</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="field">
+            <label htmlFor="rec-subject">科目</label>
+            <select
+              id="rec-subject"
+              value={subjectId}
+              onChange={(e) => {
+                setSubjectId(e.target.value);
+                setMaterialId('');
+                setAmountDone(0);
+              }}
+            >
+              {missingSubject && <option value={missingSubject.id}>{missingSubject.label}</option>}
+              {state.subjects.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="rec-material">教材(任意)</label>
+            <select id="rec-material" value={materialId} onChange={(e) => { setMaterialId(e.target.value); setAmountDone(0); }}>
+              <option value="">教材なし</option>
+              {missingMaterial && <option value={missingMaterial.id}>{missingMaterial.label}</option>}
+              {materials.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>学習時間(分)</label>
+            <Stepper value={minutes} onChange={setMinutes} step={5} min={5} max={600} suffix="分" label="学習時間" />
+          </div>
+          <div className="field-row">
+            <div className="field"><label htmlFor="rec-date">学習日</label><input id="rec-date" type="date" value={recordDate} max={today()} onChange={(e) => setRecordDate(e.target.value)} /></div>
+            <div className="field"><label htmlFor="rec-start">開始時刻</label><input id="rec-start" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} /></div>
+          </div>
+        </>
+      )}
+
+      {preset && (
+        <div className="card" style={{ marginBottom: 16, padding: 13 }}>
+          <div className="row spread">
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14.5 }}>{preset.rangeLabel || material?.name || '学習'}</div>
+              <div className="faint mt-8" aria-live="polite" aria-atomic="true">記録時間 {minutes}分</div>
+            </div>
+            <span className="status-badge status-accent iflex" style={{ gap: 4 }}>
+              {preset.source === 'timer'
+                ? <><Timer size={12} strokeWidth={2.4} aria-hidden="true" /> タイマー</>
+                : <><PenLine size={12} strokeWidth={2.4} aria-hidden="true" /> 予定から記録</>}
+            </span>
+          </div>
+          {preset.source === 'timer' && !session && (
+            <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
+              <label htmlFor="rec-timer-minutes">記録する学習時間</label>
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  aria-label="記録する学習時間を5分減らす"
+                  disabled={minutes <= 1}
+                  onClick={() => setMinutes(Math.max(1, minutes - 5))}
+                >
+                  −5分
+                </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <NumericInput
+                    id="rec-timer-minutes"
+                    value={minutes}
+                    min={1}
+                    max={600}
+                    onChange={setMinutes}
+                    ariaLabel="記録する学習時間（分）"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  aria-label="記録する学習時間を5分増やす"
+                  disabled={minutes >= 600}
+                  onClick={() => setMinutes(Math.min(600, minutes + 5))}
+                >
+                  ＋5分
+                </button>
+              </div>
+              <div className="field-hint">計測時間 {preset.minutes}分。実際の学習時間に合わせて1〜600分で変更できます。</div>
+              {minutes !== preset.minutes && (
+                <button type="button" className="btn btn-ghost btn-sm mt-8" onClick={() => setMinutes(preset.minutes)}>
+                  計測値に戻す
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {compactPreset ? (
+        <Disclosure title="必要なら内容を変更" summary={detailSummary}>
+          {recordDetails}
+        </Disclosure>
+      ) : recordDetails}
 
       <button type="button" className="btn btn-primary btn-block mt-16" onClick={save}>
-        {session ? 'この記録を更新' : '保存する'}
+        {session ? 'この記録を更新' : compactPreset ? 'この内容で保存' : '保存する'}
       </button>
       {session && (
         <button type="button" className="btn btn-danger btn-block mt-12" onClick={remove}>この記録を削除</button>

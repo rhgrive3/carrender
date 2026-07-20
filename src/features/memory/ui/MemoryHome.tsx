@@ -185,7 +185,7 @@ export function MemoryHome() {
   return (
     <section className="memory-home memory-simple-home" aria-busy={isStarting}>
       <div className="memory-toolbar">
-        <div><h2>暗記カード</h2><p>セットを選んで、10問ずつ覚える</p></div>
+        <div><h2>暗記カード</h2><p>セットを選んで、苦手中心に10問ずつ覚える</p></div>
         <div className="memory-toolbar-actions">
           <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'import' })}><Download size={18} aria-hidden="true" />取込・出力</button>
           {summaries.length === 1 ? (
@@ -229,8 +229,8 @@ export function MemoryHome() {
                   <div className="memory-simple-metrics"><span><b>{summary.weak}</b><small>苦手</small></span><span><b>{summary.newCount}</b><small>未学習</small></span></div>
                   <div className="memory-simple-set-actions">
                     <button type="button" className="btn btn-primary" disabled={isStarting || summary.eligible === 0} aria-busy={startingSetId === summary.set.id} onClick={() => void start(summary)}><Play size={18} fill="currentColor" aria-hidden="true" />{startingSetId === summary.set.id ? '準備中…' : summary.eligible === 0 ? '出題できるカードなし' : '10問始める'}</button>
-                    <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'set', setId: summary.set.id })}>カードを見る</button>
-                    <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'studySetup', setIds: [summary.set.id] })}>設定</button>
+                    <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'set', setId: summary.set.id })}>カードを管理</button>
+                    <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'studySetup', setIds: [summary.set.id] })}>出題設定</button>
                   </div>
                 </article>
               ))}
