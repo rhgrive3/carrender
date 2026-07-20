@@ -8,6 +8,7 @@ const memorySource = readFileSync(new URL('../src/features/memory/ui/MemoryHome.
 assert.match(todaySource, /const \[recordTask, setRecordTask\] = useState<StudyTask \| null>\(null\)/, '今日画面は最優先タスクの記録対象を保持する');
 assert.match(todaySource, /完了を記録/, '最優先タスクから完了記録を直接開ける');
 assert.match(todaySource, /POSTPONE_TASK/, '最優先タスクを今日画面から延期できる');
+assert.match(todaySource, /topTask\.status !== 'doing'[\s\S]*明日以降へ/, '計測中のタスクには延期操作を表示しない');
 assert.match(todaySource, /taskLocator:\s*\{/, '今日画面からの記録も再計算後のタスク参照を復旧できる');
 
 assert.match(recordSource, /const recentTargets = useMemo\(\(\) => \{/, '手入力では最近の教材候補を作る');
