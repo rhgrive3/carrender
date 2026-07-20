@@ -27,11 +27,11 @@ assert.match(source, /記録時間 \{minutes\}分/, '保存対象の時間を現
 assert.match(source, /計測時間 \{preset\.minutes\}分/, '元の計測時間を比較用に残す');
 assert.match(source, /minutes: Math\.min\(600, Math\.max\(1, minutes\)\)/, '保存値も編集可能範囲へ確実に収める');
 assert.match(source, /const preservesReference = !session \|\| \(session\.subjectId === subjectId && session\.materialId === selectedMaterialId\);/, '科目または教材を変更した編集を参照変更として判定する');
-assert.match(source, /rangeLabel: preservesReference[\s\S]*?: material\?\.name \?\? ''/, '参照変更時は旧教材の表示名を残さず新教材名へ同期する');
-assert.match(source, /completedTask: Boolean\([\s\S]*preservesReference/, '参照変更時は旧タスクとの完了関連も切り離す');
-assert.match(source, /completedTask: Boolean\([\s\S]*completed[\s\S]*amountDone >= remainingAmount/, 'タスクを完了保存する時は画面の実績量も全量であることを保証する');
-assert.match(source, /const updateAmountDone = \(nextAmount: number\) => \{[\s\S]*taskId && nextAmount < remainingAmount[\s\S]*setCompleted\(false\)/, '完了ログの問題数を全量未満へ変更したら途中までへ切り替える');
-assert.match(source, /const updateCompleted = \(nextCompleted: boolean\) => \{[\s\S]*nextCompleted && taskId[\s\S]*setAmountDone\(remainingAmount\)/, '完了したを選んだ時は保存時に正規化される全量を先に表示する');
+assert.match(source, /const detachesTaskReference = shouldDetachEditedTaskReference/, '予定量を超えた編集は元タスク参照を外して自由実績へ変換する');
+assert.match(source, /rangeLabel: preservesTaskReference[\s\S]*?: material\?\.name \?\? ''/, '参照変更や予定量超過時は旧教材の表示名を残さない');
+assert.match(source, /completedTask: Boolean\([\s\S]*completed[\s\S]*taskCompletionAmount/, 'タスク完了保存は元タスク量を基準に判定する');
+assert.match(source, /const updateAmountDone = \(nextAmount: number\) => \{[\s\S]*nextAmount < taskCompletionAmount[\s\S]*setCompleted\(false\)/, '元タスク量未満へ変更したら途中までへ切り替える');
+assert.match(source, /const updateCompleted = \(nextCompleted: boolean\) => \{[\s\S]*Math\.max\(current, taskCompletionAmount\)/, '完了したを選んだ時は元タスク量まで補う');
 assert.match(source, /onChange=\{updateAmountDone\}/, '問題数編集は完了状態との整合処理を通す');
 assert.match(source, /onChange=\{\(v\) => updateCompleted\(v === 'yes'\)\}/, 'タスク完了変更は実績量との整合処理を通す');
 assert.match(source, /今回やった\$\{material\.unit\}数/, '進捗入力は累積到達点ではなく今回やった個数として案内する');
@@ -41,60 +41,19 @@ assert.match(source, /applyRecordSessionTransaction\(state, action, today\(\)\)/
 const ref = today();
 const now = new Date().toISOString();
 const material: Material = {
-  id: 'material',
-  subjectId: 'subject',
-  name: '問題集',
-  unit: '問題',
-  totalAmount: 20,
-  totalUnits: 20,
-  doneAmount: 9,
-  completedRanges: [{ start: 1, end: 9 }],
-  startDate: ref,
-  targetDate: addDays(ref, 30),
-  priority: 3,
-  difficulty: 3,
-  minutesPerUnit: 10,
-  unitStep: 1,
-  splittable: true,
-  preferredCadence: { type: 'auto' },
-  dailyTarget: null,
-  weeklyTarget: null,
-  deadlinePolicy: 'normal',
-  examRelevance: 3,
-  reviewEnabled: false,
-  reviewIntervals: [1, 3, 7],
-  paused: false,
-  round: 1,
-  archived: false,
-  createdAt: now,
+  id: 'material', subjectId: 'subject', name: '問題集', unit: '問題', totalAmount: 20, totalUnits: 20,
+  doneAmount: 9, completedRanges: [{ start: 1, end: 9 }], startDate: ref, targetDate: addDays(ref, 30),
+  priority: 3, difficulty: 3, minutesPerUnit: 10, unitStep: 1, splittable: true,
+  preferredCadence: { type: 'auto' }, dailyTarget: null, weeklyTarget: null, deadlinePolicy: 'normal',
+  examRelevance: 3, reviewEnabled: false, reviewIntervals: [1, 3, 7], paused: false, round: 1,
+  archived: false, createdAt: now,
 };
 const task: StudyTask = {
-  id: 'today-task',
-  subjectId: 'subject',
-  materialId: material.id,
-  title: material.name,
-  rangeLabel: '10〜20',
-  rangeStart: 10,
-  rangeEnd: 20,
-  materialRange: { start: 10, end: 20 },
-  amount: 11,
-  estimatedMinutes: 110,
-  priority: 50,
-  dueDate: material.targetDate,
-  type: 'new',
-  status: 'planned',
-  scheduledDate: ref,
-  scheduledStart: '12:00',
-  scheduledEnd: '13:50',
-  generatedBy: 'auto',
-  reviewStage: null,
-  createdAt: now,
-  updatedAt: now,
-  completedAt: null,
-  sourceType: 'material',
-  sourceId: material.id,
-  placementStatus: 'scheduled',
-  placementLock: 'none',
+  id: 'today-task', subjectId: 'subject', materialId: material.id, title: material.name, rangeLabel: '10〜20',
+  rangeStart: 10, rangeEnd: 20, materialRange: { start: 10, end: 20 }, amount: 11, estimatedMinutes: 110,
+  priority: 50, dueDate: material.targetDate, type: 'new', status: 'planned', scheduledDate: ref,
+  scheduledStart: '12:00', scheduledEnd: '13:50', generatedBy: 'auto', reviewStage: null, createdAt: now,
+  updatedAt: now, completedAt: null, sourceType: 'material', sourceId: material.id, placementStatus: 'scheduled', placementLock: 'none',
 };
 const base = emptyState();
 const state: AppState = {
@@ -103,48 +62,18 @@ const state: AppState = {
   subjects: [{ id: 'subject', name: '数学', color: '#4f7cff', importance: 3, weakness: 3 }],
   materials: [material],
   tasks: [task],
-  availability: ([0, 1, 2, 3, 4, 5, 6] as const).map((weekday) => ({
-    weekday,
-    minutes: 600,
-    windows: [{ start: '00:00', end: '23:59' }],
-  })),
+  availability: ([0, 1, 2, 3, 4, 5, 6] as const).map((weekday) => ({ weekday, minutes: 600, windows: [{ start: '00:00', end: '23:59' }] })),
   settings: { ...base.settings, maxDailyMinutes: 600, sessionMinMinutes: 5, sessionMaxMinutes: 120, taskGenerationHorizonDays: 7 },
 };
 const initiallyCompleted = appReducer(state, {
   type: 'RECORD_SESSION',
-  input: {
-    taskId: task.id,
-    subjectId: 'subject',
-    materialId: material.id,
-    minutes: 110,
-    amountDone: task.amount,
-    focus: 3,
-    memo: '',
-    source: 'manual',
-    rangeLabel: task.rangeLabel,
-    completedTask: true,
-    date: ref,
-    startTime: '00:00',
-  },
+  input: { taskId: task.id, subjectId: 'subject', materialId: material.id, minutes: 110, amountDone: task.amount, focus: 3, memo: '', source: 'manual', rangeLabel: task.rangeLabel, completedTask: true, date: ref, startTime: '00:00' },
 });
 const completedSession = initiallyCompleted.sessions.at(-1)!;
 const editedCompleted = appReducer(initiallyCompleted, {
   type: 'UPDATE_SESSION',
   sessionId: completedSession.id,
-  input: {
-    taskId: completedSession.taskId,
-    subjectId: completedSession.subjectId,
-    materialId: completedSession.materialId,
-    minutes: completedSession.minutes,
-    amountDone: 4,
-    focus: completedSession.focus,
-    memo: completedSession.memo,
-    source: completedSession.source,
-    rangeLabel: completedSession.rangeLabel,
-    completedTask: false,
-    date: completedSession.date,
-    startTime: '00:00',
-  },
+  input: { taskId: completedSession.taskId, subjectId: completedSession.subjectId, materialId: completedSession.materialId, minutes: completedSession.minutes, amountDone: 4, focus: completedSession.focus, memo: completedSession.memo, source: completedSession.source, rangeLabel: completedSession.rangeLabel, completedTask: false, date: completedSession.date, startTime: '00:00' },
 });
 const editedSession = editedCompleted.sessions.find((entry) => entry.id === completedSession.id);
 assert.equal(editedSession?.amountDone, 4, '完了済みログを途中4問へ編集した値をセッションへ反映する');
@@ -153,31 +82,15 @@ assert.deepEqual(editedSession?.progressRangesAdded, [{ start: 10, end: 13 }], '
 
 const recorded = applyRecordSessionTransaction(state, {
   type: 'RECORD_SESSION',
-  input: {
-    taskId: null,
-    subjectId: 'subject',
-    materialId: material.id,
-    minutes: 20,
-    amountDone: 2,
-    focus: 3,
-    memo: '',
-    source: 'manual',
-    rangeLabel: material.name,
-    completedTask: false,
-    date: ref,
-    startTime: '00:00',
-  },
+  input: { taskId: null, subjectId: 'subject', materialId: material.id, minutes: 20, amountDone: 2, focus: 3, memo: '', source: 'manual', rangeLabel: material.name, completedTask: false, date: ref, startTime: '00:00' },
 }, ref);
-
 assert.equal(recorded.sessions.at(-1)?.amountDone, 2, '入力した2は累積11ではなく今回やった2問として保存する');
 assert.deepEqual(recorded.sessions.at(-1)?.progressRangesAdded, [{ start: 10, end: 11 }], '今回分を直前の未完了範囲へ割り当てる');
 assert.deepEqual(recorded.materials[0].completedRanges, [{ start: 1, end: 11 }], '教材進捗は既存9問へ今回2問だけ加える');
 assert.notEqual(recorded.lastScheduleResult?.status, 'invalidInput', '当日の旧タスク範囲との重複で記録を拒否しない');
 const completed = recorded.materials[0].completedRanges ?? [];
 for (const planned of recorded.tasks.filter((item) => item.status === 'planned' && item.type !== 'review' && item.materialId === material.id)) {
-  const range = planned.materialRange ?? (planned.rangeStart !== null && planned.rangeEnd !== null
-    ? { start: planned.rangeStart, end: planned.rangeEnd }
-    : undefined);
+  const range = planned.materialRange ?? (planned.rangeStart !== null && planned.rangeEnd !== null ? { start: planned.rangeStart, end: planned.rangeEnd } : undefined);
   if (!range) continue;
   assert.equal(completed.some((done) => range.start <= done.end && range.end >= done.start), false, `再計画後の${range.start}〜${range.end}は完了済み範囲と重複しない`);
 }

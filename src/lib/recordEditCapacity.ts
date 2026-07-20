@@ -31,6 +31,30 @@ function taskRange(task?: StudyTask): UnitRange | undefined {
       : undefined);
 }
 
+/** 編集画面で「完了した」と判定する基準量。入力可能上限とは分けて扱う。 */
+export function recordTaskCompletionAmount(task?: StudyTask, session?: StudySession): number {
+  const raw = task?.amount ?? session?.amountDone ?? 0;
+  return Math.max(0, Math.floor(Number.isFinite(raw) ? raw : 0));
+}
+
+/**
+ * 完了済みタスクの実績を予定量より増やす編集は、元タスクの範囲では表現できない。
+ * タスク参照を外して自由記録として保存し、実績量から予定を再構築する。
+ */
+export function shouldDetachEditedTaskReference(
+  session: StudySession | undefined,
+  keepsEditedReference: boolean,
+  amountDone: number,
+  taskCompletionAmount: number,
+): boolean {
+  return Boolean(
+    session?.taskId
+    && keepsEditedReference
+    && taskCompletionAmount > 0
+    && amountDone > taskCompletionAmount
+  );
+}
+
 /**
  * 記録編集では、現在の残量だけでなく編集中セッションが追加した範囲も一度だけ
  * 利用可能量へ戻す。保存時のUPDATE_SESSIONが行う差し戻しと同じ前提に揃えることで、
