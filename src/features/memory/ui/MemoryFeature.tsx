@@ -19,8 +19,21 @@ const MEMORY_SCREEN_LABELS = {
   analytics: '暗記分析',
 } as const;
 
+const repositoryKeys = new WeakMap<object, string>();
+let repositoryKeySequence = 0;
+
+function repositoryScreenKey(repository: object | null): string {
+  if (!repository) return 'memory-repository:none';
+  const current = repositoryKeys.get(repository);
+  if (current) return current;
+  repositoryKeySequence += 1;
+  const next = `memory-repository:${repositoryKeySequence}`;
+  repositoryKeys.set(repository, next);
+  return next;
+}
+
 export function MemoryFeature() {
-  const { view } = useMemory();
+  const { view, repository } = useMemory();
   let content: JSX.Element;
 
   switch (view.name) {
@@ -35,7 +48,7 @@ export function MemoryFeature() {
   }
 
   return (
-    <Fragment>
+    <Fragment key={repositoryScreenKey(repository)}>
       <span hidden data-app-screen-label={MEMORY_SCREEN_LABELS[view.name]} />
       {content}
     </Fragment>
