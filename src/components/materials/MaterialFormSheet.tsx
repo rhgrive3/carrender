@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Dumbbell, Flag, Sparkles, Star } from 'lucide-react';
-import { useApp } from '../../state/AppContext';
+import { adjustCompletedRanges, useApp } from '../../state/AppContext';
 import type { Material } from '../../types';
 import { addDays, diffDays, genId, today } from '../../lib/date';
 import { Rating, NumericInput, Disclosure } from '../ui/bits';
@@ -55,16 +55,19 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       .split(',')
       .map((x) => Math.max(1, Number.parseInt(x.trim(), 10)))
       .filter((x) => Number.isFinite(x));
+    const existingCompletedRanges = material?.completedRanges
+      ?? (material && material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
+    const completedRanges = adjustCompletedRanges(totalAmount, existingCompletedRanges, doneAmount);
+    const normalizedDoneAmount = completedRanges.reduce((sum, range) => sum + range.end - range.start + 1, 0);
     const payload: Material = {
       id: material?.id ?? genId('mat'),
       subjectId,
       name: name.trim(),
       unit,
       totalAmount,
-      doneAmount: Math.min(doneAmount, totalAmount),
+      doneAmount: normalizedDoneAmount,
       totalUnits: totalAmount,
-      completedRanges: material?.completedRanges
-        ?? (doneAmount > 0 ? [{ start: 1, end: Math.min(doneAmount, totalAmount) }] : []),
+      completedRanges,
       startDate,
       targetDate,
       preferredFinishDate: preferredFinishDate || undefined,
