@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { reconcileCompletedMaterialProgress } from '../src/lib/materialProgressIntegrity';
-import { emptyState } from '../src/state/AppContext';
+import { adjustCompletedRanges, emptyState } from '../src/state/AppContext';
 import type { AppState, Material, StudyTask } from '../src/types';
 
 const now = '2026-07-15T12:14:42.000Z';
@@ -137,6 +137,23 @@ assert.equal(completed.state.materials[0].doneAmount / completed.state.materials
 const idempotent = reconcileCompletedMaterialProgress(repaired.state);
 assert.equal(idempotent.repairs.length, 0, '修復済みデータを繰り返し変更しない');
 assert.equal(idempotent.state, repaired.state, '変更不要ならstate参照を維持する');
+
+assert.deepEqual(
+  adjustCompletedRanges(10, [{ start: 1, end: 2 }, { start: 5, end: 6 }], 6),
+  [{ start: 1, end: 6 }],
+  '完了量を増やす時は飛び飛び範囲を維持しつつ先頭の未完了範囲から追加する',
+);
+assert.deepEqual(
+  adjustCompletedRanges(10, [{ start: 1, end: 2 }, { start: 5, end: 6 }], 2),
+  [{ start: 1, end: 2 }],
+  '完了量を減らす時は後方の完了範囲から削る',
+);
+assert.deepEqual(
+  adjustCompletedRanges(8, [{ start: 1, end: 3 }, { start: 8, end: 10 }], 4),
+  [{ start: 1, end: 3 }, { start: 8, end: 8 }],
+  '総量を縮小した時は範囲外だけを切り捨てる',
+);
+assert.deepEqual(adjustCompletedRanges(10, [], 3), [{ start: 1, end: 3 }], '新規教材は先頭から完了範囲を作る');
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 assert.match(appSource, /<MaterialProgressIntegrityBridge\s*\/>/, '端末・クラウド読込後に自動修復を実行する');
