@@ -12,13 +12,16 @@ assert.match(todaySource, /POSTPONE_TASK/, '最優先タスクを今日画面か
 assert.match(todaySource, /topTask\.status !== 'doing'[\s\S]*明日以降へ/, '計測中のタスクには延期操作を表示しない');
 assert.match(todaySource, /taskLocator:\s*\{/, '今日画面からの記録も再計算後のタスク参照を復旧できる');
 
+assert.match(recordSource, /const recentTargets = useMemo\(\(\) => \{/, '手入力では最近の教材候補を作る');
+assert.match(recordSource, /最近使った教材/, '最近使った教材をワンタップで選べる');
 assert.match(recordSource, /const compactPreset = Boolean\(preset && !session && hasTaskTarget\)/, '予定からの新規記録だけを簡潔表示にする');
 assert.match(recordSource, /<Disclosure title="必要なら内容を変更" summary=\{detailSummary\}>/, '完了量・集中度・メモは必要な時だけ展開する');
 assert.match(recordSource, /preset\.source === 'timer'/, '記録元に応じて表示を分ける');
 assert.match(recordSource, /予定から記録/, '手動完了をタイマー記録と誤表示しない');
 assert.match(recordSource, /compactPreset \? 'この内容で保存'/, '既定値のまま短い導線で保存できる');
 
-assert.match(uxSource, /過去履歴由来の候補チップを表示しない/, '手入力記録の候補を画面へ表示しない');
+assert.doesNotMatch(uxSource, /過去履歴由来の候補チップを表示しない/, '機能をCSSの構造依存セレクタで隠さない');
+assert.doesNotMatch(uxSource, /\.sheet > \.field:has\(/, 'シート内の別フィールドを誤って非表示にしない');
 assert.match(uxSource, /\.today-v2 \.next-action:not\(\.next-action-complete\):not\(\.next-action-empty\)/, '次のタスクを通常カード相当の密度へ整える');
 assert.match(uxSource, /\.material-detail-panel \{[\s\S]*padding: 14px;/, '選択中教材の詳細パネルをコンパクトにする');
 assert.match(uxSource, /\.material-detail-metrics \{[\s\S]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/, '教材指標を縦積みせず横並びにする');

@@ -15,11 +15,6 @@
   border-radius: 10px;
 }
 
-/* 手入力記録は入力欄へ直行させ、過去履歴由来の候補チップを表示しない。 */
-.sheet > .field:has(> label:first-child + .row > .btn.btn-secondary.btn-sm .faint) {
-  display: none;
-}
-
 /* 今日画面の主タスクは「大きなヒーロー」ではなく、判断と実行に必要な密度へ整える。 */
 .today-v2 .next-action:not(.next-action-complete):not(.next-action-empty) {
   display: grid;
