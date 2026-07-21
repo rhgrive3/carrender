@@ -55,15 +55,36 @@ export function installFixedBottomNavigationGuard(): () => void {
   let correctionPass = 0;
   let observedNav: HTMLElement | null = null;
   let resizeObserver: ResizeObserver | undefined;
+  let navAttributeObserver: MutationObserver | undefined;
+
+  const observeNavAttributes = (nav: HTMLElement) => {
+    navAttributeObserver?.observe(nav, {
+      attributes: true,
+      attributeFilter: ['style', 'class', 'data-layout-contract'],
+    });
+  };
 
   const observeNav = (nav: HTMLElement | null) => {
     if (nav === observedNav) return;
     resizeObserver?.disconnect();
+    navAttributeObserver?.disconnect();
     observedNav = nav;
-    if (nav && typeof ResizeObserver !== 'undefined') {
+    if (!nav) return;
+
+    if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => schedule());
       resizeObserver.observe(nav);
     }
+    navAttributeObserver = new MutationObserver(() => schedule());
+    observeNavAttributes(nav);
+  };
+
+  const applyObservedInvariants = (nav: HTMLElement, offset: number) => {
+    // Inline style writes performed by this guard must not recursively schedule
+    // itself. Pause only the attribute observer while restoring the contract.
+    navAttributeObserver?.disconnect();
+    applyFixedInvariants(nav, offset);
+    observeNavAttributes(nav);
   };
 
   const pin = () => {
@@ -73,7 +94,7 @@ export function installFixedBottomNavigationGuard(): () => void {
     if (!nav) return;
 
     const currentOffset = numericOffset(nav);
-    applyFixedInvariants(nav, currentOffset);
+    applyObservedInvariants(nav, currentOffset);
     const rect = nav.getBoundingClientRect();
     const delta = visibleViewportBottom() - rect.bottom;
     if (Math.abs(delta) <= TOLERANCE_PX) {
@@ -83,7 +104,7 @@ export function installFixedBottomNavigationGuard(): () => void {
 
     const viewportLimit = Math.max(window.innerHeight, document.documentElement.clientHeight, 1);
     const nextOffset = Math.max(-viewportLimit, Math.min(viewportLimit, currentOffset + delta));
-    applyFixedInvariants(nav, Math.abs(nextOffset) <= TOLERANCE_PX ? 0 : nextOffset);
+    applyObservedInvariants(nav, Math.abs(nextOffset) <= TOLERANCE_PX ? 0 : nextOffset);
     correctionPass += 1;
     if (correctionPass < MAX_CORRECTION_PASSES) frame = requestAnimationFrame(pin);
     else correctionPass = 0;
@@ -109,6 +130,7 @@ export function installFixedBottomNavigationGuard(): () => void {
     if (frame) cancelAnimationFrame(frame);
     bodyObserver.disconnect();
     resizeObserver?.disconnect();
+    navAttributeObserver?.disconnect();
     window.removeEventListener('resize', schedule);
     window.removeEventListener('scroll', schedule);
     window.removeEventListener('orientationchange', schedule);
