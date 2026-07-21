@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import ts from 'typescript';
 
 const mainSource = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
@@ -14,7 +14,9 @@ const executableGuard = ts.transpileModule(
   { compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2020 } },
 ).outputText;
 
-const browser = await chromium.launch({ headless: true });
+const browserName = process.env.BROWSER === 'webkit' ? 'webkit' : 'chromium';
+const browserType = browserName === 'webkit' ? webkit : chromium;
+const browser = await browserType.launch({ headless: true });
 const viewports = [
   { label: 'iPhone portrait', width: 390, height: 844 },
   { label: 'iPhone landscape', width: 844, height: 390 },
@@ -57,7 +59,15 @@ try {
         </body>
       </html>`);
     await page.addScriptTag({ content: executableGuard });
-    await page.waitForTimeout(80);
+
+    const waitForPinnedState = () => page.waitForFunction(() => {
+      const element = document.querySelector('.bottom-nav');
+      if (!(element instanceof HTMLElement)) return false;
+      return element.getAttribute('data-runtime-pinned') === 'true'
+        && getComputedStyle(element).position === 'fixed';
+    }, undefined, { timeout: 2_000 });
+
+    await waitForPinnedState();
 
     const readLayout = () => page.locator('.bottom-nav').evaluate((element) => {
       const rect = element.getBoundingClientRect();
@@ -84,58 +94,54 @@ try {
     });
 
     const assertPinned = (layout, stage) => {
-      assert.equal(layout.parentTag, 'BODY', `${viewport.label} ${stage}: nav is a direct body child`);
-      assert.equal(layout.position, 'fixed', `${viewport.label} ${stage}: nav uses fixed positioning`);
-      assert.equal(layout.display, 'flex', `${viewport.label} ${stage}: nav stays rendered`);
-      assert.equal(layout.visibility, 'visible', `${viewport.label} ${stage}: nav stays visible`);
-      assert.equal(layout.opacity, '1', `${viewport.label} ${stage}: nav stays opaque`);
-      assert.equal(layout.runtimePinned, 'true', `${viewport.label} ${stage}: runtime guard owns the fixed contract`);
-      assert.ok(Math.abs(layout.viewportBottom - layout.bottom) <= tolerance, `${viewport.label} ${stage}: nav touches visible viewport bottom`);
-      assert.ok(layout.left >= -tolerance, `${viewport.label} ${stage}: nav does not overflow left`);
-      assert.ok(layout.right <= layout.viewportWidth + tolerance, `${viewport.label} ${stage}: nav does not overflow right`);
-      assert.ok(layout.width <= Math.min(layout.viewportWidth, 760) + tolerance, `${viewport.label} ${stage}: nav respects max width`);
+      assert.equal(layout.parentTag, 'BODY', `${browserName} ${viewport.label} ${stage}: nav is a direct body child`);
+      assert.equal(layout.position, 'fixed', `${browserName} ${viewport.label} ${stage}: nav uses fixed positioning`);
+      assert.equal(layout.display, 'flex', `${browserName} ${viewport.label} ${stage}: nav stays rendered`);
+      assert.equal(layout.visibility, 'visible', `${browserName} ${viewport.label} ${stage}: nav stays visible`);
+      assert.equal(layout.opacity, '1', `${browserName} ${viewport.label} ${stage}: nav stays opaque`);
+      assert.equal(layout.runtimePinned, 'true', `${browserName} ${viewport.label} ${stage}: runtime guard owns the fixed contract`);
+      assert.ok(Math.abs(layout.viewportBottom - layout.bottom) <= tolerance, `${browserName} ${viewport.label} ${stage}: nav touches visible viewport bottom`);
+      assert.ok(layout.left >= -tolerance, `${browserName} ${viewport.label} ${stage}: nav does not overflow left`);
+      assert.ok(layout.right <= layout.viewportWidth + tolerance, `${browserName} ${viewport.label} ${stage}: nav does not overflow right`);
+      assert.ok(layout.width <= Math.min(layout.viewportWidth, 760) + tolerance, `${browserName} ${viewport.label} ${stage}: nav respects max width`);
     };
 
     const before = await readLayout();
     assertPinned(before, 'initial');
 
     await page.evaluate(() => window.scrollTo(0, 600));
-    await page.waitForTimeout(80);
+    await waitForPinnedState();
     const afterScroll = await readLayout();
     assertPinned(afterScroll, 'after scroll');
-    assert.ok(Math.abs(afterScroll.left - before.left) <= tolerance, `${viewport.label}: horizontal position does not move while scrolling`);
+    assert.ok(Math.abs(afterScroll.left - before.left) <= tolerance, `${browserName} ${viewport.label}: horizontal position does not move while scrolling`);
 
-    // Direct inline mutation changes position without changing the nav size. This
-    // must be repaired by attribute observation alone, without a synthetic resize.
     await page.locator('.bottom-nav').evaluate((element) => {
       if (!(element instanceof HTMLElement)) return;
       element.style.setProperty('position', 'absolute', 'important');
       element.style.setProperty('bottom', '96px', 'important');
       element.style.setProperty('transform', 'translateY(-24px)', 'important');
     });
-    await page.waitForTimeout(100);
+    await waitForPinnedState();
     assertPinned(await readLayout(), 'after direct inline mutation');
 
-    // Also keep the existing late-stylesheet regression. The added style node is
-    // followed by resize here to model browser viewport churn after CSS loading.
     await page.addStyleTag({ content: '.bottom-nav { position:absolute !important; bottom:96px !important; transform:translateY(-24px) !important; }' });
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
-    await page.waitForTimeout(100);
+    await waitForPinnedState();
     assertPinned(await readLayout(), 'after hostile late CSS');
 
     const resizedHeight = Math.max(360, viewport.height - 137);
     await page.setViewportSize({ width: viewport.width, height: resizedHeight });
-    await page.waitForTimeout(100);
+    await waitForPinnedState();
     assertPinned(await readLayout(), 'after visual viewport resize');
 
     await page.setViewportSize({ width: viewport.height, height: viewport.width });
-    await page.waitForTimeout(100);
+    await waitForPinnedState();
     assertPinned(await readLayout(), 'after orientation change');
 
     await context.close();
   }
 
-  console.log('✅ bottom navigation survives scrolling, direct mutations, hostile CSS, visual viewport resize and rotation on iPhone/iPad');
+  console.log(`✅ ${browserName} bottom navigation survives scrolling, direct mutations, hostile CSS, visual viewport resize and rotation on iPhone/iPad`);
 } finally {
   await browser.close();
 }
