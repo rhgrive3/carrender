@@ -8,7 +8,6 @@ import './styles/tokens.css';
 import './styles/global.css';
 import './styles/design-system.css';
 import './styles/ux-audit.css';
-import './styles/layoutContracts.css';
 import './styles/memory-simple.css';
 import './styles/memory-dialog-polish.css';
 import './styles/memory-card-ux.css';
@@ -18,6 +17,9 @@ import './styles/record-chart-fixes.css';
 import './styles/material-shelf.css';
 import './styles/accessibility-polish.css';
 import './styles/ios-form-controls.css';
+// 永続UX契約: 主要5タブは常にviewport下端へ固定する。
+// 新しい画面CSSを追加する場合も、layoutContracts.cssより後ろへ置いてはならない。
+import './styles/layoutContracts.css';
 import { registerSW } from 'virtual:pwa-register';
 import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 import { DayRolloverBoundary } from './components/DayRolloverBoundary';

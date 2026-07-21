@@ -23,9 +23,18 @@ assert.match(
 );
 assert.match(mainSource, /<main id="app-main-content"[\s\S]*?<App key=\{dayKey\} \/>[\s\S]*?<\/main>/, '画面本文はmainランドマーク内に保つ');
 assert.match(mainSource, /import '\.\/styles\/layoutContracts\.css';/, '固定レイアウト契約CSSを読み込む');
-assert.ok(
-  mainSource.indexOf("import './styles/layoutContracts.css';") > mainSource.indexOf("import './styles/ux-audit.css';"),
-  '固定契約CSSは一般画面CSSより後に読み込む',
+
+const styleImports = [...mainSource.matchAll(/import '(\.\/styles\/[^']+\.css)';/gu)].map((match) => match[1]);
+assert.equal(styleImports.at(-1), './styles/layoutContracts.css', '固定契約CSSは全画面CSSの最後に読み込む');
+assert.equal(
+  styleImports.filter((path) => path === './styles/layoutContracts.css').length,
+  1,
+  '固定契約CSSを重複読込せず、唯一の最終上書き層にする',
+);
+assert.match(
+  mainSource,
+  /永続UX契約: 主要5タブは常にviewport下端へ固定する。[\s\S]*layoutContracts\.cssより後ろへ置いてはならない/,
+  '新しいCSS追加時も下部ナビ固定契約を最後に保つルールを入口へ明記する',
 );
 
 assert.match(
