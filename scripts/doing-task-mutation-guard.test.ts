@@ -11,7 +11,13 @@ const doingTask: StudyTask = {
   type: 'new', status: 'doing', scheduledDate: date, scheduledStart: '09:00', scheduledEnd: '09:30',
   generatedBy: 'manual', reviewStage: null, createdAt: now, updatedAt: now, completedAt: null,
   sourceType: 'manual', sourceId: 'doing-task', placementStatus: 'scheduled', placementLock: 'time',
-  manualScheduling: { placementPolicy: 'fixedTime', fixedDate: date, fixedStartTime: '09:00', splittable: false },
+  manualScheduling: {
+    placementPolicy: 'fixedTime',
+    fixedDate: date,
+    fixedStartTime: '09:00',
+    progressPolicy: { type: 'independent' },
+    splittable: false,
+  },
 };
 const state: AppState = {
   ...emptyState(), onboarded: true,
@@ -51,6 +57,12 @@ const recovered = appReducer(state, {
     placementLock: 'none',
     scheduledStart: null,
     scheduledEnd: null,
+    manualScheduling: {
+      ...doingTask.manualScheduling!,
+      placementPolicy: 'flexibleBeforeDeadline',
+      fixedDate: undefined,
+      fixedStartTime: undefined,
+    },
     updatedAt: new Date().toISOString(),
   },
 });
