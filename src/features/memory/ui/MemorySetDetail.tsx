@@ -3,7 +3,8 @@ import { ArrowLeft, CheckCircle2, Download, Pencil, Plus, Search, Trash2 } from 
 import type { MemorySetBundle, MemoryStat } from '../domain/types';
 import { normalizeSearchText } from '../domain/normalization';
 import { generateLearningTargets, summarizeLearningTargetStats } from '../domain/selectors';
-import { deleteMemorySet, updateMemorySet, verifyMemoryItem } from '../application/content';
+import { deleteMemorySet, updateMemorySet } from '../application/content';
+import { verifyDisplayedMemoryCard } from '../application/verifyContent';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
 import { MemoryDialog } from './MemoryDialog';
@@ -97,14 +98,31 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   const rows = useMemo(() => {
     if (!bundle) return [];
     const order = new Map(bundle.setMembers.map((member) => [member.itemId, member.order]));
-    return bundle.items.map((item) => {
-      const senses = bundle.senses.filter((sense) => sense.itemId === item.id);
-      const senseIds = new Set(senses.map((sense) => sense.id));
-      const answers = bundle.answers.filter((answer) => senseIds.has(answer.senseId));
-      const examples = bundle.examples.filter((example) => senseIds.has(example.senseId));
-      const hasUnverified = [item, ...senses, ...answers, ...examples].some((record) => record.verificationStatus === 'unverified_ai');
-      const search = normalizeSearchText([item.label, ...senses.map((sense) => sense.promptJa), ...answers.map((answer) => answer.displayForm), ...examples.map((example) => `${example.english} ${example.japanese ?? ''}`)].join(' '));
-      return { item, senses, answers, examples, hasUnverified, search, order: order.get(item.id) ?? Number.MAX_SAFE_INTEGER };
+    return bundle.items.flatMap((item) => {
+      const itemSenses = bundle.senses.filter((sense) => !sense.deletedAt && sense.itemId === item.id);
+      return itemSenses.map((sense, senseIndex) => {
+        const answers = bundle.answers.filter((answer) => !answer.deletedAt && answer.senseId === sense.id);
+        const examples = bundle.examples.filter((example) => !example.deletedAt && example.senseId === sense.id);
+        const exercises = bundle.exercises.filter((exercise) => !exercise.deletedAt && exercise.senseId === sense.id);
+        const records = [item, sense, ...answers, ...examples, ...exercises];
+        const hasUnverified = records.some((record) => !record.deletedAt && record.verificationStatus === 'unverified_ai');
+        const search = normalizeSearchText([
+          item.label,
+          sense.promptJa,
+          sense.meaningJa,
+          ...answers.map((answer) => answer.displayForm),
+          ...examples.map((example) => `${example.english} ${example.japanese ?? ''}`),
+        ].join(' '));
+        return {
+          item,
+          sense,
+          answers,
+          examples,
+          hasUnverified,
+          search,
+          order: (order.get(item.id) ?? Number.MAX_SAFE_INTEGER) * 1_000 + senseIndex,
+        };
+      });
     }).sort((left, right) => left.order - right.order);
   }, [bundle]);
 
@@ -141,13 +159,13 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     }, 'カードをセットから外せませんでした');
   };
 
-  const verifyItem = async (itemId: string) => {
-    if (!repository || !window.confirm('この内容を確認済みにして通常学習へ含めますか？')) return;
+  const verifySense = async (senseId: string) => {
+    if (!repository || !window.confirm('このカードを確認済みにして通常学習へ含めますか？')) return;
     await runAction(async (isCurrent) => {
-      const count = await verifyMemoryItem(repository, itemId);
+      const count = await verifyDisplayedMemoryCard(repository, senseId);
       await refreshAfterMutation('確認済み化', isCurrent);
       requestSyncSafely();
-      if (isCurrent()) toast(`${count}件を確認済みにしました`);
+      if (isCurrent()) toast(count > 0 ? `${count}件を確認済みにしました` : 'このカードは確認済みです');
     }, '内容を確認済みにできませんでした');
   };
 
@@ -202,7 +220,7 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     <section className="memory-detail memory-simple-detail">
       <div className="memory-page-header">
         <button type="button" className="icon-btn" aria-label="暗記ホームへ戻る" onClick={() => navigate({ name: 'home' })}><ArrowLeft size={21} /></button>
-        <div><h2>{set.name}</h2><p>{bundle.senses.length}カード</p></div>
+        <div><h2>{set.name}</h2><p>{rows.length}カード</p></div>
         <div className="memory-page-actions">
           <button type="button" className="icon-btn" aria-label="セットを編集" disabled={actionBusy} onClick={beginSetEdit}><Pencil size={19} /></button>
           <button type="button" className="icon-btn" aria-label="セットを削除" disabled={actionBusy} onClick={() => void removeSet()}><Trash2 size={19} /></button>
@@ -212,23 +230,28 @@ export function MemorySetDetail({ setId }: { setId: string }) {
       </div>
 
       <div className="memory-simple-summary card">
-        <span><b>{bundle.senses.length}</b><small>カード</small></span>
+        <span><b>{rows.length}</b><small>カード</small></span>
         <span><b>{summary.weakSenseCount}</b><small>苦手</small></span>
         <span><b>{summary.unattemptedSenseCount}</b><small>未学習</small></span>
         <button type="button" className="btn btn-primary" disabled={targets.length === 0 || actionBusy} onClick={() => navigate({ name: 'studySetup', setIds: [setId] })}>{targets.length === 0 ? '出題できるカードなし' : '学習を始める'}</button>
       </div>
 
-      <label className="memory-search memory-search-wide"><Search size={17} /><span className="sr-only">カードを検索</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="日本語・英語を検索" /></label>
+      <label className="memory-search memory-search-wide"><Search size={17} /><span className="sr-only">カードを検索</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="日本語・英語・例文を検索" /></label>
 
       <div className="memory-simple-card-list" role="list" aria-busy={actionBusy}>
-        {filtered.map(({ item, senses, answers, examples, hasUnverified }) => (
-          <article className="card memory-simple-card-row" key={item.id} role="listitem">
+        {filtered.map(({ item, sense, answers, examples, hasUnverified }) => (
+          <article className="card memory-simple-card-row" key={sense.id} role="listitem" data-memory-sense-id={sense.id}>
             <button type="button" className="memory-simple-card-main" disabled={actionBusy} onClick={() => navigate({ name: 'editor', setId, itemId: item.id })}>
-              <span className="memory-content-meaning">{senses.map((sense) => sense.promptJa).join('／')}</span>
-              <b>{answers.map((answer) => answer.displayForm).join('／')}</b>
-              {examples[0] && <small>{examples[0].english}</small>}
+              <span className="memory-content-meaning">{sense.promptJa}</span>
+              <b>{answers.map((answer) => answer.displayForm).join('／') || item.label}</b>
+              {examples.map((example) => (
+                <small className="memory-card-example" key={example.id}>
+                  <span>{example.english}</span>
+                  {example.japanese && <span>{example.japanese}</span>}
+                </small>
+              ))}
             </button>
-            {hasUnverified && <button type="button" className="icon-btn memory-verify" aria-label="AI追加内容を確認済みにする" disabled={actionBusy} onClick={() => void verifyItem(item.id)}><CheckCircle2 size={18} /></button>}
+            {hasUnverified && <button type="button" className="icon-btn memory-verify" aria-label="このカードを確認済みにする" disabled={actionBusy} onClick={() => void verifySense(sense.id)}><CheckCircle2 size={18} /></button>}
             <button type="button" className="icon-btn memory-remove" aria-label="セットから外す" disabled={actionBusy} onClick={() => void removeFromSet(item.id)}><Trash2 size={18} /></button>
           </article>
         ))}
