@@ -12,7 +12,7 @@ assert.ok(
   escapeBranch.indexOf('e.isComposing') < escapeBranch.indexOf('onCloseRef.current()'),
   'IME判定を閉操作より先に行う',
 );
-assert.match(sheetSource, /onCloseRef\.current = onClose/, '親の再描画後も最新の閉じる処理を参照する');
+assert.match(sheetSource, /onCloseRef\.current = requestClose/, '親の再描画後も最新の未保存確認付き閉じる処理を参照する');
 
 assert.match(sheetSource, /closest\('\[hidden\], \[inert\], \[aria-hidden="true"\]'\)/, '祖先側で非表示・非活性になった要素をフォーカス候補から除外する');
 assert.match(sheetSource, /closest\('fieldset\[disabled\]'\)/, 'disabledなfieldset配下の操作不能要素をフォーカス候補から除外する');
