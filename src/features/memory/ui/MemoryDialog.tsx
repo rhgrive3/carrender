@@ -29,7 +29,10 @@ export function MemoryDialog({
   const shouldProtectUnsavedChanges = protectUnsavedChanges ?? title.includes('暗記セット');
   const closeConfirmationMessage = unsavedChangesMessage ?? '入力中の暗記セットを破棄して閉じますか？';
 
-  onCloseRef.current = onClose;
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   const hasUnsavedChanges = () => Boolean(
     shouldProtectUnsavedChanges
     && dialog.current
