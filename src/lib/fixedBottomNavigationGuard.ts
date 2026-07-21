@@ -1,4 +1,5 @@
 const FIXED_NAV_SELECTOR = "body > .bottom-nav[data-layout-contract='fixed-bottom-navigation']";
+const FIXED_NAV_CONTRACT = 'fixed-bottom-navigation';
 const INSTALL_KEY = '__studyCommanderFixedBottomNavigationGuard';
 const TOLERANCE_PX = 0.75;
 const MAX_CORRECTION_PASSES = 3;
@@ -29,6 +30,7 @@ function numericOffset(nav: HTMLElement): number {
 }
 
 function applyFixedInvariants(nav: HTMLElement, offset: number): void {
+  nav.setAttribute('data-layout-contract', FIXED_NAV_CONTRACT);
   nav.style.setProperty('position', 'fixed', 'important');
   nav.style.setProperty('inset-block-start', 'auto', 'important');
   nav.style.setProperty('inset-block-end', '0px', 'important');
@@ -80,16 +82,29 @@ export function installFixedBottomNavigationGuard(): () => void {
   };
 
   const applyObservedInvariants = (nav: HTMLElement, offset: number) => {
-    // Inline style writes performed by this guard must not recursively schedule
-    // itself. Pause only the attribute observer while restoring the contract.
+    // Inline style and contract-attribute writes performed by this guard must
+    // not recursively schedule itself. Pause only the attribute observer while
+    // restoring the permanent navigation contract.
     navAttributeObserver?.disconnect();
     applyFixedInvariants(nav, offset);
     observeNavAttributes(nav);
   };
 
+  const resolveNav = (): HTMLElement | null => {
+    const contracted = document.querySelector<HTMLElement>(FIXED_NAV_SELECTOR);
+    if (contracted) return contracted;
+    // Removing data-layout-contract makes the strict selector stop matching.
+    // Retain the already-observed body-level navigation long enough to restore
+    // the attribute instead of permanently losing the fixed-position guard.
+    if (observedNav?.isConnected
+      && observedNav.parentElement === document.body
+      && observedNav.classList.contains('bottom-nav')) return observedNav;
+    return document.querySelector<HTMLElement>('body > .bottom-nav[data-runtime-pinned="true"]');
+  };
+
   const pin = () => {
     frame = 0;
-    const nav = document.querySelector<HTMLElement>(FIXED_NAV_SELECTOR);
+    const nav = resolveNav();
     observeNav(nav);
     if (!nav) return;
 
