@@ -11,6 +11,8 @@ interface SheetProps {
   onBack?: () => void;
   backLabel?: string;
   className?: string;
+  protectUnsavedChanges?: boolean;
+  unsavedChangesMessage?: string;
   children: ReactNode;
 }
 
@@ -157,18 +159,59 @@ export function trapModalTabKey(e: KeyboardEvent, root: HTMLElement) {
   }
 }
 
+function sheetControlSnapshot(root: HTMLElement): string {
+  return JSON.stringify([...root.querySelectorAll<HTMLElement>('input, select, textarea, [role="radio"], output')].map((element, index) => {
+    const key = element.id || element.getAttribute('aria-label') || String(index);
+    if (element instanceof HTMLInputElement) return ['input', key, element.type, element.value, element.checked];
+    if (element instanceof HTMLSelectElement) return ['select', key, element.value];
+    if (element instanceof HTMLTextAreaElement) return ['textarea', key, element.value];
+    if (element.getAttribute('role') === 'radio') return ['radio', key, element.getAttribute('aria-checked')];
+    return ['output', key, element.textContent?.trim() ?? ''];
+  }));
+}
+
 /** モバイル向けボトムシート */
-export function Sheet({ open, onClose, title, subtitle, onBack, backLabel = '前の画面へ戻る', className, children }: SheetProps) {
+export function Sheet({
+  open,
+  onClose,
+  title,
+  subtitle,
+  onBack,
+  backLabel = '前の画面へ戻る',
+  className,
+  protectUnsavedChanges,
+  unsavedChangesMessage,
+  children,
+}: SheetProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  const initialControlSnapshotRef = useRef<string | null>(null);
   const backdropPointerRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const titleId = useId();
   const dialogName = title?.trim() || '操作パネル';
+  // RecordSheetは複数の呼び出し元から開かれるため、タイトル契約でも保護する。
+  // 他の入力Sheetは必要に応じて明示的にopt-in / opt-outできる。
+  const shouldProtectUnsavedChanges = protectUnsavedChanges ?? dialogName.includes('記録');
+  const closeConfirmationMessage = unsavedChangesMessage
+    ?? (dialogName.includes('記録') ? '入力中の学習記録を破棄して閉じますか？' : '保存されていない入力を破棄して閉じますか？');
+
+  const hasUnsavedChanges = () => {
+    const sheet = sheetRef.current;
+    const initial = initialControlSnapshotRef.current;
+    return Boolean(shouldProtectUnsavedChanges && sheet && initial !== null && sheetControlSnapshot(sheet) !== initial);
+  };
+  const requestClose = () => {
+    if (hasUnsavedChanges() && !window.confirm(closeConfirmationMessage)) return;
+    onClose();
+  };
+  const onCloseRef = useRef(requestClose);
+  onCloseRef.current = requestClose;
 
   useEffect(() => {
-    if (!open || !backdropRef.current) return;
+    if (!open || !backdropRef.current) {
+      initialControlSnapshotRef.current = null;
+      return;
+    }
     const restoreModalIsolation = acquireModalIsolation(backdropRef.current);
     // 閉じるボタンを飛ばして主要操作へ移し、他に操作要素がなければ閉じるボタンか本体へフォールバックする。
     const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -177,6 +220,17 @@ export function Sheet({ open, onClose, title, subtitle, onBack, backLabel = '前
       if (!sheet) return;
       getInitialFocusTarget(sheet).focus();
     });
+    let snapshotFrame = 0;
+    const baselineFrame = window.requestAnimationFrame(() => {
+      snapshotFrame = window.requestAnimationFrame(() => {
+        initialControlSnapshotRef.current = sheetRef.current ? sheetControlSnapshot(sheetRef.current) : null;
+      });
+    });
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
     const onKey = (e: KeyboardEvent) => {
       if (backdropRef.current?.hasAttribute('inert')) return;
       if (e.key === 'Escape') {
@@ -190,16 +244,21 @@ export function Sheet({ open, onClose, title, subtitle, onBack, backLabel = '前
       trapModalTabKey(e, sheetRef.current);
     };
     window.addEventListener('keydown', onKey);
+    window.addEventListener('beforeunload', onBeforeUnload);
     return () => {
       window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(baselineFrame);
+      if (snapshotFrame) window.cancelAnimationFrame(snapshotFrame);
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      initialControlSnapshotRef.current = null;
       restoreModalIsolation();
       // 開いた元の要素が削除・非表示・inert化されている場合は、無効な場所へフォーカスを戻さない。
       if (prevFocus?.isConnected && !prevFocus.closest('[inert], [hidden], [aria-hidden="true"]')) {
         prevFocus.focus();
       }
     };
-  }, [open]);
+  }, [open, shouldProtectUnsavedChanges]);
 
   if (!open) return null;
 
@@ -219,7 +278,7 @@ export function Sheet({ open, onClose, title, subtitle, onBack, backLabel = '前
         backdropPointerRef.current = null;
         if (!start || !event.isPrimary || event.pointerId !== start.pointerId || event.target !== event.currentTarget) return;
         const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
-        if (moved <= 10) onClose();
+        if (moved <= 10) requestClose();
       }}
       onPointerCancel={() => {
         backdropPointerRef.current = null;
@@ -238,7 +297,7 @@ export function Sheet({ open, onClose, title, subtitle, onBack, backLabel = '前
               {subtitle && <p className="sheet-subtitle">{subtitle}</p>}
             </div>
           )}
-          <button className="sheet-close" type="button" aria-label={`${dialogName}を閉じる`} onClick={onClose}>
+          <button className="sheet-close" type="button" aria-label={`${dialogName}を閉じる`} onClick={requestClose}>
             <X size={18} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
