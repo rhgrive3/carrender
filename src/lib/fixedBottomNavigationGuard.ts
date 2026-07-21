@@ -7,12 +7,22 @@ interface GuardWindow extends Window {
   [INSTALL_KEY]?: () => void;
 }
 
-function visibleViewportBottom(): number {
-  const visualHeight = window.visualViewport?.height;
-  if (typeof visualHeight === 'number' && Number.isFinite(visualHeight) && visualHeight > 0) {
-    // getBoundingClientRect is expressed in the visual viewport coordinate
-    // space on iOS/iPadOS, so its visible bottom is visualViewport.height.
-    return visualHeight;
+interface VisualViewportMetrics {
+  height: number;
+  offsetTop: number;
+}
+
+function visibleVisualViewportBottom(
+  viewport: VisualViewportMetrics | null | undefined = window.visualViewport,
+): number {
+  if (viewport
+    && Number.isFinite(viewport.height)
+    && viewport.height > 0
+    && Number.isFinite(viewport.offsetTop)) {
+    // getBoundingClientRect() is measured in the layout viewport's client
+    // coordinates. On iPadOS the visual viewport can both shrink and move,
+    // therefore the visible bottom is offsetTop + height rather than height.
+    return viewport.offsetTop + viewport.height;
   }
   return document.documentElement.clientHeight || window.innerHeight;
 }
@@ -69,7 +79,7 @@ export function installFixedBottomNavigationGuard(): () => void {
     const currentOffset = numericOffset(nav);
     applyFixedInvariants(nav, currentOffset);
     const rect = nav.getBoundingClientRect();
-    const delta = visibleViewportBottom() - rect.bottom;
+    const delta = visibleVisualViewportBottom() - rect.bottom;
     if (Math.abs(delta) <= TOLERANCE_PX) {
       correctionPass = 0;
       return;
