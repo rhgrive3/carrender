@@ -52,7 +52,7 @@ assert.doesNotMatch(source, /onClick=\{\(e\) => \{[\s\S]*e\.target === e\.curren
 
 assert.match(backGuard, /document\.addEventListener\('click', onClick, true\)/, 'Sheet back guard must run in capture phase before onBack discards state');
 assert.match(backGuard, /new Event\('beforeunload', \{ cancelable: true \}\)/, 'Sheet back guard must reuse the same dirty contract as reload protection');
-assert.match(backGuard, /window\.confirm\('保存されていない入力を破棄して前の画面へ戻りますか\？'\)/u, 'Sheet back guard must ask before discarding changed controls');
+assert.match(backGuard, /window\.confirm\('保存されていない入力を破棄して前の画面へ戻りますか？'\)/u, 'Sheet back guard must ask before discarding changed controls');
 assert.match(backGuard, /event\.preventDefault\(\)[\s\S]*event\.stopPropagation\(\)[\s\S]*event\.stopImmediatePropagation\(\)/, 'cancelled back navigation must not reach the original onBack handler');
 assert.match(pwa, /import '\.\/sheetBackUnsavedGuard';/, 'the back guard must be installed before React mounts');
 
