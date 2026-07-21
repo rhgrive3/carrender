@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components/ui/Sheet.tsx', import.meta.url), 'utf8');
 const timer = readFileSync(new URL('../src/components/timer/TimerOverlay.tsx', import.meta.url), 'utf8');
+const backGuard = readFileSync(new URL('../src/lib/sheetBackUnsavedGuard.ts', import.meta.url), 'utf8');
+const pwa = readFileSync(new URL('../src/lib/pwa.ts', import.meta.url), 'utf8');
 
 assert.match(source, /const modalStack: HTMLElement\[\] = \[\]/);
 assert.match(source, /const isTopmost = index === modalStack\.length - 1/);
@@ -48,6 +50,12 @@ assert.match(source, /if \(moved <= 10\) requestClose\(\)/, 'drag and scroll ges
 assert.match(source, /onPointerCancel=\{\(\) => \{[\s\S]*backdropPointerRef\.current = null/, 'cancelled gestures must not retain stale dismissal state');
 assert.doesNotMatch(source, /onClick=\{\(e\) => \{[\s\S]*e\.target === e\.currentTarget[\s\S]*onClose\(\)/, 'click-only backdrop dismissal must not return');
 
+assert.match(backGuard, /document\.addEventListener\('click', onClick, true\)/, 'Sheet back guard must run in capture phase before onBack discards state');
+assert.match(backGuard, /new Event\('beforeunload', \{ cancelable: true \}\)/, 'Sheet back guard must reuse the same dirty contract as reload protection');
+assert.match(backGuard, /window\.confirm\('保存されていない入力を破棄して前の画面へ戻りますか？'\)/u, 'Sheet back guard must ask before discarding changed controls');
+assert.match(backGuard, /event\.preventDefault\(\)[\s\S]*event\.stopPropagation\(\)[\s\S]*event\.stopImmediatePropagation\(\)/, 'cancelled back navigation must not reach the original onBack handler');
+assert.match(pwa, /import '\.\/sheetBackUnsavedGuard';/, 'the back guard must be installed before React mounts');
+
 assert.match(timer, /import \{ Sheet, acquireModalIsolation, trapModalTabKey \} from '\.\.\/ui\/Sheet'/, 'the timer must reuse the common modal accessibility contract');
 assert.match(timer, /createPortal\([\s\S]*document\.body/, 'the fixed timer must be portalled outside the inert app root');
 assert.match(timer, /role="dialog" aria-modal="true" aria-label="学習タイマー"/, 'the full-screen timer must expose a true modal dialog');
@@ -56,5 +64,5 @@ assert.match(timer, /if \(root\.hasAttribute\('inert'\)\) return;[\s\S]*trapModa
 assert.match(timer, /<Sheet open=\{confirmDiscard\}[\s\S]*title="タイマーを破棄しますか\?"/, 'discard confirmation must join the shared stacked-modal system');
 assert.doesNotMatch(timer, /role="alertdialog"/, 'discard confirmation must not remain an unisolated inline modal');
 
-console.log('✅ Sheets and the full-screen timer share background isolation, stacked-modal ordering, focus trapping, primary initial focus, scroll lock, semantic dialog naming, and safe backdrop dismissal');
+console.log('✅ Sheets and the full-screen timer share background isolation, stacked-modal ordering, focus trapping, primary initial focus, scroll lock, semantic dialog naming, safe backdrop dismissal, and unsaved back protection');
 await import('./settings-navigation-guard.test.mjs');
