@@ -62,6 +62,7 @@ try {
     const readLayout = () => page.locator('.bottom-nav').evaluate((element) => {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
+      const visualViewport = window.visualViewport;
       return {
         parentTag: element.parentElement?.tagName,
         position: style.position,
@@ -76,7 +77,9 @@ try {
         width: rect.width,
         height: rect.height,
         viewportWidth: window.innerWidth,
-        viewportBottom: window.visualViewport?.height ?? window.innerHeight,
+        viewportBottom: visualViewport
+          ? visualViewport.offsetTop + visualViewport.height
+          : window.innerHeight,
       };
     });
 
