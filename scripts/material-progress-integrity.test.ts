@@ -159,4 +159,3 @@ const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8
 assert.match(appSource, /<MaterialProgressIntegrityBridge\s*\/>/, '端末・クラウド読込後に自動修復を実行する');
 
 console.log('✅ material progress integrity regressions passed');
-await import('./material-domain-integrity.test');

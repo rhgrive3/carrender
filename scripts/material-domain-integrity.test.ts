@@ -80,4 +80,3 @@ assert.ok(schedule.validationErrors.some((entry) => entry.targetId === invalidMa
 assert.equal(schedule.scheduledTasks.length, 0, '不正教材から部分的な予定を生成しない');
 
 console.log('✅ material domain integrity tests passed');
-await import('./deep-ux-audit-367-369.test');

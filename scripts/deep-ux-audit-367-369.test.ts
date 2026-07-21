@@ -27,6 +27,16 @@ assert.deepEqual(
   { moved: true, swipe: null },
   'movement below the swipe threshold must not flip the card',
 );
+assert.deepEqual(
+  classifyCardGesture({ pointerId: 1, x: 0, y: 0 }, { pointerId: 1, x: 48, y: 48 }),
+  { moved: true, swipe: null },
+  'equal horizontal and vertical movement must not be treated as a horizontal swipe',
+);
+assert.deepEqual(
+  classifyCardGesture({ pointerId: 1, x: 0, y: 0 }, { pointerId: 1, x: 4, y: 4 }),
+  { moved: false, swipe: null },
+  'minor finger jitter must remain eligible for the normal tap interaction',
+);
 
 const memoryGuard = await readFile(new URL('../src/lib/memoryImportTabPanelSemantics.ts', import.meta.url), 'utf8');
 const recordGuard = await readFile(new URL('../src/lib/recordTabPanelSemantics.ts', import.meta.url), 'utf8');
@@ -49,4 +59,4 @@ assert.match(memoryGuard, /placeholder\.hidden = true/, 'conditionally unmounted
 assert.match(main, /installMemoryImportTabPanelSemantics\(\)/, 'the memory tab/panel guard must be installed at application startup');
 assert.match(recordGuard, /installRecordTabPanelSemanticsGuard/, 'the existing record tab/panel implementation must remain intact');
 
-console.log('deep UX audit issues #367-#369 regression tests passed');
+console.log('✅ deep UX audit issues #367-#369 regression tests passed');
