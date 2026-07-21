@@ -30,6 +30,7 @@ function numericOffset(nav: HTMLElement): number {
 }
 
 function applyFixedInvariants(nav: HTMLElement, offset: number): void {
+  nav.classList.add('bottom-nav');
   nav.setAttribute('data-layout-contract', FIXED_NAV_CONTRACT);
   nav.style.setProperty('position', 'fixed', 'important');
   nav.style.setProperty('inset-block-start', 'auto', 'important');
@@ -93,13 +94,11 @@ export function installFixedBottomNavigationGuard(): () => void {
   const resolveNav = (): HTMLElement | null => {
     const contracted = document.querySelector<HTMLElement>(FIXED_NAV_SELECTOR);
     if (contracted) return contracted;
-    // Removing data-layout-contract makes the strict selector stop matching.
-    // Retain the already-observed body-level navigation long enough to restore
-    // the attribute instead of permanently losing the fixed-position guard.
-    if (observedNav?.isConnected
-      && observedNav.parentElement === document.body
-      && observedNav.classList.contains('bottom-nav')) return observedNav;
-    return document.querySelector<HTMLElement>('body > .bottom-nav[data-runtime-pinned="true"]');
+    // Contract attributes or the class can be removed by a late DOM mutation.
+    // Keep the already-observed body child long enough to restore both instead
+    // of requiring the broken element to still satisfy its own selector.
+    if (observedNav?.isConnected && observedNav.parentElement === document.body) return observedNav;
+    return document.querySelector<HTMLElement>('body > [data-runtime-pinned="true"]');
   };
 
   const pin = () => {
