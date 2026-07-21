@@ -14,7 +14,7 @@ assert.equal(source.includes('undoInFlightSessionId.current = actionSessionId;')
 assert.equal(source.includes('const actionSessionId = session.id;'), true, '取り消し開始時のセッションIDを固定する');
 assert.match(source, /const isCurrentAction = \(\) => \([\s\S]*?activeSessionId\.current === actionSessionId[\s\S]*?repository === actionRepository[\s\S]*?undoActionToken\.current === actionToken[\s\S]*?\);/u, '現在画面・所有者・操作世代が全て一致する場合だけUIへ結果を反映する');
 assert.match(source, /if \(!isCurrentAction\(\)\) return;[\s\S]*?navigate\(\{ name: 'study'/u, '古い取り消し完了で切替後の画面を上書きしない');
-assert.match(source, /if \(isCurrentAction\(\)\) \{[\s\S]*?toast/u, '所有者またはセッション切替後に古い取り消しのToastを出さない');
+assert.match(source, /catch \(caught\) \{\s*if \(isCurrentAction\(\)\) toast/u, '所有者またはセッション切替後に古い取り消しのToastを出さない');
 assert.match(source, /if \(undoActionToken\.current === actionToken\) \{\s*undoInFlightSessionId\.current = undefined;\s*if \(mounted\.current\) setUndoing\(false\);\s*\}/u, '古いfinallyで新しい所有者・セッションの操作ロックを解除しない');
 
 assert.match(source, /import \{[^}]*useLayoutEffect[^}]*\} from 'react'/u, '結果切替の描画前リセットにuseLayoutEffectを使う');
@@ -27,13 +27,12 @@ assert.equal(source.includes('setSession(undefined);\n    setAttempts([]);\n    
 
 const refreshAt = source.indexOf('await refresh();');
 const refreshCatchAt = source.indexOf("console.warn('暗記結果の取り消し後に一覧を更新できませんでした'", refreshAt);
-const syncAt = source.indexOf('void requestSync(true).catch(() => {', refreshAt);
+const syncAt = source.indexOf('void requestSync(true).catch(() => undefined);', refreshAt);
 const guardAt = source.indexOf('if (!isCurrentAction()) return;', syncAt);
 const navigateAt = source.indexOf("navigate({ name: 'study'", guardAt);
 assert.equal(refreshAt < refreshCatchAt && refreshCatchAt < syncAt && syncAt < guardAt && guardAt < navigateAt, true);
 assert.match(source, /try \{\s*await refresh\(\);\s*\} catch \(caught\) \{[\s\S]*?console\.warn\('暗記結果の取り消し後に一覧を更新できませんでした', caught\);\s*\}/u, '保存済みの回答取り消しを一覧更新失敗として扱わない');
 assert.equal(source.includes('void requestSync(true);', refreshAt), false, '取り消し後の同期失敗を未処理のPromise rejectionにしない');
-assert.equal(source.includes('取り消し結果は端末へ保存済み。同期失敗は次回の自動同期へ委ねる。'), true, '同期失敗時の継続方針を明記する');
 
 assert.equal(source.includes('const loadResult = async () => {'), true, '初回確認と同期後更新で同じ結果読込処理を使う');
 assert.equal(source.includes('const applyResult = (result: Awaited<ReturnType<typeof loadResult>>) => {'), true, '同期後再読込へセッション状態判定を適用する');
@@ -49,8 +48,6 @@ const resultSyncAt = source.indexOf('await requestSync(true);', initialLoadAt);
 const syncedLoadAt = source.indexOf('const synced = await loadResult();', resultSyncAt);
 const syncedApplyAt = source.indexOf('applyResult(synced);', syncedLoadAt);
 assert.equal(initialLoadAt < resultSyncAt && resultSyncAt < syncedLoadAt && syncedLoadAt < syncedApplyAt, true, '同期確認後に再読込した最新状態だけを操作可能な結果画面へ公開する');
-assert.equal(source.includes('同期前の完了状態は画面操作へ公開しない。'), true, '同期前の古いセッションを操作させない方針を明記する');
-assert.equal(source.includes('同期確認後の状態だけを結果画面へ公開する。'), true, '同期後の最新状態だけを表示する方針を明記する');
 
 assert.match(source, /new Set\(session\?\.initialTargetIds \?\? \[\]\)\.size/u, '重複した初期出題IDを結果画面のカード件数で1件へ正規化する');
 assert.equal(source.includes('カード {initialTargetCount}件'), true, '表示件数は重複除外後の初期出題数を使う');
