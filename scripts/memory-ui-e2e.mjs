@@ -53,6 +53,19 @@ async function waitForAnswerOrResult(answerCount) {
   ]);
 }
 
+async function bottomNavigationLayout() {
+  return await page.locator('.bottom-nav').evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      parentTag: element.parentElement?.tagName,
+      position: style.position,
+      bottom: rect.bottom,
+      viewportHeight: window.innerHeight,
+    };
+  });
+}
+
 try {
   tempDirectory = await mkdtemp(join(tmpdir(), 'carrender-memory-ui-'));
   const persistence = join(tempDirectory, 'state');
@@ -93,6 +106,28 @@ try {
   await page.getByRole('button', { name: '計画を自動生成する', exact: true }).click();
   await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
 
+  console.log('--- Shell: permanent bottom navigation contract ---');
+  const navBefore = await bottomNavigationLayout();
+  check('下部ナビはbody直下', navBefore.parentTag === 'BODY', navBefore);
+  check('下部ナビはfixed', navBefore.position === 'fixed', navBefore);
+  check('下部ナビはviewport下端', Math.abs(navBefore.viewportHeight - navBefore.bottom) <= 1.5, navBefore);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(80);
+  const navAfterScroll = await bottomNavigationLayout();
+  check('長い画面をスクロールしても下端固定', Math.abs(navAfterScroll.viewportHeight - navAfterScroll.bottom) <= 1.5 && navAfterScroll.position === 'fixed', navAfterScroll);
+  await page.locator('.bottom-nav').evaluate((element) => {
+    element.style.setProperty('position', 'absolute', 'important');
+    element.style.setProperty('bottom', '120px', 'important');
+  });
+  await page.waitForFunction(() => {
+    const element = document.querySelector('.bottom-nav');
+    if (!(element instanceof HTMLElement)) return false;
+    const rect = element.getBoundingClientRect();
+    return getComputedStyle(element).position === 'fixed' && Math.abs(window.innerHeight - rect.bottom) <= 1.5;
+  });
+  const navAfterTamper = await bottomNavigationLayout();
+  check('後発の固定解除も実行時ガードが復元', navAfterTamper.position === 'fixed' && Math.abs(navAfterTamper.viewportHeight - navAfterTamper.bottom) <= 1.5, navAfterTamper);
+
   console.log('--- Memory UI: simple set and card creation ---');
   await page.getByRole('button', { name: '教材', exact: true }).click();
   await page.getByRole('radio', { name: '暗記カード' }).click();
@@ -108,10 +143,14 @@ try {
   await page.locator('#memory-answer-0-1').fill('allow for A');
   await page.getByRole('button', { name: '例文を追加' }).click();
   await page.getByLabel('例文（任意）').fill('Take the delay into account.');
+  await page.getByLabel('和訳（任意）').fill('遅れを考慮に入れてください。');
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('〜を考慮に入れる', { exact: true }).waitFor();
   check('問題作成UIを表示しない', await page.getByText('問題形式・指定表現', { exact: false }).count() === 0);
-  check('カード行に複数の自然な英語を表示', (await page.locator('.memory-simple-card-row').first().innerText()).includes('allow for A'));
+  const firstCardText = await page.locator('.memory-simple-card-row').first().innerText();
+  check('カード行に複数の自然な英語を表示', firstCardText.includes('allow for A'));
+  check('カード行に例文を表示', firstCardText.includes('Take the delay into account.'));
+  check('カード行に例文和訳を表示', firstCardText.includes('遅れを考慮に入れてください。'));
 
   console.log('--- Memory UI: iOS rename and Japanese IME safety ---');
   await page.getByRole('button', { name: 'セットを編集' }).click();
@@ -148,6 +187,8 @@ try {
   check('学習画面に入力欄を出さない', await page.locator('.memory-study-card input, .memory-study-card textarea').count() === 0);
   await page.getByRole('button', { name: '答えを見る' }).click();
   check('自己評価は3択だけ', await page.locator('.memory-simple-assessment button').count() === 3);
+  check('学習画面でも例文を表示', await page.getByText('Take the delay into account.', { exact: true }).isVisible());
+  check('学習画面でも例文和訳を表示', await page.getByText('遅れを考慮に入れてください。', { exact: true }).isVisible());
   await page.getByRole('button', { name: 'まだ' }).click();
   let answerCount = 1;
   await waitForAnswerOrResult(answerCount);
