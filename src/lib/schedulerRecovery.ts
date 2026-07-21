@@ -7,6 +7,7 @@ import type {
   StudyTask,
 } from '../types';
 import { addDays, diffDays, hmToMinutes, weekdayOf } from './date';
+import { invalidMaterialScheduleResult, materialIntegrityValidationIssues } from './materialIntegrity';
 import { smoothMaterialScheduleSafely } from './safeMaterialScheduleSmoothing';
 import {
   dateInTimeZone,
@@ -172,6 +173,9 @@ function restoreTaskDeadline(task: StudyTask, original: StudyTask): StudyTask {
  * 既存ソルバーへ渡す。元の期限は結果へ戻し、期限違反と回復予定を同時に示す。
  */
 export function generatePlanV2(state: AppState, context: SchedulerContext): ScheduleGenerationResult {
+  const materialErrors = materialIntegrityValidationIssues(state.materials);
+  if (materialErrors.length > 0) return invalidMaterialScheduleResult(context, materialErrors);
+
   const currentDate = dateInTimeZone(context.now, context.timezone);
   const planningStartDate = context.planningStartDate;
   const today = planningStartDate && planningStartDate > currentDate ? planningStartDate : currentDate;
