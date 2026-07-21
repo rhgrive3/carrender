@@ -90,7 +90,7 @@ export function MemoryDialog({
         previous.focus({ preventScroll: true });
       }
     };
-  }, [shouldProtectUnsavedChanges]);
+  }, []);
 
   return createPortal(
     <div
