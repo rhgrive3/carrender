@@ -46,7 +46,6 @@ assert.match(
 assert.match(contractCss, /position:\s*fixed\s*!important;/, '下部ナビはviewport基準で固定する');
 assert.match(contractCss, /bottom:\s*0\s*!important;/, '下部ナビを画面下端へ固定する');
 assert.match(contractCss, /left:\s*0\s*!important;/, '固定要素をビューポート左端基準にする');
-assert.match(contractCss, /right:\s*0\s*!important;/, '固定要素をにする');
 assert.match(contractCss, /right:\s*0\s*!important;/, '固定要素をビューポート右端基準にする');
 assert.match(contractCss, /margin-inline:\s*auto\s*!important;/, '下部ナビを画面中央へ配置する');
 assert.match(contractCss, /transform:\s*none\s*!important;/, '通常状態では固定ナビ自体へ変形を残さない');
@@ -73,7 +72,11 @@ assert.match(mainSource, /import \{ installFixedBottomNavigationGuard \} from '\
 assert.match(mainSource, /installFixedBottomNavigationGuard\(\);[\s\S]*preserveUnreadableState\(\);/, 'React描画前に固定ガードを有効化する');
 assert.match(guardSource, /body > \.bottom-nav\[data-layout-contract='fixed-bottom-navigation'\]/, '実行時ガードもbody直下の本ナビだけを対象にする');
 for (const [property, value] of [['position', 'fixed'], ['bottom', '0px'], ['left', '0px'], ['right', '0px'], ['margin-inline', 'auto']]) {
-  assert.ok(guardSource.includes(`nav.style.setProperty('${property}', '${value}', 'important')`), `${property}の実行時固定値を保持する`);
+  assert.match(
+    guardSource,
+    new RegExp(`\\{ property: '${property}', value: '${value}' \\}`),
+    `${property}の実行時固定値を保持する`,
+  );
 }
 assert.match(guardSource, /window\.visualViewport\?\.height/, 'iPadの見えているviewport下端を基準にする');
 assert.match(guardSource, /const delta = visibleViewportBottom\(\) - rect\.bottom/, '実測した下端ずれを補正する');
@@ -81,7 +84,8 @@ assert.match(guardSource, /translate3d\(0, \$\{offset\}px, 0\)/, 'iPadOSのfixed
 assert.match(guardSource, /new MutationObserver\(schedule\)/, 'DOM後発変更でも固定を再確認する');
 assert.match(guardSource, /new MutationObserver\(\(\) => schedule\(\)\)/, 'ナビ自身の属性変更も即時に固定し直す');
 assert.match(guardSource, /attributeFilter:\s*\['style', 'class', 'data-layout-contract'\]/, '位置を変え得るstyle・class・契約属性を監視する');
-assert.match(guardSource, /navAttributeObserver\?\.disconnect\(\);[\s\S]*applyFixedInvariants\(nav, offset\);[\s\S]*observeNavAttributes\(nav\);/, 'ガード自身のstyle書込みで監視ループを作らない');
+assert.match(guardSource, /if \(fixedInvariantsMatch\(nav, offset\)\) return false;/, '正常なスクロール中は同じ固定styleを再書込みしない');
+assert.match(guardSource, /navAttributeObserver\?\.disconnect\(\);[\s\S]*applyFixedInvariants\(nav, offset\);[\s\S]*observeNavAttributes\(nav\);/, '実際のstyle修復時だけobserverを止めて監視ループを作らない');
 assert.match(guardSource, /new ResizeObserver\(\(\) => schedule\(\)\)/, 'ナビ自身の高さ変更でも下端を再計算する');
 assert.match(guardSource, /window\.addEventListener\('scroll', schedule/, 'ページスクロール中も固定を監視する');
 assert.match(guardSource, /window\.visualViewport\?\.addEventListener\('resize', schedule/, 'Visual Viewport変化後も固定値を再確認する');
@@ -92,17 +96,11 @@ assert.match(
   /\.plan-history-launcher\.floating\s*\{[\s\S]*?bottom:\s*calc\(var\(--bottom-nav-content-size\)[\s\S]*?safe-area-inset-bottom[\s\S]*?14px\)\s*!important;/,
   '計画履歴ボタンを文字拡大後のナビ上端より上へ保つ',
 );
-assert.match(contractCss, /\.plan-history-launcher\.floating\s*\{[\s\S]*?z-index:\s*60\s*!important;/, '計画履歴ボタンを下部ナビの上へ保つ',
-);
+assert.match(contractCss, /\.plan-history-launcher\.floating\s*\{[\s\S]*?z-index:\s*60\s*!important;/, '計画履歴ボタンを下部ナビの上へ保つ');
 assert.match(
   contractCss,
   /\.plan-history-launcher\.floating\s*\{[\s\S]*?right:\s*max\(14px,\s*env\(safe-area-inset-right,\s*0px\)\)\s*!important;/,
   '横向きのノッチ・角丸領域から計画履歴ボタンを退避する',
-);
-assert.match(
-  contractCss,
-  /\.plan-history-launcher\.floating\s*\{[\s\S]*?z-index:\s*60\s*!important;/,
-  '計画履歴ボタンを下部ナビの背面へ沈めない',
 );
 
 assert.match(
