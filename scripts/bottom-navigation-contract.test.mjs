@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const mainSource = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+const pwaSource = readFileSync(new URL('../src/lib/pwa.ts', import.meta.url), 'utf8');
+const runtimeSource = readFileSync(new URL('../src/lib/bottomNavigationRuntime.ts', import.meta.url), 'utf8');
 const contractCss = readFileSync(new URL('../src/styles/layoutContracts.css', import.meta.url), 'utf8');
 const accessibilityCss = readFileSync(new URL('../src/styles/accessibility-polish.css', import.meta.url), 'utf8');
 
@@ -71,6 +73,16 @@ assert.match(
 );
 assert.doesNotMatch(contractCss, /position:\s*(?:sticky|absolute|static)/, '固定契約内で別positionへ変更しない');
 
+assert.match(pwaSource, /import '\.\/bottomNavigationRuntime';/, '起動時に固定ナビの実行時契約を必ず読み込む');
+assert.match(runtimeSource, /body > \.bottom-nav\[data-layout-contract="fixed-bottom-navigation"\]/, '実行時ガードもbody直下の本ナビだけを対象にする');
+for (const [property, value] of [['position', 'fixed'], ['bottom', '0px'], ['left', '0px'], ['right', '0px'], ['display', 'flex'], ['transform', 'none'], ['z-index', '50']]) {
+  assert.match(runtimeSource, new RegExp(`setImportantStyle\\(element, '${property}', '${value.replace('.', '\\.')} '`.replace(' \'', '\'')), `${property}の実行時固定値を保持する`);
+}
+assert.match(runtimeSource, /new MutationObserver\(schedule\)/, 'CSS・class・DOMの後発変更を監視する');
+assert.match(runtimeSource, /attributeFilter: \['class', 'style', 'data-layout-contract'\]/, '固定を外しうる属性変更だけを監視する');
+assert.match(runtimeSource, /window\.visualViewport\?\.addEventListener\('resize', schedule/, 'iPadのVisual Viewport変化後も固定値を再確認する');
+assert.match(runtimeSource, /window\.visualViewport\?\.addEventListener\('scroll', schedule/, 'Visual Viewportスクロールでも固定値を再確認する');
+
 assert.match(
   contractCss,
   /\.plan-history-launcher\.floating\s*\{[\s\S]*?bottom:\s*calc\(var\(--bottom-nav-content-size\)[\s\S]*?safe-area-inset-bottom[\s\S]*?14px\)\s*!important;/,
@@ -108,4 +120,4 @@ assert.match(
   '強制カラーモードでも選択中タブの非色依存インジケータを維持する',
 );
 
-console.log('✅ permanent bottom navigation layout contract passed');
+console.log('✅ permanent bottom navigation CSS and runtime layout contracts passed');
