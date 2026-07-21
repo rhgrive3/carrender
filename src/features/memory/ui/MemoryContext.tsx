@@ -33,6 +33,7 @@ interface MemoryContextValue {
 const MemoryContext = createContext<MemoryContextValue | null>(null);
 const MEMORY_EDITOR_SELECTOR = '.memory-editor, .memory-bulk-editor';
 const INTERNAL_EDITOR_POINTER_WINDOW_MS = 1_000;
+// IndexedDBを開けない場合だけ暗記機能全体のエラーにする。同期失敗は端末データを使える状態のまま扱う。
 
 function shouldConfirmExternalMemoryNavigation(lastEditorPointerDownAt: number): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
