@@ -104,8 +104,9 @@ assert.match(compactFixes, /\.memory-simple-result-grid > \.card \+ \.card[\s\S]
 assert.match(compactFixes, /\.memory-simple-result-grid > \.card[\s\S]*min-height:\s*104px/u, '結果カードを簡潔な固定高さへ揃える');
 assert.match(main, /memory-card-ux\.css[\s\S]*memory-android-flip-fix\.css[\s\S]*memory-compact-fixes\.css[\s\S]*memory-study-polish\.css/u, '問題面固定と配色補正をカードCSS群の最後へ読み込む');
 assert.doesNotMatch(result, /苦手分析|Learning Target|Composition/u, '結果画面から分析導線と専門用語を削除する');
-assert.match(result, /\?\.label \?\? '削除済みカード'/u, '削除済みカードは内部IDではなく利用者向け表示へ置き換える');
-assert.doesNotMatch(result, /\?\.label \?\? targetId/u, '暗記対象の内部IDを結果画面へ露出させない');
+assert.match(result, /memoryReviewCardLabel\(bundle, attempt\)/u, '要復習カードは回答したSenseから利用者向けラベルを作る');
+assert.match(result, /if \(!sense\) return '削除済みカード'/u, '削除済みSenseは内部IDではなく利用者向け表示へ置き換える');
+assert.doesNotMatch(result, /\?\.label \?\? targetId|item\.id === attempt\?\.itemId/u, '親Itemラベルや内部IDへフォールバックしない');
 assert.match(simpleSession, /!target\.exerciseId/u, '旧問題データを出題対象から除外する');
 assert.match(simpleSession, /includeUnverifiedAi: false/u, '未確認AIデータを通常学習へ混ぜない');
 

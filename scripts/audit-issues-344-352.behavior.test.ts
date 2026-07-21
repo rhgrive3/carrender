@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { recordChartSharePercent } from '../src/lib/recordChartShares';
-import { summarizeMemoryCardOutcomes } from '../src/features/memory/ui/MemoryResult';
+import { memoryReviewCardLabel, summarizeMemoryCardOutcomes } from '../src/features/memory/ui/MemoryResult';
 import { appReducer, emptyState } from '../src/state/AppContext';
 import { addDays, today } from '../src/lib/date';
 
@@ -25,6 +25,34 @@ const outcomes = summarizeMemoryCardOutcomes({
 ] as any);
 assert.deepEqual(outcomes, { remembered: 1, unsure: 1, missed: 1 });
 assert.equal(outcomes.remembered + outcomes.unsure + outcomes.missed, 3, 'one unique target must belong to exactly one card outcome');
+
+const memoryBundle: any = {
+  sets: [], setMembers: [], exercises: [],
+  items: [{ id: 'item', label: '壊れた親ラベル' }],
+  senses: [
+    { id: 'sense-1', itemId: 'item', promptJa: '〜を考慮する', meaningJa: '〜を考慮する' },
+    { id: 'sense-2', itemId: 'item', promptJa: '説明する', meaningJa: '説明する' },
+  ],
+  answers: [
+    { id: 'answer-1', senseId: 'sense-1', displayForm: 'take into account', verificationStatus: 'verified' },
+    { id: 'answer-2', senseId: 'sense-2', displayForm: 'account for', verificationStatus: 'verified' },
+  ],
+  examples: [],
+};
+assert.equal(
+  memoryReviewCardLabel(memoryBundle, { senseId: 'sense-1' } as any),
+  '〜を考慮する — take into account',
+  'result labels must identify the answered sense rather than the shared item label',
+);
+assert.equal(
+  memoryReviewCardLabel(memoryBundle, { senseId: 'sense-2' } as any),
+  '説明する — account for',
+);
+assert.equal(memoryReviewCardLabel(memoryBundle, { senseId: 'deleted-sense' } as any), '削除済みカード');
+assert.equal(
+  memoryReviewCardLabel({ ...memoryBundle, answers: [] }, { senseId: 'sense-1' } as any),
+  '〜を考慮する — 英語表現が未設定です',
+);
 
 const t = today();
 const now = new Date().toISOString();
@@ -58,6 +86,38 @@ const edited = appReducer(state, {
 assert.equal(edited.materials[0].minutesPerUnit, 10);
 assert.equal(edited.materials[0].estimatedMinutesPerUnit, 20);
 
+const metadataState: any = {
+  ...state,
+  sessions: [
+    { ...makeSession('s1'), pausedMinutes: 8, excludedFromEstimate: true },
+    makeSession('s2'),
+    makeSession('s3'),
+  ],
+};
+const metadataEdited = appReducer(metadataState, {
+  type: 'UPDATE_SESSION', sessionId: 's1', input: {
+    taskId: null, subjectId: 'subject', materialId: 'material', minutes: 20, amountDone: 1,
+    focus: 4, memo: 'metadata-safe edit', source: 'manual', rangeLabel: '1', completedTask: false,
+    date: t, startTime: '10:00',
+  },
+});
+const preservedSession = metadataEdited.sessions.find((session: any) => session.id === 's1');
+assert.equal(preservedSession.pausedMinutes, 8, 'editing must not erase timer pause metadata');
+assert.equal(preservedSession.excludedFromEstimate, true, 'editing must not erase estimate exclusion');
+assert.equal(metadataEdited.materials[0].minutesPerUnit, 10, 'same observation must not reapply estimate smoothing');
+assert.equal(metadataEdited.materials[0].estimatedMinutesPerUnit, 20);
+
+const changedObservation = appReducer(metadataState, {
+  type: 'UPDATE_SESSION', sessionId: 's1', input: {
+    taskId: null, subjectId: 'subject', materialId: 'material', minutes: 25, amountDone: 1,
+    focus: 4, memo: 'changed duration', source: 'manual', rangeLabel: '1', completedTask: false,
+    date: t, startTime: '10:00',
+  },
+});
+const changedSession = changedObservation.sessions.find((session: any) => session.id === 's1');
+assert.equal(changedSession.pausedMinutes, 8, 'metadata must survive even when the measured observation changes');
+assert.equal(changedSession.excludedFromEstimate, true);
+
 const rangedState: any = {
   ...state, sessions: [],
   materials: [{ ...material, doneAmount: 100, completedRanges: [{ start: 1, end: 50 }, { start: 251, end: 300 }] }],
@@ -73,4 +133,4 @@ const invalid = appReducer(state, {
   type: 'UPDATE_MATERIAL', material: { ...material, preferredCadence: { type: 'timesPerWeek', count: 8 } },
 });
 assert.equal(invalid, state);
-console.log('audit issues #344-#352 behavior regressions passed');
+console.log('audit issues #344-#352 and post-audit regressions passed');
