@@ -36,7 +36,8 @@ assert.match(record, /元のタスクは未完了へ戻り/, 'unlink save must e
 assert.match(memoryResult, /export function summarizeMemoryCardOutcomes/, 'memory result needs a card-level summary helper');
 assert.match(memoryResult, /const initial = \[\.\.\.new Set\(session\.initialTargetIds\)\]/, 'memory cards must be counted uniquely');
 assert.doesNotMatch(memoryResult, /attempts\.filter\(\(attempt\) => attempt\.assessment === 'correct'\)\.length/, 'raw answer counts must not be labeled as card counts');
-assert.match(memorySetup, /activeSession && !window\.confirm/, 'all setup-based starts must protect an active session');
+assert.match(memorySetup, /activeBeforeConfirm && !window\.confirm/, 'all setup-based starts must protect the latest active session');
+assert.match(memorySetup, /activeBeforeCreate\?\.id[\s\S]*activeBeforeConfirm\?\.id/, 'active-session changes during confirmation must stop creation');
 assert.match(memorySetup, /前回の続きへ戻る/, 'setup must offer a non-destructive resume path');
 
 assert.match(memoryStudy, /createPortal/, 'full-screen memory study must be portalled outside the inert app root');
