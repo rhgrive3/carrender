@@ -53,6 +53,28 @@ async function waitForAnswerOrResult(answerCount) {
   ]);
 }
 
+async function bottomNavigationLayout() {
+  return await page.locator('.bottom-nav').evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      parentTag: element.parentElement?.tagName,
+      position: style.position,
+      runtimePinned: element.getAttribute('data-runtime-pinned'),
+      bottom: rect.bottom,
+      viewportBottom: window.visualViewport?.height ?? window.innerHeight,
+    };
+  });
+}
+
+async function assertBottomNavigationPinned(label) {
+  const layout = await bottomNavigationLayout();
+  check(`${label}: body直下`, layout.parentTag === 'BODY', layout);
+  check(`${label}: fixed`, layout.position === 'fixed', layout);
+  check(`${label}: 実行時ガード管理`, layout.runtimePinned === 'true', layout);
+  check(`${label}: 表示viewport下端`, Math.abs(layout.viewportBottom - layout.bottom) <= 1.5, layout);
+}
+
 try {
   tempDirectory = await mkdtemp(join(tmpdir(), 'carrender-memory-ui-'));
   const persistence = join(tempDirectory, 'state');
@@ -93,6 +115,32 @@ try {
   await page.getByRole('button', { name: '計画を自動生成する', exact: true }).click();
   await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
 
+  console.log('--- Shell: permanent bottom navigation contract ---');
+  await assertBottomNavigationPinned('初期表示');
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(80);
+  await assertBottomNavigationPinned('長い画面をスクロール後');
+  await page.locator('.bottom-nav').evaluate((element) => {
+    element.style.setProperty('position', 'absolute', 'important');
+    element.style.setProperty('bottom', '120px', 'important');
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+  await page.waitForFunction(() => {
+    const element = document.querySelector('.bottom-nav');
+    if (!(element instanceof HTMLElement)) return false;
+    const rect = element.getBoundingClientRect();
+    return getComputedStyle(element).position === 'fixed'
+      && element.dataset.runtimePinned === 'true'
+      && Math.abs((window.visualViewport?.height ?? window.innerHeight) - rect.bottom) <= 1.5;
+  });
+  await assertBottomNavigationPinned('後発の固定解除を復元後');
+  await page.setViewportSize({ width: 1133, height: 630 });
+  await page.waitForTimeout(120);
+  await assertBottomNavigationPinned('iPad表示領域変更後');
+  await page.setViewportSize({ width: 744, height: 900 });
+  await page.waitForTimeout(120);
+  await assertBottomNavigationPinned('縦横切替後');
+
   console.log('--- Memory UI: simple set and card creation ---');
   await page.getByRole('button', { name: '教材', exact: true }).click();
   await page.getByRole('radio', { name: '暗記カード' }).click();
@@ -108,10 +156,39 @@ try {
   await page.locator('#memory-answer-0-1').fill('allow for A');
   await page.getByRole('button', { name: '例文を追加' }).click();
   await page.getByLabel('例文（任意）').fill('Take the delay into account.');
+  await page.getByLabel('和訳（任意）').fill('遅れを考慮に入れてください。');
+  await page.getByRole('button', { name: '例文を追加' }).click();
+  const exampleInputs = page.getByLabel('例文（任意）');
+  const translationInputs = page.getByLabel('和訳（任意）');
+  await exampleInputs.nth(1).fill('We must allow for traffic.');
+  await translationInputs.nth(1).fill('交通事情を考慮しなければならない。');
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('〜を考慮に入れる', { exact: true }).waitFor();
   check('問題作成UIを表示しない', await page.getByText('問題形式・指定表現', { exact: false }).count() === 0);
-  check('カード行に複数の自然な英語を表示', (await page.locator('.memory-simple-card-row').first().innerText()).includes('allow for A'));
+  const firstCardText = await page.locator('.memory-simple-card-row').first().innerText();
+  check('カード行に複数の自然な英語を表示', firstCardText.includes('allow for A'));
+  check('カード行に複数例文を表示', firstCardText.includes('Take the delay into account.') && firstCardText.includes('We must allow for traffic.'));
+  check('カード行に各例文の和訳を表示', firstCardText.includes('遅れを考慮に入れてください。') && firstCardText.includes('交通事情を考慮しなければならない。'));
+  check('作成済みカードに確認済みマークを表示', await page.locator('.memory-simple-card-row').first().getByLabel('確認済み').isVisible());
+
+  console.log('--- Memory UI: one Sense per visible card ---');
+  await page.locator('.memory-simple-card-row').first().getByRole('button').first().click();
+  await page.getByRole('button', { name: '別の意味を追加' }).click();
+  await page.locator('#memory-answer-1-0').fill('account for A');
+  await page.locator('#memory-prompt-1').fill('〜を説明する');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.locator('.memory-simple-card-row').nth(1).waitFor();
+  check('同じItemの複数Senseを別カードへ分離', await page.locator('.memory-simple-card-row').count() === 2);
+  const detailRows = await page.locator('.memory-simple-card-row').allInnerTexts();
+  check('巨大な連結カードを作らない', detailRows[0].includes('take A into account') && !detailRows[0].includes('account for A') && detailRows[1].includes('account for A'));
+  check('確認済み状態を各カードへ永続表示', await page.getByLabel('確認済み').count() === 2);
+
+  // The split-row case above is covered. Remove the test-only second Sense so
+  // the study assertions below deterministically exercise the card with examples.
+  await page.locator('.memory-simple-card-row').nth(1).getByRole('button').first().click();
+  await page.getByRole('button', { name: '意味2を削除' }).click();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.memory-simple-card-row').length === 1);
 
   console.log('--- Memory UI: iOS rename and Japanese IME safety ---');
   await page.getByRole('button', { name: 'セットを編集' }).click();
@@ -148,11 +225,14 @@ try {
   check('学習画面に入力欄を出さない', await page.locator('.memory-study-card input, .memory-study-card textarea').count() === 0);
   await page.getByRole('button', { name: '答えを見る' }).click();
   check('自己評価は3択だけ', await page.locator('.memory-simple-assessment button').count() === 3);
+  const answerFace = page.getByRole('button', { name: '問題に戻る' });
+  check('学習画面でも複数例文を表示', await answerFace.getByText('Take the delay into account.', { exact: true }).isVisible() && await answerFace.getByText('We must allow for traffic.', { exact: true }).isVisible());
+  check('学習画面でも各和訳を表示', await answerFace.getByText('遅れを考慮に入れてください。', { exact: true }).isVisible() && await answerFace.getByText('交通事情を考慮しなければならない。', { exact: true }).isVisible());
   await page.getByRole('button', { name: 'まだ' }).click();
   let answerCount = 1;
   await waitForAnswerOrResult(answerCount);
 
-  for (let guard = 0; guard < 8; guard += 1) {
+  for (let guard = 0; guard < 12; guard += 1) {
     if (await page.getByRole('heading', { name: '学習完了' }).isVisible().catch(() => false)) break;
     await page.getByRole('button', { name: '答えを見る' }).click();
     await page.getByRole('button', { name: '覚えた' }).click();

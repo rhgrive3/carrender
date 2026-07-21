@@ -1,6 +1,7 @@
 import type { LearningTarget, MemorySession, MemorySessionConfig } from '../domain/types';
 import { createSessionQueue } from '../domain/sessionQueue';
-import { generateLearningTargets, resolveQuestionCount, selectLearningTargets } from '../domain/targets';
+import { generateLearningTargets } from '../domain/selectors';
+import { resolveQuestionCount, selectLearningTargets } from '../domain/targets';
 import { createMemoryId, MemoryRepository } from '../infrastructure/repositories';
 
 export interface CreatedSimpleSession {

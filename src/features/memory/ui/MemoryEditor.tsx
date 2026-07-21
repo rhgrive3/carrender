@@ -48,6 +48,23 @@ function draftFromContent(content: MemoryContentBundle, itemId: string): MemoryI
   return { id: item.id, kind: item.kind, label: item.label, lemma: item.lemma, tags: item.tags.join(', '), senses: senses.length ? senses : [blankSense()] };
 }
 
+function sanitizeExampleAnswerLinks(draft: MemoryItemDraft): MemoryItemDraft {
+  return {
+    ...draft,
+    senses: draft.senses.map((sense) => {
+      const answerIds = new Set(sense.answers.flatMap((answer) => answer.id ? [answer.id] : []));
+      return {
+        ...sense,
+        examples: sense.examples.map((example) => (
+          example.answerId && !answerIds.has(example.answerId)
+            ? { ...example, answerId: undefined }
+            : example
+        )),
+      };
+    }),
+  };
+}
+
 export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; itemId?: string; bulk?: boolean }) {
   const { repository, navigate, refresh, requestSync } = useMemory();
   const toast = useToast();
@@ -131,7 +148,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
     const actionRepository = repository;
     const actionItemId = itemId;
     const actionSetId = setId;
-    const actionDraft = draft;
+    const actionDraft = sanitizeExampleAnswerLinks(draft);
     const actionOriginal = original;
     const actionToken = saveActionTokenRef.current + 1;
     saveActionTokenRef.current = actionToken;
@@ -183,9 +200,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
         navigate(actionSetId ? { name: 'set', setId: actionSetId } : { name: 'home' });
       }
     } catch (caught) {
-      if (isCurrentAction()) {
-        toast(caught instanceof Error ? caught.message : '保存できませんでした');
-      }
+      if (isCurrentAction()) toast(caught instanceof Error ? caught.message : '保存できませんでした');
     } finally {
       if (saveActionTokenRef.current === actionToken) {
         saveInFlight.current = false;
@@ -249,7 +264,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
                 const japaneseId = `memory-example-ja-${senseIndex}-${exampleIndex}`;
                 return <div className="memory-simple-example-row" key={example.id ?? `example-${exampleIndex}`}><div className="field"><label htmlFor={englishId}>例文（任意）</label><input id={englishId} value={example.english} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, english: event.target.value } : value) }))} /></div><div className="field"><label htmlFor={japaneseId}>和訳（任意）</label><input id={japaneseId} value={example.japanese ?? ''} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.map((value, index) => index === exampleIndex ? { ...value, japanese: event.target.value } : value) }))} /></div><button type="button" className="icon-btn" aria-label="例文を削除" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: current.examples.filter((_, index) => index !== exampleIndex) }))}><Trash2 size={17} aria-hidden="true" /></button></div>;
               })}
-              {sense.examples.length === 0 && <button type="button" className="btn btn-ghost memory-add-row" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: [{ english: '' }] }))}><Plus size={17} aria-hidden="true" />例文を追加</button>}
+              <button type="button" className="btn btn-ghost memory-add-row" onClick={() => updateSense(senseIndex, (current) => ({ ...current, examples: [...current.examples, { english: '' }] }))}><Plus size={17} aria-hidden="true" />例文を追加</button>
             </div>
           </fieldset>
         ))}

@@ -18,8 +18,9 @@ import {
   undoLastSessionAnswer,
   type SessionQueueState,
 } from '../domain/sessionQueue';
+import { memoryTargetHasUsableLanguagePair } from '../domain/cardIntegrity';
+import { generateLearningTargets } from '../domain/selectors';
 import {
-  generateLearningTargets,
   resolveQuestionCount,
   selectLearningTargets,
   selectionModeWeights,
@@ -80,6 +81,7 @@ export function sessionContentIsRestorable(
     .map((example) => example.senseId));
 
   return targets.every((target) => {
+    if (!memoryTargetHasUsableLanguagePair(content, target)) return false;
     const item = items.get(target.itemId);
     const sense = senses.get(target.senseId);
     if (!item || !sense || sense.itemId !== item.id
@@ -97,7 +99,9 @@ export function sessionContentIsRestorable(
     }
     if (target.mode === 'output' && !target.exerciseId) {
       const hasAnswer = [...answers.values()].some((answer) =>
-        answer.senseId === sense.id && recordAllowed(answer.verificationStatus));
+        answer.senseId === sense.id
+        && recordAllowed(answer.verificationStatus)
+        && memoryTargetHasUsableLanguagePair(content, { ...target, answerId: answer.id }));
       if (!hasAnswer) return false;
     }
     return true;
@@ -124,7 +128,7 @@ export async function createStudySession(input: {
   const selectedSetIds = [...new Set(input.selectedSetIds)];
   if (selectedSetIds.length === 0) throw new Error('学習するセットを選択してください');
   const bundle = await input.repository.loadSetBundle(selectedSetIds);
-  let eligible = generateLearningTargets({
+  const eligible = generateLearningTargets({
     content: bundle,
     setMembers: bundle.setMembers,
     selectedSetIds,

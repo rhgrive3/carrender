@@ -37,9 +37,9 @@ assert.equal((studySource.match(/const token = beginAction\(\);/g) ?? []).length
 assert.equal((studySource.match(/const actionSessionId = session\.id;/g) ?? []).length, 2, '回答保存と取り消しが開始時のセッションIDを固定する');
 assert.match(studySource, /if \(!mounted\.current \|\| activeSessionId\.current !== actionSessionId \|\| actionToken\.current !== token\) return;[\s\S]*?setSession\(result\.session\)/, '古い回答保存完了で切替後のセッション状態を上書きしない');
 assert.match(studySource, /if \(!mounted\.current \|\| activeSessionId\.current !== actionSessionId \|\| actionToken\.current !== token\) return;[\s\S]*?setSession\(restored\.session\)/, '古い取り消し完了で切替後のセッション状態を上書きしない');
-assert.match(studySource, /const requestSyncSafely = \(force: boolean\) => \{[\s\S]*?requestSync\(force\)\.catch\(\(\) => \{/, '回答・取り消し後の同期失敗を未処理Promiseにしない');
+assert.match(studySource, /const requestSyncSafely = \(force: boolean\) => \{[\s\S]*?requestSync\(force\)\.catch\(\(\) => (?:undefined|\{[\s\S]*?\})\)/, '暗記学習の同期失敗を明示的に吸収する');
 assert.match(studySource, /await refresh\(\);[\s\S]*?requestSyncSafely[\s\S]*?activeSessionId\.current !== actionSessionId[\s\S]*?setSession/, '回答保存後は同期を維持しつつ、古いセッションへ状態を反映しない');
-assert.equal((studySource.match(/requestSyncSafely\(/g) ?? []).length, 2, '回答保存と取り消しの両方が安全な同期要求を使う');
+assert.equal((studySource.match(/^\s+requestSyncSafely\(/gm) ?? []).length, 4, '旧形式終了・復元不能終了・回答保存・取り消しの全4経路が安全な同期要求を使う');
 assert.doesNotMatch(studySource, /void requestSync\((?:false|result\.session\.status === 'completed')\);/, '同期失敗を未処理にする直接呼出しへ戻さない');
 assert.match(studySource, /mounted\.current && activeSessionId\.current === actionSessionId && actionToken\.current === token/, '別セッションへ切替後に古い操作のToastを出さない');
 

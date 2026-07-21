@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import type { ReactNode } from 'react';
 import type { MemorySet, MemorySession } from '../domain/types';
 import { MemoryRepository } from '../infrastructure/repositories';
+import { ValidatedMemoryRepository } from '../infrastructure/validatedRepository';
 import { flushMemorySync, type MemorySyncStatus } from '../infrastructure/syncEngine';
 
 export type MemoryView =
@@ -105,7 +106,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
 
   useEffect(() => {
     mounted.current = true;
-    const next = new MemoryRepository(owner);
+    const next = new ValidatedMemoryRepository(owner);
     activeRepository.current = next;
     syncInFlight.current = null;
     syncForceQueued.current = false;

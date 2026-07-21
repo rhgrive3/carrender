@@ -10,7 +10,7 @@ assert.ok(source.indexOf('if (isLoading)') < source.indexOf('return (\n    <sect
 assert.match(source, /try \{\s*await refresh\(\);\s*\} catch \(caught\) \{[\s\S]*暗記カード保存後に一覧を更新できませんでした/u, '端末保存後の一覧更新失敗を保存失敗から分離する');
 assert.match(source, /requestSync\(true\)\.catch\(\(\) => undefined\)/u, '保存後の同期失敗を未処理Promiseにしない');
 assert.match(source, /const activeRepositoryRef = useRef\(repository\)[\s\S]*const saveActionTokenRef = useRef\(0\)[\s\S]*useLayoutEffect\(\(\) => \{[\s\S]*activeRepositoryRef\.current = repository;[\s\S]*activeItemIdRef\.current = itemId;[\s\S]*saveActionTokenRef\.current \+= 1;[\s\S]*saveInFlight\.current = false;[\s\S]*setSaving\(false\);[\s\S]*\}, \[repository, itemId, setId\]\)/u, '所有者・カード・セット切替時に旧保存世代と排他状態を描画前に破棄する');
-assert.match(source, /const actionRepository = repository;[\s\S]*const actionDraft = draft;[\s\S]*const actionOriginal = original;[\s\S]*const actionToken = saveActionTokenRef\.current \+ 1/u, '保存開始時のrepository・入力・元データ・操作世代を固定する');
+assert.match(source, /const actionRepository = repository;[\s\S]*const actionDraft = sanitizeExampleAnswerLinks\(draft\);[\s\S]*const actionOriginal = original;[\s\S]*const actionToken = saveActionTokenRef\.current \+ 1/u, '保存開始時にrepository・参照整合性を直した入力・元データ・操作世代を固定する');
 assert.match(source, /const isCurrentAction = \(\) => \([\s\S]*activeRepositoryRef\.current === actionRepository[\s\S]*activeItemIdRef\.current === actionItemId[\s\S]*saveActionTokenRef\.current === actionToken/u, '保存完了の反映条件に所有者・カード・操作世代を含める');
 assert.match(source, /if \(actionItemId\) \{[\s\S]*saveMemoryItemDraft\([\s\S]*\} else \{[\s\S]*saveNewMemoryItemCards\(/u, '既存Item編集は複数Sense保存、新規追加は各カードを独立Item保存へ分ける');
 assert.match(source, /savedCount > 1 \? `\$\{savedCount\}枚のカードを保存しました`/u, '複数カード保存時は保存枚数を利用者へ伝える');
@@ -24,4 +24,4 @@ assert.match(source, /<section className="memory-editor memory-simple-editor" ar
 assert.match(source, /aria-label="戻る" disabled=\{saving\}/u, '保存中は戻る操作を止める');
 assert.match(source, /aria-busy=\{saving\}[\s\S]*保存中…/u, '保存ボタン自体へ処理中状態を表示する');
 
-console.log('memory editor owner/save and separate-card contract: ok');
+console.log('memory editor owner/save, example-reference, and separate-card contract: ok');
