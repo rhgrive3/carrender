@@ -109,4 +109,7 @@ assert.doesNotMatch(result, /\?\.label \?\? targetId/u, '暗記対象の内部ID
 assert.match(simpleSession, /!target\.exerciseId/u, '旧問題データを出題対象から除外する');
 assert.match(simpleSession, /includeUnverifiedAi: false/u, '未確認AIデータを通常学習へ混ぜない');
 
+assert.match(setup, /activeBeforeConfirm = await actionRepository\.getActiveSession\(\)/u, '開始前に最新active sessionを確認する');
+assert.match(setup, /activeBeforeCreate = await actionRepository\.getActiveSession\(\)[\s\S]*activeBeforeCreate\?\.id[\s\S]*activeBeforeConfirm\?\.id/u, '確認中のactive session変更を検出する');
+
 console.log('🎉 ALL PASS (memory simple UX contract)');

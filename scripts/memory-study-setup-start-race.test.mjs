@@ -26,4 +26,7 @@ assert.match(
 );
 assert.doesNotMatch(source, /^\s*navigate\(\{ name: 'study'/mu, '無条件の学習画面遷移へ戻さない');
 
+assert.match(source, /activeBeforeConfirm = await actionRepository\.getActiveSession\(\)/u, '開始前に最新active sessionを確認する');
+assert.match(source, /activeBeforeCreate = await actionRepository\.getActiveSession\(\)[\s\S]*activeBeforeCreate\?\.id[\s\S]*activeBeforeConfirm\?\.id/u, '確認中のactive session変更を検出する');
+
 console.log('memory study setup start race contract: ok');

@@ -9,8 +9,8 @@ const material = read('src/components/materials/MaterialFormSheet.tsx');
 const memoryResult = read('src/features/memory/ui/MemoryResult.tsx');
 const memorySetup = read('src/features/memory/ui/MemoryStudySetup.tsx');
 const memoryStudy = read('src/features/memory/ui/MemoryStudy.tsx');
-const chart = read('src/lib/recordChartNormalization.ts');
-const main = read('src/main.tsx');
+const records = read('src/screens/RecordsScreen.tsx');
+const shares = read('src/lib/recordChartShares.ts');
 
 assert.match(timer, /workStartedAt\?: number/, 'timer persistence must keep an immutable study start');
 assert.match(timer, /workStartedAt: nowMs/, 'new timers must capture the first start instant');
@@ -46,8 +46,9 @@ assert.match(memoryStudy, /event\.isComposing \|\| event\.keyCode === 229/, 'IME
 assert.match(memoryStudy, /role="button" className="memory-study-card-face/, 'card faces must use valid non-button containers for headings');
 assert.doesNotMatch(memoryStudy, /<button[\s\S]{0,120}className="memory-study-card-face/, 'invalid button-wrapped headings must not return');
 
-assert.match(chart, /value \/ total/, 'chart stack heights must be exact proportions');
-assert.match(chart, /stack\.style\.minHeight = minHeight/, 'small categories may remain visible without inflating percentage height');
-assert.match(main, /installRecordChartNormalization\(\)/, 'record chart normalization must run in production');
+assert.match(records, /recordChartSharePercent\(minutes, actual\)/, 'React must render chart shares from numeric source data');
+assert.doesNotMatch(records, /Math\.max\(8,/, 'small categories must not inflate stacked percentages');
+assert.match(shares, /value \/ total/, 'chart helper must calculate exact proportions');
+assert.doesNotMatch(records, /minutesFromTitle|MutationObserver/, 'chart rendering must not parse localized DOM text');
 
 console.log('audit issues #344-#352 regression contracts passed');

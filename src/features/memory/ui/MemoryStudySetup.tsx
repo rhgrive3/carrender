@@ -131,9 +131,6 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
 
   const start = async () => {
     if (!repository || startInFlight.current || !eligibilityReady || plannedCount === 0 || eligibilityError) return;
-    if (activeSession && !window.confirm(
-      `前回の暗記学習（回答${activeSession.answerCount}回）が途中です。\n前回を終了して新しい学習を始めますか？`,
-    )) return;
     const actionRepository = repository;
     const actionToken = startTokenRef.current + 1;
     startTokenRef.current = actionToken;
@@ -143,7 +140,16 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
       && repositoryRef.current === actionRepository
       && startTokenRef.current === actionToken;
     try {
-      const config: MemorySessionConfig = {
+    const activeBeforeConfirm = await actionRepository.getActiveSession();
+    if (activeBeforeConfirm && !window.confirm(
+      `前回の暗記学習（回答${activeBeforeConfirm.answerCount}回）が途中です。\n前回を終了して新しい学習を始めますか？`,
+    )) return;
+    if (!isCurrentAction()) return;
+    const activeBeforeCreate = await actionRepository.getActiveSession();
+    if ((activeBeforeCreate?.id ?? null) !== (activeBeforeConfirm?.id ?? null)) {
+      throw new Error('途中の暗記学習が別の操作で変更されました。内容を確認してもう一度始めてください');
+    }
+    const config: MemorySessionConfig = {
         questionCount: questionCount(countChoice),
         direction,
         includeUnverifiedAi: false,

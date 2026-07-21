@@ -6,6 +6,7 @@ import { computeAchievements, unlockedCount } from '../lib/achievements';
 import { shareStudyCard } from '../lib/sharecard';
 import { isPlacedPlanTask } from '../lib/taskFilters';
 import { stablePlanTasks } from '../lib/progressChart';
+import { recordChartSharePercent } from '../lib/recordChartShares';
 import { ProgressBar } from '../components/ui/bits';
 import {
   addDays,
@@ -386,7 +387,7 @@ function WeekChart({
                       className="studyplus-stack"
                       title={`${subject.name} ${formatMinutes(minutes)}`}
                       style={{
-                        height: `${Math.max(8, (minutes / Math.max(1, actual)) * 100)}%`,
+                        height: `${recordChartSharePercent(minutes, actual)}%`,
                         background: subject.color,
                       }}
                     />

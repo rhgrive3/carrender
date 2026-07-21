@@ -28,7 +28,6 @@ import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 import { DayRolloverBoundary } from './components/DayRolloverBoundary';
 import { preserveUnreadableState } from './lib/preserveUnreadableState';
 import { installFixedBottomNavigationGuard } from './lib/fixedBottomNavigationGuard';
-import { installRecordChartNormalization } from './lib/recordChartNormalization';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
 
@@ -172,7 +171,6 @@ function ShellNavigationSemanticsGuard() {
 }
 
 installFixedBottomNavigationGuard();
-installRecordChartNormalization();
 preserveUnreadableState();
 registerSW({ immediate: true });
 
