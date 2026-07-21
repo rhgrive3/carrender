@@ -31,6 +31,23 @@ interface MemoryContextValue {
 }
 
 const MemoryContext = createContext<MemoryContextValue | null>(null);
+const MEMORY_EDITOR_SELECTOR = '.memory-editor, .memory-bulk-editor';
+
+/**
+ * MemoryEditor / MemoryBulkEditor already expose their dirty state through a
+ * cancelable beforeunload event. Reuse that contract when another mounted tab
+ * tries to replace the memory view, while leaving editor-owned navigation to
+ * the editor's more specific confirmation path.
+ */
+function shouldConfirmExternalMemoryNavigation(): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+  if (!document.querySelector(MEMORY_EDITOR_SELECTOR)) return false;
+  const activeElement = document.activeElement;
+  if (activeElement instanceof Element && activeElement.closest(MEMORY_EDITOR_SELECTOR)) return false;
+  const event = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
 
 export function MemoryProvider({ owner, children }: { owner: string; children: ReactNode }) {
   const [repository, setRepository] = useState<MemoryRepository | null>(null);
@@ -230,7 +247,11 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     };
   }, [repository, requestSync]);
 
-  const navigate = useCallback((next: MemoryView) => setView(next), []);
+  const navigate = useCallback((next: MemoryView) => {
+    if (shouldConfirmExternalMemoryNavigation()
+      && !window.confirm('未保存の暗記カード入力を破棄して移動しますか？')) return;
+    setView(next);
+  }, []);
   const value = useMemo<MemoryContextValue>(() => ({
     repository,
     ready,
