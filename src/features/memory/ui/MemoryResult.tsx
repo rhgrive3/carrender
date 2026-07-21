@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Home, RotateCcw, RotateCw } from 'lucide-react';
 import type { MemoryAttempt, MemorySession, MemorySetBundle } from '../domain/types';
+import { primaryEnglishForSense } from '../domain/cardIntegrity';
 import { undoMemoryAnswer } from '../application/session';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
@@ -45,6 +46,19 @@ export function summarizeMemoryCardOutcomes(
     else missed += 1;
   }
   return { remembered, unsure, missed };
+}
+
+/** 結果画面では親Itemではなく、実際に回答したSenseの日本語・英語ペアを示す。 */
+export function memoryReviewCardLabel(bundle: MemorySetBundle | undefined, attempt: MemoryAttempt | undefined): string {
+  if (!bundle || !attempt) return '削除済みカード';
+  const sense = bundle.senses.find((value) => value.id === attempt.senseId);
+  if (!sense) return '削除済みカード';
+  const japanese = [sense.promptJa, sense.meaningJa]
+    .map((value) => value.trim())
+    .find(Boolean) ?? '日本語未設定';
+  const english = primaryEnglishForSense(bundle, sense.id, { verifiedOnly: true })
+    ?? '英語表現が未設定です';
+  return `${japanese} — ${english}`;
 }
 
 export function MemoryResult({ sessionId }: { sessionId: string }) {
@@ -135,7 +149,7 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     const attempt = [...attempts].reverse().find((value) => value.targetId === targetId);
     return {
       targetId,
-      label: bundle?.items.find((item) => item.id === attempt?.itemId)?.label ?? '削除済みカード',
+      label: memoryReviewCardLabel(bundle, attempt),
     };
   });
 
