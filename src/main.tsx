@@ -213,7 +213,7 @@ function RecordTabPanelSemanticsGuard() {
       const monthTab = tabByLabel(periodTabs, '月');
       const selectedPeriodTab = [weekTab, monthTab].find((tab) => tab?.getAttribute('aria-selected') === 'true');
       const weekPanel = overviewPanel?.querySelector<HTMLElement>('.studyplus-chart-card');
-      const monthPanel = overviewPanel?.querySelector<HTMLElement>('.month-calendar')?.closest<HTMLElement>('.card');
+      const monthPanel = overviewPanel?.querySelector<HTMLElement>('[data-month-calendar]')?.closest<HTMLElement>('.card');
       const periodPanel = weekPanel ?? monthPanel;
       const selectedPeriod = selectedPeriodTab === monthTab ? 'month' : 'week';
       const periodPanelId = `records-${selectedPeriod}-panel`;
