@@ -11,7 +11,13 @@ const doingTask: StudyTask = {
   type: 'new', status: 'doing', scheduledDate: date, scheduledStart: '09:00', scheduledEnd: '09:30',
   generatedBy: 'manual', reviewStage: null, createdAt: now, updatedAt: now, completedAt: null,
   sourceType: 'manual', sourceId: 'doing-task', placementStatus: 'scheduled', placementLock: 'time',
-  manualScheduling: { placementPolicy: 'fixedTime', fixedDate: date, fixedStartTime: '09:00', splittable: false },
+  manualScheduling: {
+    placementPolicy: 'fixedTime',
+    fixedDate: date,
+    fixedStartTime: '09:00',
+    progressPolicy: { type: 'independent' },
+    splittable: false,
+  },
 };
 const state: AppState = {
   ...emptyState(), onboarded: true,
@@ -29,5 +35,38 @@ assert.strictEqual(
   state,
   '計測中タスクはReducer境界でも別日へ移動しない',
 );
+assert.strictEqual(
+  appReducer(state, {
+    type: 'UPDATE_TASK',
+    task: { ...doingTask, scheduledDate: addDays(date, 1), updatedAt: new Date().toISOString() },
+  }),
+  state,
+  '計測中タスクはUPDATE_TASK経由でも予定を変更しない',
+);
+assert.strictEqual(
+  appReducer(state, { type: 'DELETE_TASK', taskId: doingTask.id }),
+  state,
+  '計測中タスクはReducer境界でも削除しない',
+);
+
+const recovered = appReducer(state, {
+  type: 'UPDATE_TASK',
+  task: {
+    ...doingTask,
+    status: 'planned',
+    placementLock: 'none',
+    scheduledStart: null,
+    scheduledEnd: null,
+    manualScheduling: {
+      ...doingTask.manualScheduling!,
+      placementPolicy: 'flexibleBeforeDeadline',
+      fixedDate: undefined,
+      fixedStartTime: undefined,
+    },
+    updatedAt: new Date().toISOString(),
+  },
+});
+assert.notStrictEqual(recovered, state, '古いdoing状態はplannedへ戻す同一更新で復旧できる');
+assert.equal(recovered.tasks[0]?.status, 'planned');
 
 console.log('✅ doing task mutation guards passed');
