@@ -24,6 +24,7 @@ const outcomes = summarizeMemoryCardOutcomes({
   { targetId: 'b', assessment: 'partial' }, { targetId: 'c', assessment: 'incorrect' },
 ] as any);
 assert.deepEqual(outcomes, { remembered: 1, unsure: 1, missed: 1 });
+assert.equal(outcomes.remembered + outcomes.unsure + outcomes.missed, 3, 'one unique target must belong to exactly one card outcome');
 
 const t = today();
 const now = new Date().toISOString();
