@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 
-const contractCss = await readFile(new URL('../src/styles/layoutContracts.css', import.meta.url), 'utf8');
+const mainSource = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
+const styleImports = [...mainSource.matchAll(/import '(\.\/styles\/[^']+\.css)';/gu)].map((match) => match[1]);
+assert.equal(styleImports.at(-1), './styles/layoutContracts.css', 'fixed navigation contract must be the final app stylesheet');
+const allStyles = (await Promise.all(styleImports.map((path) => readFile(new URL(`../src/${path.slice(2)}`, import.meta.url), 'utf8')))).join('\n');
+
 const browser = await chromium.launch({ headless: true });
 const viewports = [
   { label: 'iPhone portrait', width: 390, height: 844 },
@@ -27,40 +31,18 @@ try {
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
           <style>
-            :root { --nav-height: 62px; }
-            * { box-sizing: border-box; }
-            html, body { margin: 0; min-height: 100%; }
-            body { min-width: 320px; }
-            #root {
-              height: 100vh;
-              overflow: auto;
-              transform: translateZ(0);
-              filter: brightness(1);
-              perspective: 1000px;
-              contain: layout paint;
-            }
-            #app-main-content {
-              min-height: 240vh;
-              overflow: hidden;
-              transform: translateY(0);
-              contain: paint;
-            }
-            .window-spacer { height: 180vh; }
-            .bottom-nav {
-              background: #111827;
-              border-top: 1px solid #374151;
-            }
-            ${contractCss}
+            ${allStyles}
           </style>
         </head>
         <body>
           <div id="root">
             <main id="app-main-content">
-              <div class="app-shell">scroll content</div>
+              <div class="app-shell">
+                <section class="screen"><div style="height:240vh">scroll content</div></section>
+              </div>
             </main>
           </div>
-          <div class="window-spacer" aria-hidden="true"></div>
-          <nav class="bottom-nav" data-layout-contract="fixed-bottom-navigation">
+          <nav class="bottom-nav" data-layout-contract="fixed-bottom-navigation" data-portal-target="document.body">
             <button type="button">今日</button>
             <button type="button">計画</button>
             <button type="button">教材</button>
@@ -92,7 +74,7 @@ try {
 
     const before = await readLayout();
     assert.equal(before.parentTag, 'BODY', `${viewport.label}: nav is a direct body child`);
-    assert.equal(before.position, 'fixed', `${viewport.label}: nav uses fixed positioning`);
+    assert.equal(before.position, 'fixed', `${viewport.label}: nav uses fixed positioning after the complete app CSS cascade`);
     assert.equal(before.display, 'flex', `${viewport.label}: nav stays rendered`);
     assert.equal(before.visibility, 'visible', `${viewport.label}: nav stays visible`);
     assert.equal(before.opacity, '1', `${viewport.label}: nav stays opaque`);
@@ -101,7 +83,6 @@ try {
     assert.ok(before.right <= before.viewportWidth + tolerance, `${viewport.label}: nav does not overflow right`);
     assert.ok(before.width <= Math.min(before.viewportWidth, 760) + tolerance, `${viewport.label}: nav respects the viewport/max width`);
 
-    await page.locator('#root').evaluate((element) => { element.scrollTop = 700; });
     await page.evaluate(() => window.scrollTo(0, 600));
     await page.waitForTimeout(50);
 
@@ -115,7 +96,7 @@ try {
     await context.close();
   }
 
-  console.log('✅ bottom navigation stays viewport-fixed on iPhone/iPad portrait and landscape');
+  console.log('✅ bottom navigation stays viewport-fixed with the complete app CSS cascade on iPhone/iPad');
 } finally {
   await browser.close();
 }
