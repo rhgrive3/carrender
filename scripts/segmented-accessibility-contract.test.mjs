@@ -17,6 +17,7 @@ assert.match(segmented, /event\.preventDefault\(\)[\s\S]*onChange\(next\.value\)
 assert.match(segmented, /data-segment-value=\{o\.value\}/, '移動先を安定して特定する');
 
 assert.match(material, /role="radiogroup" aria-label="周回"/, '教材の周回選択をradiogroupとして公開する');
+assert.match(guard, /return role === 'radio' \? 'aria-checked' : 'aria-selected'/, 'radioとtabで正しいARIA選択属性を参照する');
 assert.match(guard, /const selected = choices\.find\([\s\S]*choice\.tabIndex = choice === selected \? 0 : -1/, '不完全なradiogroupとtablistも選択中だけをTab停止位置へ修復する');
 assert.match(guard, /ArrowRight[\s\S]*ArrowDown[\s\S]*ArrowLeft[\s\S]*ArrowUp[\s\S]*Home[\s\S]*End/, '全選択グループへ方向キーとHome・Endを補完する');
 assert.match(guard, /if \(event\.defaultPrevented\) return/, '既存コンポーネントが処理済みのキーを二重処理しない');
