@@ -13,6 +13,14 @@
   overscroll-behavior: none;
 }
 
+/* 答え面は例文や複数解答が長くても、全画面内で最後まで確認できるようにする。 */
+.memory-simple-study:has(.memory-study-card[data-card-side='answer']) .memory-study-stage {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 /*
  * 不正解・部分正解は強い全面色を避け、覚えたボタンより一段控えめな
  * トーン面へする。意味の違いは色相と枠線で残す。
