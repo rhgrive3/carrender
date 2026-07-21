@@ -59,6 +59,9 @@ export function installRadiogroupKeyboardGuard(): () => void {
     frame = requestAnimationFrame(normalizeAll);
   };
   const onKeyDown = (event: KeyboardEvent) => {
+    // React components such as Segmented and Rating already implement the
+    // complete interaction contract and call preventDefault themselves.
+    if (event.defaultPrevented) return;
     const target = event.target;
     if (!(target instanceof HTMLElement) || target.getAttribute('role') !== 'radio') return;
     moveSelection(event, target);
