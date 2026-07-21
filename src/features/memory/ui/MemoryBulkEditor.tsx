@@ -119,6 +119,16 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
     setResolutions(new Map());
   }, [repository, setId]);
 
+  useEffect(() => {
+    if (!hasAnyInput || saving) return undefined;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasAnyInput, saving]);
+
   const resetValidation = () => {
     setPasteErrors([]);
     setDuplicatePreview(undefined);
@@ -147,6 +157,12 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
     if (hasAnyInput && !window.confirm('入力中のカードをすべて消しますか？')) return;
     setRows(Array.from({ length: 8 }, () => emptyRow(defaultSetId)));
     resetValidation();
+  };
+
+  const leaveEditor = (destination: Parameters<typeof navigate>[0]) => {
+    if (saving) return;
+    if (hasAnyInput && !window.confirm('入力中のカードを破棄して移動しますか？')) return;
+    navigate(destination);
   };
 
   const focusCell = (rowIndex: number, columnIndex: number) => {
@@ -290,7 +306,7 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
     <section className="memory-bulk-editor" aria-busy={saving}>
       <span data-app-screen-label="暗記カードをまとめて追加" hidden />
       <div className="memory-page-header memory-bulk-header">
-        <button type="button" className="icon-btn" aria-label="1枚入力へ戻る" disabled={saving} onClick={() => navigate({ name: 'editor', setId })}><ArrowLeft size={21} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn" aria-label="1枚入力へ戻る" disabled={saving} onClick={() => leaveEditor({ name: 'editor', setId })}><ArrowLeft size={21} aria-hidden="true" /></button>
         <div className="memory-bulk-header-copy">
           <span className="memory-bulk-eyebrow">暗記カード</span>
           <h2>まとめて追加</h2>
@@ -411,7 +427,7 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
           <span>{pasteErrors.length > 0 ? '貼り付けエラーを修正してください' : incompleteCount > 0 ? `${incompleteCount}行の必須項目が未入力です` : validRows.length > 0 ? '日本語と英語を確認して保存' : 'カードを入力してください'}</span>
         </div>
         <div className="memory-bulk-action-buttons">
-          <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
+          <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => leaveEditor(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
           <button type="button" className="btn btn-primary" disabled={saving || validRows.length === 0 || pasteErrors.length > 0 || incompleteCount > 0} aria-describedby="memory-bulk-save-status" aria-busy={saving} onClick={() => void save()}><Save size={18} aria-hidden="true" />{saving ? '保存中…' : duplicatePreview ? '確認して保存' : `${validRows.length}件を保存`}</button>
         </div>
       </div>
