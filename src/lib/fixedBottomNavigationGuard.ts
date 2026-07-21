@@ -7,22 +7,18 @@ interface GuardWindow extends Window {
   [INSTALL_KEY]?: () => void;
 }
 
-interface VisualViewportMetrics {
-  height: number;
-  offsetTop: number;
-}
-
-function visibleVisualViewportBottom(
-  viewport: VisualViewportMetrics | null | undefined = window.visualViewport,
-): number {
-  if (viewport
-    && Number.isFinite(viewport.height)
-    && viewport.height > 0
-    && Number.isFinite(viewport.offsetTop)) {
-    // getBoundingClientRect() is measured in the layout viewport's client
-    // coordinates. On iPadOS the visual viewport can both shrink and move,
-    // therefore the visible bottom is offsetTop + height rather than height.
-    return viewport.offsetTop + viewport.height;
+function visibleViewportBottom(): number {
+  const visualHeight = window.visualViewport?.height;
+  const visualOffsetTop = window.visualViewport?.offsetTop;
+  if (typeof visualHeight === 'number'
+    && Number.isFinite(visualHeight)
+    && visualHeight > 0
+    && typeof visualOffsetTop === 'number'
+    && Number.isFinite(visualOffsetTop)) {
+    // getBoundingClientRect() is measured in layout-viewport client
+    // coordinates. iPadOS may both shrink and move the visual viewport, so the
+    // visible lower edge is offsetTop + height rather than height alone.
+    return visualOffsetTop + visualHeight;
   }
   return document.documentElement.clientHeight || window.innerHeight;
 }
@@ -79,7 +75,7 @@ export function installFixedBottomNavigationGuard(): () => void {
     const currentOffset = numericOffset(nav);
     applyFixedInvariants(nav, currentOffset);
     const rect = nav.getBoundingClientRect();
-    const delta = visibleVisualViewportBottom() - rect.bottom;
+    const delta = visibleViewportBottom() - rect.bottom;
     if (Math.abs(delta) <= TOLERANCE_PX) {
       correctionPass = 0;
       return;
