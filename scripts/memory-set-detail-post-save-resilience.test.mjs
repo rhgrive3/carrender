@@ -125,8 +125,8 @@ assert.match(
 );
 assert.match(
   dialogSource,
-  /if \(event\.isComposing \|\| event\.keyCode === 229\) return;[\s\S]*onCloseRef\.current\(\)/u,
-  '日本語IMEの変換候補を閉じるEscapeでは暗記ダイアログを閉じない',
+  /if \(event\.isComposing \|\| event\.keyCode === 229\) return;[\s\S]*requestCloseRef\.current\(\)/u,
+  '日本語IMEの変換候補を閉じるEscapeでは暗記ダイアログを閉じず、通常時は未保存確認付き経路を使う',
 );
 assert.match(dialogSource, /acquireModalIsolation\(backdrop\.current\)/u, '暗記ダイアログ表示中は背面UIを操作・読み上げ対象から外す');
 assert.match(dialogSource, /backdrop\.current\?\.hasAttribute\('inert'\)/u, '背面へ回った暗記ダイアログのキーボード処理を止める');
