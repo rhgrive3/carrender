@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components/ui/bits.tsx', import.meta.url), 'utf8');
 const guard = readFileSync(new URL('../src/lib/radiogroupKeyboardGuard.ts', import.meta.url), 'utf8');
+const recordTabs = readFileSync(new URL('../src/lib/recordTabPanelSemantics.ts', import.meta.url), 'utf8');
 const material = readFileSync(new URL('../src/components/materials/MaterialFormSheet.tsx', import.meta.url), 'utf8');
 const records = readFileSync(new URL('../src/screens/RecordsScreen.tsx', import.meta.url), 'utf8');
 const monthCalendar = readFileSync(new URL('../src/components/ui/MonthCalendar.tsx', import.meta.url), 'utf8');
@@ -34,17 +35,17 @@ assert.match(guard, /attributeFilter: \['aria-checked', 'aria-selected', 'aria-d
 assert.match(records, /role="tablist" aria-label="記録画面の切替"[\s\S]*role="tab"[\s\S]*role="tab"/, '記録画面切替をtablistとして公開する');
 assert.match(records, /role="tablist" aria-label="集計期間"[\s\S]*role="tab"[\s\S]*role="tab"/, '週月切替をtablistとして公開する');
 assert.match(monthCalendar, /data-month-calendar/, '月表示の実DOMへ安定した識別子を持つ');
+assert.match(recordTabs, /export function installRecordTabPanelSemanticsGuard\(\)/, '記録画面のtabとtabpanelを接続する共有ガードを持つ');
+assert.match(recordTabs, /overviewTab\.id = 'records-overview-tab'[\s\S]*aria-controls', 'records-overview-panel'/, '集計tabから集計panelを参照する');
+assert.match(recordTabs, /logTab\.id = 'records-log-tab'[\s\S]*aria-controls', 'records-log-panel'/, '学習ログtabからログpanelを参照する');
+assert.match(recordTabs, /overviewPanel\.id = 'records-overview-panel'[\s\S]*setAttribute\('role', 'tabpanel'\)[\s\S]*setAttribute\('aria-labelledby', overviewTab\.id\)/, '集計panelから集計tabを参照する');
+assert.match(recordTabs, /logPanel\.id = 'records-log-panel'[\s\S]*setAttribute\('role', 'tabpanel'\)[\s\S]*setAttribute\('aria-labelledby', logTab\.id\)/, 'ログpanelからログtabを参照する');
+assert.match(recordTabs, /weekTab\.id = 'records-week-tab'[\s\S]*aria-controls', 'records-week-panel'/, '週tabから週panelを参照する');
+assert.match(recordTabs, /monthTab\.id = 'records-month-tab'[\s\S]*aria-controls', 'records-month-panel'/, '月tabから月panelを参照する');
+assert.match(recordTabs, /querySelector<HTMLElement>\('\[data-month-calendar\]'\)\?\.closest<HTMLElement>\('\.card'\)/, '月tabpanelはMonthCalendarの実DOMから解決する');
+assert.match(recordTabs, /periodPanel\.id = periodPanelId[\s\S]*setAttribute\('role', 'tabpanel'\)[\s\S]*setAttribute\('aria-labelledby', selectedPeriodTab\.id\)/, '表示中の期間panelを選択tabへ関連付ける');
+assert.match(recordTabs, /attributeFilter: \['aria-selected'\]/, 'Reactのtab選択変更後に関連付けを再構築する');
 assert.match(main, /installRadiogroupKeyboardGuard\(\);/, 'アプリ起動時に共有選択グループガードを有効化する');
-assert.match(main, /function RecordTabPanelSemanticsGuard\(\)/, '記録画面のtabとtabpanelを接続する共有ガードを持つ');
-assert.match(main, /overviewTab\.id = 'records-overview-tab'[\s\S]*aria-controls', 'records-overview-panel'/, '集計tabから集計panelを参照する');
-assert.match(main, /logTab\.id = 'records-log-tab'[\s\S]*aria-controls', 'records-log-panel'/, '学習ログtabからログpanelを参照する');
-assert.match(main, /overviewPanel\.id = 'records-overview-panel'[\s\S]*setAttribute\('role', 'tabpanel'\)[\s\S]*setAttribute\('aria-labelledby', overviewTab\.id\)/, '集計panelから集計tabを参照する');
-assert.match(main, /logPanel\.id = 'records-log-panel'[\s\S]*setAttribute\('role', 'tabpanel'\)[\s\S]*setAttribute\('aria-labelledby', logTab\.id\)/, 'ログpanelからログtabを参照する');
-assert.match(main, /weekTab\.id = 'records-week-tab'[\s\S]*aria-controls', 'records-week-panel'/, '週tabから週panelを参照する');
-assert.match(main, /monthTab\.id = 'records-month-tab'[\s\S]*aria-controls', 'records-month-panel'/, '月tabから月panelを参照する');
-assert.match(main, /querySelector<HTMLElement>\('\[data-month-calendar\]'\)\?\.closest<HTMLElement>\('\.card'\)/, '月tabpanelはMonthCalendarの実DOMから解決する');
-assert.match(main, /periodPanel\.id = periodPanelId[\s\S]*setAttribute\('role', 'tabpanel'\)[\s\S]*setAttribute\('aria-labelledby', selectedPeriodTab\.id\)/, '表示中の期間panelを選択tabへ関連付ける');
-assert.match(main, /attributeFilter: \['aria-selected'\]/, 'Reactのtab選択変更後に関連付けを再構築する');
-assert.match(main, /<RecordTabPanelSemanticsGuard \/>/, 'アプリ起動時に記録tabpanelガードを有効化する');
+assert.match(main, /installRecordTabPanelSemanticsGuard\(\);/, 'アプリ起動時に記録tabpanelガードを有効化する');
 
 console.log('✅ Segmented, repaired radiogroup, tabpanel relationships, disabled-choice, and orientation-aware tablist accessibility contracts passed');
