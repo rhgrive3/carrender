@@ -16,6 +16,28 @@ assert.match(editor, /memory-add-row" disabled=\{saving\}[\s\S]*1行追加[\s\S]
 assert.match(editor, /memory-bulk-clear[\s\S]*入力をクリア/u, '入力全消去の導線を用意する');
 assert.match(editor, /memory-bulk-action-summary[\s\S]*incompleteCount[\s\S]*memory-bulk-action-buttons/u, '保存前に件数と不足状態を固定フッターで確認できる');
 
+assert.match(
+  editor,
+  /const leaveEditor = \(destination: Parameters<typeof navigate>\[0\]\) => \{[\s\S]*if \(saving\) return;[\s\S]*hasAnyInput && !window\.confirm\('入力中のカードを破棄して移動しますか？'\)[\s\S]*navigate\(destination\);/u,
+  '入力済みの一括追加画面から離れる前に破棄確認する',
+);
+assert.match(
+  editor,
+  /aria-label="1枚入力へ戻る"[\s\S]*onClick=\{\(\) => leaveEditor\(\{ name: 'editor', setId \}\)\}/u,
+  '左上の戻る操作も未保存確認を通す',
+);
+assert.match(
+  editor,
+  /onClick=\{\(\) => leaveEditor\(setId \? \{ name: 'set', setId \} : \{ name: 'home' \}\)\}>キャンセル/u,
+  '下部のキャンセル操作も未保存確認を通す',
+);
+assert.doesNotMatch(editor, /aria-label="1枚入力へ戻る"[\s\S]{0,180}navigate\(/u, '戻るボタンから直接遷移して入力を捨てない');
+assert.match(
+  editor,
+  /if \(!hasAnyInput \|\| saving\) return undefined;[\s\S]*window\.addEventListener\('beforeunload', onBeforeUnload\)[\s\S]*window\.removeEventListener\('beforeunload', onBeforeUnload\)/u,
+  '入力中の再読み込み・タブ終了もブラウザ確認で保護する',
+);
+
 assert.match(styles, /@media \(max-width: 1200px\)[\s\S]*\.memory-grid-scroll \{[\s\S]*max-height: none;[\s\S]*overflow: visible;/u, 'iPad mini横向きを含め入れ子スクロールと横長表を解除する');
 assert.match(styles, /@media \(max-width: 1200px\)[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u, 'iPadではカード内を2列で読みやすくする');
 assert.match(styles, /@media \(max-width: 680px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/u, 'スマホでは1列フォームへ切り替える');
@@ -25,4 +47,4 @@ assert.match(styles, /\.memory-bulk-actions \{[\s\S]*justify-content: space-betw
 assert.match(main, /import '\.\/styles\/memory-bulk-editor\.css';/u, '一括追加専用CSSを読み込む');
 assert.ok(main.indexOf('memory-bulk-editor.css') < main.indexOf('layoutContracts.css'), '永続レイアウト契約より前に専用CSSを読み込む');
 
-console.log('✅ memory bulk editor responsive layout contract passed');
+console.log('✅ memory bulk editor responsive layout and unsaved navigation contract passed');
