@@ -30,6 +30,7 @@ import { preserveUnreadableState } from './lib/preserveUnreadableState';
 import { installFixedBottomNavigationGuard } from './lib/fixedBottomNavigationGuard';
 import { installRadiogroupKeyboardGuard } from './lib/radiogroupKeyboardGuard';
 import { installRecordTabPanelSemanticsGuard } from './lib/recordTabPanelSemantics';
+import { installMemoryImportTabPanelSemanticsGuard } from './lib/memoryImportTabPanelSemantics';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
 
@@ -175,6 +176,7 @@ function ShellNavigationSemanticsGuard() {
 installFixedBottomNavigationGuard();
 installRadiogroupKeyboardGuard();
 installRecordTabPanelSemanticsGuard();
+installMemoryImportTabPanelSemanticsGuard();
 preserveUnreadableState();
 registerSW({ immediate: true });
 

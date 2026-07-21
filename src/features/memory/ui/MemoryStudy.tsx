@@ -10,7 +10,33 @@ import { acquireModalIsolation, trapModalTabKey } from '../../../components/ui/S
 import { useMemory } from './MemoryContext';
 
 const SWIPE_THRESHOLD_PX = 48;
+const CLICK_MOVEMENT_TOLERANCE_PX = 8;
 type CardFlipDirection = 'to-answer' | 'to-question';
+
+interface PointerStart {
+  pointerId: number;
+  x: number;
+  y: number;
+}
+
+export interface CardGestureResult {
+  moved: boolean;
+  swipe: 'left' | 'right' | null;
+}
+
+export function classifyCardGesture(
+  start: PointerStart,
+  end: { pointerId: number; x: number; y: number },
+): CardGestureResult {
+  if (start.pointerId !== end.pointerId) return { moved: false, swipe: null };
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
+  const moved = Math.hypot(deltaX, deltaY) >= CLICK_MOVEMENT_TOLERANCE_PX;
+  if (absX < SWIPE_THRESHOLD_PX || absX <= absY) return { moved, swipe: null };
+  return { moved: true, swipe: deltaX < 0 ? 'left' : 'right' };
+}
 
 export function uniqueDisplayAnswers(values: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
@@ -35,7 +61,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const [loadError, setLoadError] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
   const questionStarted = useRef(performance.now());
-  const pointerStartX = useRef<number | null>(null);
+  const pointerStart = useRef<PointerStart | null>(null);
   const ignoreNextClick = useRef(false);
   const mounted = useRef(true);
   const activeSessionId = useRef(sessionId);
@@ -56,7 +82,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   useLayoutEffect(() => {
     actionToken.current += 1;
     actionInFlight.current = false;
-    pointerStartX.current = null;
+    pointerStart.current = null;
     ignoreNextClick.current = false;
     setSession(undefined);
     setBundle(undefined);
@@ -139,6 +165,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const sense = bundle?.senses.find((value) => value.id === target?.senseId);
 
   useEffect(() => {
+    pointerStart.current = null;
     setRevealed(false);
     setFlipDirection(undefined);
     questionStarted.current = performance.now();
@@ -150,6 +177,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
 
   const beginAction = () => {
     if (actionInFlight.current) return undefined;
+    pointerStart.current = null;
     const token = actionToken.current + 1;
     actionToken.current = token;
     actionInFlight.current = true;
@@ -228,15 +256,19 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     if (ignoreNextClick.current) { ignoreNextClick.current = false; return; }
     setCardSide(next);
   };
-  const handlePointerUp = (clientX: number) => {
-    const start = pointerStartX.current;
-    pointerStartX.current = null;
-    if (start === null || busy) return;
-    const delta = clientX - start;
-    if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return;
+  const suppressGestureClick = () => {
     ignoreNextClick.current = true;
-    setCardSide(delta < 0);
     window.setTimeout(() => { ignoreNextClick.current = false; }, 0);
+  };
+  const handlePointerUp = (pointerId: number, clientX: number, clientY: number) => {
+    const start = pointerStart.current;
+    if (!start || start.pointerId !== pointerId) return;
+    pointerStart.current = null;
+    if (busy) return;
+    const gesture = classifyCardGesture(start, { pointerId, x: clientX, y: clientY });
+    if (gesture.moved) suppressGestureClick();
+    if (!gesture.swipe) return;
+    setCardSide(gesture.swipe === 'left');
   };
   const activateFace = (event: React.KeyboardEvent, next: boolean) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -275,7 +307,18 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       </header>
       <div className="memory-study-mode">{directionLabel}</div>
       <div className="memory-study-stage">
-        <div className="memory-study-flip-shell" onPointerDown={(event) => { if (event.isPrimary) pointerStartX.current = event.clientX; }} onPointerUp={(event) => { if (event.isPrimary) handlePointerUp(event.clientX); }} onPointerCancel={() => { pointerStartX.current = null; }}>
+        <div
+          className="memory-study-flip-shell"
+          onPointerDown={(event) => {
+            if (event.isPrimary) pointerStart.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+          }}
+          onPointerUp={(event) => {
+            if (event.isPrimary) handlePointerUp(event.pointerId, event.clientX, event.clientY);
+          }}
+          onPointerCancel={(event) => {
+            if (pointerStart.current?.pointerId === event.pointerId) pointerStart.current = null;
+          }}
+        >
           <article key={target.id} className={`memory-study-card memory-simple-study-card ${revealed ? 'revealed' : ''} ${flipDirection ? `flip-${flipDirection}` : ''}`} data-card-side={revealed ? 'answer' : 'question'}>
             <div className="memory-study-card-inner" onAnimationEnd={(event) => { if (event.animationName.startsWith('memory-card-android-flip-')) setFlipDirection(undefined); }}>
               <div role="button" className="memory-study-card-face memory-study-card-front" aria-label="答えを見る" aria-hidden={revealed} aria-disabled={busy} tabIndex={revealed || busy ? -1 : 0} onClick={() => handleFaceClick(true)} onKeyDown={(event) => activateFace(event, true)}>

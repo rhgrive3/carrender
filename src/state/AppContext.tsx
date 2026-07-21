@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { AppState, Material, StudySession, StudyTask } from '../types';
 import { addDays, today } from '../lib/date';
 import { emitAppCommandMessage } from '../lib/appCommandEvents';
+import { validateMaterialIntegrity } from '../lib/materialIntegrity';
 import { useAuth } from './AuthContext';
 import {
   AppProvider as BaseAppProvider,
@@ -239,17 +240,7 @@ function resolveUiAction(state: AppState, action: Action, owner: string | null):
 }
 
 function materialValidationError(material: Material): string | undefined {
-  if (!Number.isFinite(material.totalAmount) || material.totalAmount <= 0) return '教材の総量は1以上にしてください';
-  if (!Number.isFinite(material.doneAmount) || material.doneAmount < 0 || material.doneAmount > material.totalAmount) return '終わった量は0以上、総量以下にしてください';
-  if (material.preferredCadence?.type === 'timesPerWeek'
-    && (!Number.isInteger(material.preferredCadence.count) || material.preferredCadence.count < 1 || material.preferredCadence.count > 7)) {
-    return '週あたり回数は1〜7回にしてください';
-  }
-  if (material.maximumChunkUnits !== undefined && material.maximumChunkUnits < Math.max(1, material.minimumChunkUnits ?? 1)) {
-    return '最大チャンクは最小チャンク以上にしてください';
-  }
-  if (material.reviewIntervals.some((value) => !Number.isInteger(value) || value <= 0)) return '復習間隔は正の整数で入力してください';
-  return undefined;
+  return validateMaterialIntegrity(material)[0]?.reason;
 }
 
 function hasSameEstimateObservation(previous: StudySession, input: SessionInput): boolean {
