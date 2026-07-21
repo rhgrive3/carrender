@@ -19,14 +19,26 @@ function selectedAttributeFor(role: ChoiceRole): string {
   return role === 'radio' ? 'aria-checked' : 'aria-selected';
 }
 
-function choicesOf(group: Element, role: ChoiceRole): HTMLElement[] {
+function isDisabledChoice(choice: HTMLElement): boolean {
+  return choice.hasAttribute('disabled') || choice.getAttribute('aria-disabled') === 'true';
+}
+
+function allChoicesOf(group: Element, role: ChoiceRole): HTMLElement[] {
   const groupSelector = groupSelectorFor(role);
   return [...group.querySelectorAll<HTMLElement>(choiceSelectorFor(role))]
-    .filter((choice) => choice.closest(groupSelector) === group && !choice.hasAttribute('disabled'));
+    .filter((choice) => choice.closest(groupSelector) === group);
+}
+
+function enabledChoicesOf(group: Element, role: ChoiceRole): HTMLElement[] {
+  return allChoicesOf(group, role).filter((choice) => !isDisabledChoice(choice));
 }
 
 function normalizeGroup(group: Element, role: ChoiceRole): void {
-  const choices = choicesOf(group, role);
+  const allChoices = allChoicesOf(group, role);
+  const choices = allChoices.filter((choice) => !isDisabledChoice(choice));
+  for (const choice of allChoices) {
+    if (isDisabledChoice(choice)) choice.tabIndex = -1;
+  }
   if (choices.length === 0) return;
   const selectedAttribute = selectedAttributeFor(role);
   const selected = choices.find((choice) => choice.getAttribute(selectedAttribute) === 'true') ?? choices[0];
@@ -48,9 +60,10 @@ function movementFor(event: KeyboardEvent, group: Element, role: ChoiceRole): -1
 }
 
 function moveSelection(event: KeyboardEvent, choice: HTMLElement, role: ChoiceRole): void {
+  if (isDisabledChoice(choice)) return;
   const group = choice.closest(groupSelectorFor(role));
   if (!group) return;
-  const choices = choicesOf(group, role);
+  const choices = enabledChoicesOf(group, role);
   const currentIndex = choices.indexOf(choice);
   if (currentIndex < 0 || choices.length === 0) return;
 
@@ -109,7 +122,7 @@ export function installRadiogroupKeyboardGuard(): () => void {
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ['aria-checked', 'aria-selected', 'aria-orientation', 'disabled', 'role'],
+    attributeFilter: ['aria-checked', 'aria-selected', 'aria-disabled', 'aria-orientation', 'disabled', 'role'],
   });
 
   const cleanup = () => {
