@@ -255,9 +255,7 @@ function materialValidationError(material: Material): string | undefined {
 function hasSameEstimateObservation(previous: StudySession, input: SessionInput): boolean {
   return previous.materialId === input.materialId
     && previous.minutes === input.minutes
-    && previous.amountDone === input.amountDone
-    && !previous.excludedFromEstimate
-    && !previous.pausedMinutes;
+    && previous.amountDone === input.amountDone;
 }
 
 function preserveMaterialEstimates(previous: AppState, next: AppState): AppState {
@@ -271,6 +269,19 @@ function preserveMaterialEstimates(previous: AppState, next: AppState): AppState
       const before = estimates.get(material.id);
       return before ? { ...material, ...before } : material;
     }),
+  };
+}
+
+function preserveSessionEstimateMetadata(previous: StudySession, next: AppState): AppState {
+  return {
+    ...next,
+    sessions: next.sessions.map((session) => session.id === previous.id
+      ? {
+          ...session,
+          ...(previous.pausedMinutes !== undefined ? { pausedMinutes: previous.pausedMinutes } : {}),
+          ...(previous.excludedFromEstimate !== undefined ? { excludedFromEstimate: previous.excludedFromEstimate } : {}),
+        }
+      : session),
   };
 }
 
@@ -292,8 +303,10 @@ function deterministicReducer(state: AppState, action: Action): AppState {
   }
   if (action.type === 'UPDATE_SESSION') {
     const previous = state.sessions.find((session) => session.id === action.sessionId);
-    const next = baseAppReducer(state, action);
-    return previous && hasSameEstimateObservation(previous, action.input)
+    const reduced = baseAppReducer(state, action);
+    if (!previous) return reduced;
+    const next = preserveSessionEstimateMetadata(previous, reduced);
+    return hasSameEstimateObservation(previous, action.input)
       ? preserveMaterialEstimates(state, next)
       : next;
   }
@@ -331,8 +344,7 @@ function rejectedCommandResult(message: string, errorCode = 'invalidInput'): App
 function requiresDeterministicReplacement(state: AppState, action: Action): boolean {
   if (action.type === 'UPDATE_MATERIAL' && Boolean(action.material.completedRanges)) return true;
   if (action.type !== 'UPDATE_SESSION') return false;
-  const previous = state.sessions.find((session) => session.id === action.sessionId);
-  return Boolean(previous && hasSameEstimateObservation(previous, action.input));
+  return state.sessions.some((session) => session.id === action.sessionId);
 }
 
 function GuardedAppBridge({ children }: { children: ReactNode }) {
