@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { Check, CircleCheck, Play, SkipForward, Unlock } from 'lucide-react';
 import type { StudyTask } from '../../types';
 import { useApp } from '../../state/AppContext';
+import { addDays, today } from '../../lib/date';
 import { useTimer } from '../timer/TimerContext';
 import { openTimerOverlay } from '../timer/openTimerOverlay';
 import { SubjectChip, TaskTypeChip } from '../ui/bits';
@@ -50,6 +51,42 @@ export function TaskRow({ task, onCelebrate, showDate }: TaskRowProps) {
   const postpone = () => {
     if (ownsActiveTimer) {
       toast('計測中のタスクは延期できません。タイマーを終了してから操作してください');
+      return;
+    }
+    if (task.status === 'doing') {
+      // 旧保存データでdoingだけが残った場合は、実タイマーがないことを確認したうえで
+      // 通常の延期結果へ直接復旧する。Reducerの計測中保護は迂回しない。
+      const date = addDays(today(), 1);
+      let manualScheduling = task.manualScheduling;
+      if (manualScheduling) {
+        const canStayFlexible = manualScheduling.placementPolicy === 'flexibleBeforeDeadline'
+          && !!manualScheduling.deadline
+          && manualScheduling.deadline >= date;
+        manualScheduling = canStayFlexible
+          ? { ...manualScheduling, fixedDate: undefined, fixedStartTime: undefined }
+          : {
+              ...manualScheduling,
+              placementPolicy: 'fixedDateFlexibleTime',
+              fixedDate: date,
+              fixedStartTime: undefined,
+            };
+      }
+      dispatch({
+        type: 'UPDATE_TASK',
+        task: {
+          ...task,
+          status: 'planned',
+          scheduledDate: date,
+          scheduledStart: null,
+          scheduledEnd: null,
+          placementLock: 'date',
+          placementStatus: 'unscheduled',
+          manualScheduling,
+          manualOrder: undefined,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      toast('明日以降に再配置しました');
       return;
     }
     const result = execute({ type: 'POSTPONE_TASK', taskId: task.id });
