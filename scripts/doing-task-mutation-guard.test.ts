@@ -29,5 +29,32 @@ assert.strictEqual(
   state,
   '計測中タスクはReducer境界でも別日へ移動しない',
 );
+assert.strictEqual(
+  appReducer(state, {
+    type: 'UPDATE_TASK',
+    task: { ...doingTask, scheduledDate: addDays(date, 1), updatedAt: new Date().toISOString() },
+  }),
+  state,
+  '計測中タスクはUPDATE_TASK経由でも予定を変更しない',
+);
+assert.strictEqual(
+  appReducer(state, { type: 'DELETE_TASK', taskId: doingTask.id }),
+  state,
+  '計測中タスクはReducer境界でも削除しない',
+);
+
+const recovered = appReducer(state, {
+  type: 'UPDATE_TASK',
+  task: {
+    ...doingTask,
+    status: 'planned',
+    placementLock: 'none',
+    scheduledStart: null,
+    scheduledEnd: null,
+    updatedAt: new Date().toISOString(),
+  },
+});
+assert.notStrictEqual(recovered, state, '古いdoing状態はplannedへ戻す同一更新で復旧できる');
+assert.equal(recovered.tasks[0]?.status, 'planned');
 
 console.log('✅ doing task mutation guards passed');
