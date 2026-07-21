@@ -1,3 +1,5 @@
+import './bottomNavigationRuntime';
+
 /**
  * PWAインストール(ホーム画面追加)まわりのプラットフォーム検出とプロンプト管理。
  *
