@@ -29,6 +29,7 @@ import { DayRolloverBoundary } from './components/DayRolloverBoundary';
 import { preserveUnreadableState } from './lib/preserveUnreadableState';
 import { installFixedBottomNavigationGuard } from './lib/fixedBottomNavigationGuard';
 import { installRadiogroupKeyboardGuard } from './lib/radiogroupKeyboardGuard';
+import { installTabPanelSemanticsGuard } from './lib/tabPanelSemanticsGuard';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
 
@@ -172,6 +173,7 @@ function ShellNavigationSemanticsGuard() {
 }
 
 installFixedBottomNavigationGuard();
+installTabPanelSemanticsGuard();
 installRadiogroupKeyboardGuard();
 preserveUnreadableState();
 registerSW({ immediate: true });
