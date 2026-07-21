@@ -14,6 +14,7 @@ import './styles/memory-card-ux.css';
 import './styles/memory-android-flip-fix.css';
 import './styles/memory-compact-fixes.css';
 import './styles/memory-study-polish.css';
+import './styles/memory-card-integrity.css';
 import './styles/memory-bulk-editor.css';
 import './styles/record-chart-fixes.css';
 import './styles/material-shelf.css';
@@ -26,6 +27,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 import { DayRolloverBoundary } from './components/DayRolloverBoundary';
 import { preserveUnreadableState } from './lib/preserveUnreadableState';
+import { installFixedBottomNavigationGuard } from './lib/fixedBottomNavigationGuard';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
 
@@ -179,6 +181,7 @@ function ShellNavigationSemanticsGuard() {
   return null;
 }
 
+installFixedBottomNavigationGuard();
 preserveUnreadableState();
 registerSW({ immediate: true });
 
