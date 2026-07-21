@@ -72,24 +72,28 @@ interface ResolvedAction {
   message?: string;
 }
 
+function mutatesActiveTimerRecord(state: AppState, action: Action, activeTimerTaskId: string | null): boolean {
+  if (!activeTimerTaskId) return false;
+  if (action.type === 'RECORD_SESSION') {
+    return action.input.source !== 'timer' && action.input.taskId === activeTimerTaskId;
+  }
+  if (action.type === 'UPDATE_SESSION') {
+    const previous = state.sessions.find((session) => session.id === action.sessionId);
+    return previous?.taskId === activeTimerTaskId || action.input.taskId === activeTimerTaskId;
+  }
+  if (action.type === 'DELETE_SESSION') {
+    return state.sessions.find((session) => session.id === action.sessionId)?.taskId === activeTimerTaskId;
+  }
+  return false;
+}
+
 /**
  * UI操作では、現在の所有者に属するlocalStorage上の実タイマーを照合する。
  * 実タイマーが無いdoingは旧保存状態なので、plannedへ戻す同一更新へ変換して操作を成立させる。
  */
 function resolveUiAction(state: AppState, action: Action, owner: string | null): ResolvedAction {
   const activeTimerTaskId = persistedTimerTaskId(owner);
-
-  if (action.type === 'UPDATE_SESSION'
-    && action.input.taskId
-    && action.input.taskId === activeTimerTaskId) {
-    return { message: ACTIVE_RECORD_MESSAGE };
-  }
-  if (action.type === 'RECORD_SESSION'
-    && action.input.source !== 'timer'
-    && action.input.taskId
-    && action.input.taskId === activeTimerTaskId) {
-    return { message: ACTIVE_RECORD_MESSAGE };
-  }
+  if (mutatesActiveTimerRecord(state, action, activeTimerTaskId)) return { message: ACTIVE_RECORD_MESSAGE };
 
   const taskId = taskIdOf(action);
   if (!taskId) return { action };
