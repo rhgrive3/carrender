@@ -8,6 +8,22 @@ interface GuardWindow extends Window {
   [INSTALL_KEY]?: () => void;
 }
 
+interface FixedStyleInvariant {
+  property: string;
+  value: string;
+}
+
+const BASE_FIXED_STYLE_INVARIANTS: readonly FixedStyleInvariant[] = [
+  { property: 'position', value: 'fixed' },
+  { property: 'inset-block-start', value: 'auto' },
+  { property: 'inset-block-end', value: '0px' },
+  { property: 'top', value: 'auto' },
+  { property: 'bottom', value: '0px' },
+  { property: 'left', value: '0px' },
+  { property: 'right', value: '0px' },
+  { property: 'margin-inline', value: 'auto' },
+];
+
 function visibleViewportBottom(): number {
   const visualHeight = window.visualViewport?.height;
   const visualOffsetTop = window.visualViewport?.offsetTop;
@@ -29,20 +45,39 @@ function numericOffset(nav: HTMLElement): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+function transformForOffset(offset: number): string {
+  return offset === 0 ? 'none' : `translate3d(0, ${offset}px, 0)`;
+}
+
+function importantStyleMatches(nav: HTMLElement, invariant: FixedStyleInvariant): boolean {
+  return nav.style.getPropertyValue(invariant.property) === invariant.value
+    && nav.style.getPropertyPriority(invariant.property) === 'important';
+}
+
+function fixedInvariantsMatch(nav: HTMLElement, offset: number): boolean {
+  const transform = transformForOffset(offset);
+  return nav.classList.contains('bottom-nav')
+    && nav.getAttribute('data-layout-contract') === FIXED_NAV_CONTRACT
+    && BASE_FIXED_STYLE_INVARIANTS.every((invariant) => importantStyleMatches(nav, invariant))
+    && importantStyleMatches(nav, { property: 'transform', value: transform })
+    && nav.dataset.runtimeBottomOffset === String(offset)
+    && nav.dataset.runtimePinned === 'true';
+}
+
+function setImportantStyle(nav: HTMLElement, invariant: FixedStyleInvariant): void {
+  if (importantStyleMatches(nav, invariant)) return;
+  nav.style.setProperty(invariant.property, invariant.value, 'important');
+}
+
 function applyFixedInvariants(nav: HTMLElement, offset: number): void {
-  nav.classList.add('bottom-nav');
-  nav.setAttribute('data-layout-contract', FIXED_NAV_CONTRACT);
-  nav.style.setProperty('position', 'fixed', 'important');
-  nav.style.setProperty('inset-block-start', 'auto', 'important');
-  nav.style.setProperty('inset-block-end', '0px', 'important');
-  nav.style.setProperty('top', 'auto', 'important');
-  nav.style.setProperty('bottom', '0px', 'important');
-  nav.style.setProperty('left', '0px', 'important');
-  nav.style.setProperty('right', '0px', 'important');
-  nav.style.setProperty('margin-inline', 'auto', 'important');
-  nav.style.setProperty('transform', offset === 0 ? 'none' : `translate3d(0, ${offset}px, 0)`, 'important');
-  nav.dataset.runtimeBottomOffset = String(offset);
-  nav.dataset.runtimePinned = 'true';
+  if (!nav.classList.contains('bottom-nav')) nav.classList.add('bottom-nav');
+  if (nav.getAttribute('data-layout-contract') !== FIXED_NAV_CONTRACT) {
+    nav.setAttribute('data-layout-contract', FIXED_NAV_CONTRACT);
+  }
+  for (const invariant of BASE_FIXED_STYLE_INVARIANTS) setImportantStyle(nav, invariant);
+  setImportantStyle(nav, { property: 'transform', value: transformForOffset(offset) });
+  if (nav.dataset.runtimeBottomOffset !== String(offset)) nav.dataset.runtimeBottomOffset = String(offset);
+  if (nav.dataset.runtimePinned !== 'true') nav.dataset.runtimePinned = 'true';
 }
 
 /**
@@ -82,13 +117,19 @@ export function installFixedBottomNavigationGuard(): () => void {
     observeNavAttributes(nav);
   };
 
-  const applyObservedInvariants = (nav: HTMLElement, offset: number) => {
+  const applyObservedInvariants = (nav: HTMLElement, offset: number): boolean => {
+    // Scroll and Visual Viewport events can fire every frame. Do not rewrite the
+    // same inline styles or reconnect the observer while the permanent contract
+    // is already intact; only repair after an actual late mutation or offset change.
+    if (fixedInvariantsMatch(nav, offset)) return false;
+
     // Inline style and contract-attribute writes performed by this guard must
     // not recursively schedule itself. Pause only the attribute observer while
     // restoring the permanent navigation contract.
     navAttributeObserver?.disconnect();
     applyFixedInvariants(nav, offset);
     observeNavAttributes(nav);
+    return true;
   };
 
   const resolveNav = (): HTMLElement | null => {
