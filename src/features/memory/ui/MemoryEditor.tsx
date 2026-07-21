@@ -177,7 +177,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
         savedDraftSnapshotRef.current = JSON.stringify(nextBlank);
         setDraft(nextBlank);
         setOriginal(undefined);
-        document.getElementById('memory-prompt-0')?.focus();
+        document.getElementById('memory-answer-0-0')?.focus();
       } else {
         savedDraftSnapshotRef.current = JSON.stringify(actionDraft);
         navigate(actionSetId ? { name: 'set', setId: actionSetId } : { name: 'home' });
@@ -224,7 +224,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
     <section className="memory-editor memory-simple-editor" aria-busy={saving}>
       <div className="memory-page-header">
         <button type="button" className="icon-btn" aria-label="戻る" disabled={saving} onClick={() => leaveEditor(setId ? { name: 'set', setId } : { name: 'home' })}><ArrowLeft size={21} aria-hidden="true" /></button>
-        <div><h2>{itemId ? 'カードを編集' : 'カードを追加'}</h2><p>日本語と英語だけで登録できます</p></div>
+        <div><h2>{itemId ? 'カードを編集' : 'カードを追加'}</h2><p>英語と日本語だけで登録できます</p></div>
         {!itemId && <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => leaveEditor({ name: 'editor', setId, bulk: true })}><Table2 size={18} aria-hidden="true" />まとめて追加</button>}
       </div>
 
@@ -233,7 +233,6 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
           <fieldset className="memory-sense-editor memory-simple-card-editor" key={sense.id ?? `new-${senseIndex}`}>
             <legend>{draft.senses.length > 1 ? `${unitLabel} ${senseIndex + 1}` : unitLabel}</legend>
             {draft.senses.length > 1 && <button type="button" className="memory-fieldset-remove" aria-label={`${unitLabel}${senseIndex + 1}を削除`} onClick={() => setDraft((current) => ({ ...current, senses: current.senses.filter((_, index) => index !== senseIndex) }))}><Trash2 size={17} aria-hidden="true" />削除</button>}
-            <div className="field"><label htmlFor={`memory-prompt-${senseIndex}`}>日本語</label><input id={`memory-prompt-${senseIndex}`} value={sense.promptJa} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, promptJa: event.target.value, meaningJa: event.target.value }))} placeholder="例：〜を考慮に入れる" /></div>
             <div className="memory-answer-editors">
               {sense.answers.map((answer, answerIndex) => (
                 <div className="memory-simple-answer-row" key={answer.id ?? `new-${answerIndex}`}>
@@ -243,6 +242,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
               ))}
               <button type="button" className="btn btn-ghost memory-add-row" onClick={() => updateSense(senseIndex, (current) => ({ ...current, answers: [...current.answers, { displayForm: '' }] }))}><Plus size={17} aria-hidden="true" />別の英語を追加</button>
             </div>
+            <div className="field"><label htmlFor={`memory-prompt-${senseIndex}`}>日本語</label><input id={`memory-prompt-${senseIndex}`} value={sense.promptJa} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, promptJa: event.target.value, meaningJa: event.target.value }))} placeholder="例：〜を考慮に入れる" /></div>
             <div className="memory-simple-examples">
               {sense.examples.map((example, exampleIndex) => {
                 const englishId = `memory-example-en-${senseIndex}-${exampleIndex}`;
