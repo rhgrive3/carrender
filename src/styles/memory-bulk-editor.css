@@ -1,0 +1,539 @@
+/* 暗記カード「まとめて追加」専用。デスクトップは表、iPad/スマホはカード型入力へ切り替える。 */
+.memory-bulk-editor {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.memory-bulk-header {
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+
+.memory-bulk-header-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.memory-bulk-eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.memory-bulk-header h2 {
+  font-size: clamp(22px, 3vw, 28px);
+}
+
+.memory-bulk-header p {
+  max-width: 680px;
+  line-height: 1.65;
+}
+
+.memory-bulk-count {
+  flex: 0 0 auto;
+  min-width: 76px;
+  min-height: 64px;
+  display: grid;
+  place-content: center;
+  gap: 1px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 16px;
+  background: linear-gradient(145deg, var(--accent-soft), var(--bg-elev1));
+  text-align: center;
+}
+
+.memory-bulk-count strong {
+  color: var(--accent);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.memory-bulk-count span {
+  color: var(--text-sub);
+  font-size: 10.5px;
+  font-weight: 750;
+}
+
+.memory-bulk-workspace {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.memory-bulk-guide {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 15px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent-soft), var(--bg-elev1) 70%);
+}
+
+.memory-bulk-guide-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--bg-elev1);
+  color: var(--accent);
+  box-shadow: var(--shadow-soft);
+}
+
+.memory-bulk-guide b {
+  display: block;
+  font-size: 14px;
+}
+
+.memory-bulk-guide p {
+  margin-top: 3px;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.memory-bulk-clear {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.memory-bulk-editor .memory-grid-help {
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev2);
+}
+
+.memory-bulk-editor .memory-grid-scroll {
+  width: 100%;
+  max-height: min(62dvh, 720px);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+}
+
+.memory-bulk-editor .memory-edit-grid {
+  width: 100%;
+  min-width: 1160px;
+  table-layout: fixed;
+}
+
+.memory-bulk-col-number { width: 48px; }
+.memory-bulk-col-japanese { width: 178px; }
+.memory-bulk-col-english { width: 205px; }
+.memory-bulk-col-meaning { width: 188px; }
+.memory-bulk-col-example { width: 230px; }
+.memory-bulk-col-tags { width: 148px; }
+.memory-bulk-col-set { width: 168px; }
+.memory-bulk-col-actions { width: 66px; }
+
+.memory-bulk-editor .memory-edit-grid th {
+  height: 44px;
+  padding: 10px 9px;
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 11.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.memory-bulk-editor .memory-edit-grid thead th span:not(.sr-only) {
+  margin-left: 5px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 9px;
+}
+
+.memory-bulk-editor .memory-edit-grid tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--bg-elev2) 48%, transparent);
+}
+
+.memory-bulk-editor .memory-edit-grid tbody tr:focus-within {
+  background: color-mix(in srgb, var(--accent-soft) 58%, var(--bg-elev1));
+}
+
+.memory-bulk-editor .memory-edit-grid td,
+.memory-bulk-editor .memory-edit-grid tbody th {
+  padding: 5px;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.memory-bulk-row-number {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-elev2);
+  color: var(--text-faint);
+  text-align: center !important;
+}
+
+.memory-bulk-row-number span {
+  display: inline-grid;
+  min-width: 28px;
+  min-height: 28px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--bg-elev1);
+  font-variant-numeric: tabular-nums;
+}
+
+.memory-bulk-editor .memory-edit-grid input,
+.memory-bulk-editor .memory-edit-grid select {
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev1);
+  padding: 9px 10px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.memory-bulk-editor .memory-edit-grid input::placeholder {
+  color: var(--text-faint);
+  opacity: 0.78;
+}
+
+.memory-bulk-editor .memory-edit-grid input:focus,
+.memory-bulk-editor .memory-edit-grid select:focus {
+  border-color: var(--accent);
+  background: var(--bg-elev1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.memory-bulk-editor .memory-edit-grid input[aria-invalid="true"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.memory-bulk-delete-cell {
+  text-align: center;
+}
+
+.memory-bulk-delete {
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.memory-bulk-delete span {
+  display: none;
+}
+
+.memory-bulk-delete:hover,
+.memory-bulk-delete:focus-visible {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.memory-bulk-row-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.memory-bulk-row-tools .btn {
+  min-height: 44px;
+}
+
+.memory-bulk-row-tools > span {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.memory-bulk-duplicate-preview {
+  margin: 0;
+  padding: 16px;
+}
+
+.memory-bulk-duplicate-preview h3 {
+  font-size: 17px;
+}
+
+.memory-bulk-actions {
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+}
+
+.memory-bulk-action-summary {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.memory-bulk-action-summary b {
+  font-size: 13.5px;
+}
+
+.memory-bulk-action-summary span {
+  overflow: hidden;
+  color: var(--text-sub);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-bulk-action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.memory-bulk-action-buttons .btn-primary {
+  min-width: 148px;
+}
+
+/* iPadは横向きでも表を無理に縮めず、各カードを見渡せる2列フォームにする。 */
+@media (max-width: 1100px) {
+  .memory-bulk-editor .memory-grid-scroll {
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .memory-bulk-editor .memory-edit-grid,
+  .memory-bulk-editor .memory-edit-grid tbody {
+    min-width: 0;
+    display: block;
+  }
+
+  .memory-bulk-editor .memory-edit-grid colgroup {
+    display: none;
+  }
+
+  .memory-bulk-editor .memory-edit-grid thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .memory-bulk-editor .memory-edit-grid tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .memory-bulk-editor .memory-edit-grid tbody tr {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 13px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-elev1);
+    box-shadow: var(--shadow-card);
+  }
+
+  .memory-bulk-editor .memory-edit-grid tbody tr:nth-child(even),
+  .memory-bulk-editor .memory-edit-grid tbody tr:focus-within {
+    background: var(--bg-elev1);
+  }
+
+  .memory-bulk-editor .memory-edit-grid td,
+  .memory-bulk-editor .memory-edit-grid tbody th {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .memory-bulk-row-number {
+    position: static;
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    color: var(--text-sub);
+    text-align: left !important;
+  }
+
+  .memory-bulk-row-number::before {
+    content: "カード";
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .memory-bulk-row-number span {
+    min-width: 30px;
+    min-height: 30px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .memory-bulk-editor .memory-edit-grid td:not(.memory-bulk-delete-cell) {
+    display: grid;
+    gap: 6px;
+  }
+
+  .memory-bulk-editor .memory-edit-grid td:not(.memory-bulk-delete-cell)::before {
+    content: attr(data-label);
+    color: var(--text-sub);
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .memory-bulk-editor .memory-edit-grid td[data-required="true"]::before {
+    content: attr(data-label) "  必須";
+  }
+
+  .memory-bulk-editor .memory-edit-grid td[data-required="true"]::before {
+    color: var(--text);
+  }
+
+  .memory-bulk-delete-cell {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 2px !important;
+    border-top: 1px solid var(--border) !important;
+  }
+
+  .memory-bulk-delete {
+    min-width: 92px;
+    padding: 0 12px;
+    color: var(--danger);
+  }
+
+  .memory-bulk-delete span {
+    display: inline;
+    font-size: 12px;
+    font-weight: 750;
+  }
+}
+
+@media (max-width: 680px) {
+  .memory-bulk-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px 12px;
+  }
+
+  .memory-bulk-header .icon-btn {
+    grid-row: 1 / span 2;
+  }
+
+  .memory-bulk-count {
+    grid-column: 2;
+    width: 100%;
+    min-height: 48px;
+    grid-template-columns: auto auto;
+    place-content: center;
+    gap: 7px;
+  }
+
+  .memory-bulk-count strong {
+    font-size: 20px;
+  }
+
+  .memory-bulk-guide {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .memory-bulk-clear {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .memory-bulk-editor .memory-edit-grid tbody tr {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .memory-bulk-row-number,
+  .memory-bulk-delete-cell {
+    grid-column: 1;
+  }
+
+  .memory-bulk-editor .memory-edit-grid input,
+  .memory-bulk-editor .memory-edit-grid select {
+    min-height: 50px;
+    font-size: 16px;
+  }
+
+  .memory-bulk-row-tools {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memory-bulk-row-tools > span {
+    grid-column: 1 / -1;
+    margin-left: 0;
+    text-align: center;
+  }
+
+  .memory-bulk-actions {
+    bottom: calc(var(--nav-height) + var(--safe-bottom) + 6px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 10px;
+  }
+
+  .memory-bulk-action-summary {
+    padding: 0 2px;
+  }
+
+  .memory-bulk-action-summary span {
+    white-space: normal;
+  }
+
+  .memory-bulk-action-buttons {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .memory-bulk-action-buttons .btn {
+    min-width: 0;
+    padding-inline: 10px;
+  }
+}
+
+@media (max-width: 390px) {
+  .memory-bulk-header p {
+    font-size: 12px;
+  }
+
+  .memory-bulk-guide-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .memory-bulk-editor .memory-edit-grid tbody tr {
+    padding: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memory-bulk-editor *,
+  .memory-bulk-editor *::before,
+  .memory-bulk-editor *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
