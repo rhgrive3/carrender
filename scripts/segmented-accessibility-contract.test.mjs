@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('../src/components/ui/bits.tsx', import.meta.url), 'utf8');
 const guard = readFileSync(new URL('../src/lib/radiogroupKeyboardGuard.ts', import.meta.url), 'utf8');
 const material = readFileSync(new URL('../src/components/materials/MaterialFormSheet.tsx', import.meta.url), 'utf8');
+const records = readFileSync(new URL('../src/screens/RecordsScreen.tsx', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const segmented = source.match(/export function Segmented<[\s\S]*?\n}\n\nexport function EmptyState/)?.[0] ?? '';
 
@@ -16,11 +17,18 @@ assert.match(segmented, /event\.preventDefault\(\)[\s\S]*onChange\(next\.value\)
 assert.match(segmented, /data-segment-value=\{o\.value\}/, '移動先を安定して特定する');
 
 assert.match(material, /role="radiogroup" aria-label="周回"/, '教材の周回選択をradiogroupとして公開する');
-assert.match(guard, /const selected = radios\.find\([\s\S]*radio\.tabIndex = radio === selected \? 0 : -1/, '不完全なradiogroupも選択中だけをTab停止位置へ修復する');
-assert.match(guard, /ArrowRight[\s\S]*ArrowDown[\s\S]*ArrowLeft[\s\S]*ArrowUp[\s\S]*Home[\s\S]*End/, '全radiogroupへ方向キーとHome・Endを補完する');
+assert.match(guard, /return role === 'radio' \? 'aria-checked' : 'aria-selected'/, 'radioとtabで正しいARIA選択属性を参照する');
+assert.match(guard, /const selected = choices\.find\([\s\S]*choice\.tabIndex = choice === selected \? 0 : -1/, '不完全なradiogroupとtablistも選択中だけをTab停止位置へ修復する');
+assert.match(guard, /role === 'radio'[\s\S]*ArrowRight[\s\S]*ArrowDown[\s\S]*ArrowLeft[\s\S]*ArrowUp/, 'radiogroupへ4方向キーを補完する');
+assert.match(guard, /const vertical = group\.getAttribute\('aria-orientation'\) === 'vertical'[\s\S]*vertical \? 'ArrowDown' : 'ArrowRight'[\s\S]*vertical \? 'ArrowUp' : 'ArrowLeft'/, 'tablistはorientationに応じた方向キーだけを処理する');
+assert.match(guard, /event\.key === 'Home'[\s\S]*event\.key === 'End'/, '全選択グループへHomeとEndを補完する');
 assert.match(guard, /if \(event\.defaultPrevented\) return/, '既存コンポーネントが処理済みのキーを二重処理しない');
 assert.match(guard, /event\.preventDefault\(\)[\s\S]*next\.click\(\)[\s\S]*next\.focus\(\)/, 'キーボード移動でReactの選択処理とフォーカスを同期する');
-assert.match(guard, /attributeFilter: \['aria-checked', 'disabled', 'role'\]/, 'React再描画後もroving tabindexを再正規化する');
-assert.match(main, /installRadiogroupKeyboardGuard\(\);/, 'アプリ起動時に共有radiogroupガードを有効化する');
+assert.match(guard, /document\.querySelectorAll\(RADIOGROUP_SELECTOR\)[\s\S]*document\.querySelectorAll\(TABLIST_SELECTOR\)/, 'radiogroupとtablistを独立して正規化する');
+assert.match(guard, /role !== 'radio' && role !== 'tab'/, 'radioとtabの両方をキーボード補修対象にする');
+assert.match(guard, /attributeFilter: \['aria-checked', 'aria-selected', 'aria-orientation', 'disabled', 'role'\]/, 'React再描画とorientation変更後もroving tabindexを再正規化する');
+assert.match(records, /role="tablist" aria-label="記録画面の切替"[\s\S]*role="tab"[\s\S]*role="tab"/, '記録画面切替をtablistとして公開する');
+assert.match(records, /role="tablist" aria-label="集計期間"[\s\S]*role="tab"[\s\S]*role="tab"/, '週月切替をtablistとして公開する');
+assert.match(main, /installRadiogroupKeyboardGuard\(\);/, 'アプリ起動時に共有選択グループガードを有効化する');
 
-console.log('✅ Segmented and repaired radiogroup accessibility contracts passed');
+console.log('✅ Segmented, repaired radiogroup, and orientation-aware tablist accessibility contracts passed');

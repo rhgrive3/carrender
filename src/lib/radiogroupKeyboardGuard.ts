@@ -1,48 +1,80 @@
 const RADIOGROUP_SELECTOR = '[role="radiogroup"]';
 const RADIO_SELECTOR = '[role="radio"]';
+const TABLIST_SELECTOR = '[role="tablist"]';
+const TAB_SELECTOR = '[role="tab"]';
 const INSTALL_KEY = '__studyCommanderRadiogroupKeyboardGuard';
 
 type GuardWindow = Window & { [INSTALL_KEY]?: () => void };
+type ChoiceRole = 'radio' | 'tab';
 
-function radiosOf(group: Element): HTMLElement[] {
-  return [...group.querySelectorAll<HTMLElement>(RADIO_SELECTOR)]
-    .filter((radio) => radio.closest(RADIOGROUP_SELECTOR) === group && !radio.hasAttribute('disabled'));
+function groupSelectorFor(role: ChoiceRole): string {
+  return role === 'radio' ? RADIOGROUP_SELECTOR : TABLIST_SELECTOR;
 }
 
-function normalizeGroup(group: Element): void {
-  const radios = radiosOf(group);
-  if (radios.length === 0) return;
-  const selected = radios.find((radio) => radio.getAttribute('aria-checked') === 'true') ?? radios[0];
-  for (const radio of radios) radio.tabIndex = radio === selected ? 0 : -1;
+function choiceSelectorFor(role: ChoiceRole): string {
+  return role === 'radio' ? RADIO_SELECTOR : TAB_SELECTOR;
 }
 
-function moveSelection(event: KeyboardEvent, radio: HTMLElement): void {
-  const group = radio.closest(RADIOGROUP_SELECTOR);
+function selectedAttributeFor(role: ChoiceRole): string {
+  return role === 'radio' ? 'aria-checked' : 'aria-selected';
+}
+
+function choicesOf(group: Element, role: ChoiceRole): HTMLElement[] {
+  const groupSelector = groupSelectorFor(role);
+  return [...group.querySelectorAll<HTMLElement>(choiceSelectorFor(role))]
+    .filter((choice) => choice.closest(groupSelector) === group && !choice.hasAttribute('disabled'));
+}
+
+function normalizeGroup(group: Element, role: ChoiceRole): void {
+  const choices = choicesOf(group, role);
+  if (choices.length === 0) return;
+  const selectedAttribute = selectedAttributeFor(role);
+  const selected = choices.find((choice) => choice.getAttribute(selectedAttribute) === 'true') ?? choices[0];
+  for (const choice of choices) choice.tabIndex = choice === selected ? 0 : -1;
+}
+
+function movementFor(event: KeyboardEvent, group: Element, role: ChoiceRole): -1 | 0 | 1 | null {
+  if (event.key === 'Home') return 0;
+  if (event.key === 'End') return 1;
+  if (role === 'radio') {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') return 1;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') return -1;
+    return null;
+  }
+  const vertical = group.getAttribute('aria-orientation') === 'vertical';
+  if (event.key === (vertical ? 'ArrowDown' : 'ArrowRight')) return 1;
+  if (event.key === (vertical ? 'ArrowUp' : 'ArrowLeft')) return -1;
+  return null;
+}
+
+function moveSelection(event: KeyboardEvent, choice: HTMLElement, role: ChoiceRole): void {
+  const group = choice.closest(groupSelectorFor(role));
   if (!group) return;
-  const radios = radiosOf(group);
-  const currentIndex = radios.indexOf(radio);
-  if (currentIndex < 0 || radios.length === 0) return;
+  const choices = choicesOf(group, role);
+  const currentIndex = choices.indexOf(choice);
+  if (currentIndex < 0 || choices.length === 0) return;
 
-  let nextIndex: number | null = null;
-  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % radios.length;
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + radios.length) % radios.length;
-  if (event.key === 'Home') nextIndex = 0;
-  if (event.key === 'End') nextIndex = radios.length - 1;
-  if (nextIndex === null) return;
+  const movement = movementFor(event, group, role);
+  if (movement === null) return;
+  const nextIndex = event.key === 'Home'
+    ? 0
+    : event.key === 'End'
+      ? choices.length - 1
+      : (currentIndex + movement + choices.length) % choices.length;
 
   event.preventDefault();
-  const next = radios[nextIndex];
+  const next = choices[nextIndex];
   next.click();
   requestAnimationFrame(() => {
-    normalizeGroup(group);
+    normalizeGroup(group, role);
     next.focus();
   });
 }
 
 /**
- * Repairs custom radiogroups that expose ARIA roles but omit the keyboard
- * interaction contract. Fully implemented components remain unchanged except
- * for receiving the same roving-tabindex normalization after rerenders.
+ * Repairs custom radiogroups and tablists that expose ARIA roles but omit the
+ * keyboard interaction contract. Fully implemented React components remain
+ * unchanged because their handlers call preventDefault before this guard runs.
  */
 export function installRadiogroupKeyboardGuard(): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => undefined;
@@ -52,7 +84,8 @@ export function installRadiogroupKeyboardGuard(): () => void {
   let frame = 0;
   const normalizeAll = () => {
     frame = 0;
-    document.querySelectorAll(RADIOGROUP_SELECTOR).forEach(normalizeGroup);
+    document.querySelectorAll(RADIOGROUP_SELECTOR).forEach((group) => normalizeGroup(group, 'radio'));
+    document.querySelectorAll(TABLIST_SELECTOR).forEach((group) => normalizeGroup(group, 'tab'));
   };
   const scheduleNormalize = () => {
     if (frame) return;
@@ -63,8 +96,10 @@ export function installRadiogroupKeyboardGuard(): () => void {
     // complete interaction contract and call preventDefault themselves.
     if (event.defaultPrevented) return;
     const target = event.target;
-    if (!(target instanceof HTMLElement) || target.getAttribute('role') !== 'radio') return;
-    moveSelection(event, target);
+    if (!(target instanceof HTMLElement)) return;
+    const role = target.getAttribute('role');
+    if (role !== 'radio' && role !== 'tab') return;
+    moveSelection(event, target, role);
   };
 
   normalizeAll();
@@ -74,7 +109,7 @@ export function installRadiogroupKeyboardGuard(): () => void {
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ['aria-checked', 'disabled', 'role'],
+    attributeFilter: ['aria-checked', 'aria-selected', 'aria-orientation', 'disabled', 'role'],
   });
 
   const cleanup = () => {
