@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components/ui/Sheet.tsx', import.meta.url), 'utf8');
 const timer = readFileSync(new URL('../src/components/timer/TimerOverlay.tsx', import.meta.url), 'utf8');
-const backGuard = readFileSync(new URL('../src/lib/sheetBackUnsavedGuard.ts', import.meta.url), 'utf8');
+const plan = readFileSync(new URL('../src/screens/PlanScreen.tsx', import.meta.url), 'utf8');
+const material = readFileSync(new URL('../src/components/materials/MaterialFormSheet.tsx', import.meta.url), 'utf8');
+const memoryDialog = readFileSync(new URL('../src/features/memory/ui/MemoryDialog.tsx', import.meta.url), 'utf8');
+const memoryHome = readFileSync(new URL('../src/features/memory/ui/MemoryHome.tsx', import.meta.url), 'utf8');
+const memorySetDetail = readFileSync(new URL('../src/features/memory/ui/MemorySetDetail.tsx', import.meta.url), 'utf8');
 const pwa = readFileSync(new URL('../src/lib/pwa.ts', import.meta.url), 'utf8');
 
 assert.match(source, /const modalStack: HTMLElement\[\] = \[\]/);
@@ -50,11 +54,25 @@ assert.match(source, /if \(moved <= 10\) requestClose\(\)/, 'drag and scroll ges
 assert.match(source, /onPointerCancel=\{\(\) => \{[\s\S]*backdropPointerRef\.current = null/, 'cancelled gestures must not retain stale dismissal state');
 assert.doesNotMatch(source, /onClick=\{\(e\) => \{[\s\S]*e\.target === e\.currentTarget[\s\S]*onClose\(\)/, 'click-only backdrop dismissal must not return');
 
-assert.match(backGuard, /document\.addEventListener\('click', onClick, true\)/, 'Sheet back guard must run in capture phase before onBack discards state');
-assert.match(backGuard, /new Event\('beforeunload', \{ cancelable: true \}\)/, 'Sheet back guard must reuse the same dirty contract as reload protection');
-assert.match(backGuard, /window\.confirm\('保存されていない入力を破棄して前の画面へ戻りますか？'\)/u, 'Sheet back guard must ask before discarding changed controls');
-assert.match(backGuard, /event\.preventDefault\(\)[\s\S]*event\.stopPropagation\(\)[\s\S]*event\.stopImmediatePropagation\(\)/, 'cancelled back navigation must not reach the original onBack handler');
-assert.match(pwa, /import '\.\/sheetBackUnsavedGuard';/, 'the back guard must be installed before React mounts');
+assert.match(source, /export function sheetControlSnapshot/, 'the common control snapshot must be reusable by memory dialogs');
+assert.match(source, /dialogName\.includes\('記録'\)[\s\S]*dialogName\.includes\('教材'\)[\s\S]*dialogName\.includes\('タスク'\)[\s\S]*dialogName\.endsWith\('の詳細計画'\)/, 'record, scheduler input, task, and day-detail forms must opt into unsaved protection');
+assert.match(source, /const DAY_DETAIL_MEMO_SELECTOR = 'textarea\[id\^="day-memo-"\]'/, 'auto-saved day load controls must not create a false dirty prompt');
+assert.match(source, /onClick=\{requestBack\}/, 'Sheet back must use the same local dirty state as close and Escape');
+assert.match(source, /onClickCapture=\{guardDraftDiscardingAction\}/, 'draft-discarding task and day actions must be intercepted before child handlers run');
+assert.match(source, /event\.nativeEvent\.stopImmediatePropagation\(\)/, 'cancelled draft-discarding actions must not reach the original operation');
+assert.doesNotMatch(pwa, /sheetBackUnsavedGuard/, 'unsaved protection must stay local to the active Sheet rather than dispatching a page-wide beforeunload event');
+
+assert.match(plan, /title="タスク詳細"/, 'task edits must inherit the Sheet dirty contract');
+assert.match(plan, /title="タスクを追加"/, 'manual task creation must inherit the Sheet dirty contract');
+assert.match(plan, /title=\{`\$\{formatDateShort\(selectedDay\)\} の詳細計画`\}/, 'day memo must inherit the Sheet dirty contract');
+assert.match(material, /title=\{isEdit \? '教材を編集' : '教材を追加'\}/, 'scheduler-driving material inputs must inherit the Sheet dirty contract');
+
+assert.match(memoryDialog, /sheetControlSnapshot/, 'memory dialogs must reuse the common form snapshot');
+assert.match(memoryDialog, /protectUnsavedChanges \?\? title\.includes\('暗記セット'\)/, 'memory set create and edit dialogs must protect unsaved names and descriptions');
+assert.match(memoryDialog, /window\.addEventListener\('beforeunload', onBeforeUnload\)/, 'memory set input must also survive accidental reload attempts');
+assert.match(memoryDialog, /requestCloseRef\.current\(\)/, 'Escape, backdrop and close button must use the guarded memory close path');
+assert.match(memoryHome, /title="暗記セットを追加"/, 'the create-set dialog must use the protected title contract');
+assert.match(memorySetDetail, /title="暗記セットを編集"/, 'the edit-set dialog must use the protected title contract');
 
 assert.match(timer, /import \{ Sheet, acquireModalIsolation, trapModalTabKey \} from '\.\.\/ui\/Sheet'/, 'the timer must reuse the common modal accessibility contract');
 assert.match(timer, /createPortal\([\s\S]*document\.body/, 'the fixed timer must be portalled outside the inert app root');
@@ -64,5 +82,5 @@ assert.match(timer, /if \(root\.hasAttribute\('inert'\)\) return;[\s\S]*trapModa
 assert.match(timer, /<Sheet open=\{confirmDiscard\}[\s\S]*title="タイマーを破棄しますか\?"/, 'discard confirmation must join the shared stacked-modal system');
 assert.doesNotMatch(timer, /role="alertdialog"/, 'discard confirmation must not remain an unisolated inline modal');
 
-console.log('✅ Sheets and the full-screen timer share background isolation, stacked-modal ordering, focus trapping, primary initial focus, scroll lock, semantic dialog naming, safe backdrop dismissal, and unsaved back protection');
+console.log('✅ Sheets and memory dialogs protect unsaved core form input while preserving modal accessibility and local ownership');
 await import('./settings-navigation-guard.test.mjs');
