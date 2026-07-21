@@ -16,13 +16,13 @@ assert.match(editor, /memory-add-row" disabled=\{saving\}[\s\S]*1行追加[\s\S]
 assert.match(editor, /memory-bulk-clear[\s\S]*入力をクリア/u, '入力全消去の導線を用意する');
 assert.match(editor, /memory-bulk-action-summary[\s\S]*incompleteCount[\s\S]*memory-bulk-action-buttons/u, '保存前に件数と不足状態を固定フッターで確認できる');
 
-assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*\.memory-grid-scroll \{[\s\S]*max-height: none;[\s\S]*overflow: visible;/u, 'iPadで入れ子スクロールと横長表を解除する');
-assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u, 'iPadではカード内を2列で読みやすくする');
+assert.match(styles, /@media \(max-width: 1200px\)[\s\S]*\.memory-grid-scroll \{[\s\S]*max-height: none;[\s\S]*overflow: visible;/u, 'iPad mini横向きを含め入れ子スクロールと横長表を解除する');
+assert.match(styles, /@media \(max-width: 1200px\)[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u, 'iPadではカード内を2列で読みやすくする');
 assert.match(styles, /@media \(max-width: 680px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/u, 'スマホでは1列フォームへ切り替える');
 assert.match(styles, /@media \(max-width: 680px\)[\s\S]*font-size: 16px/u, 'iOSで入力時の自動拡大を防ぐ');
 assert.match(styles, /\.memory-bulk-delete \{[\s\S]*min-width: 44px;[\s\S]*min-height: 44px;/u, '削除操作を十分なタッチ領域にする');
 assert.match(styles, /\.memory-bulk-actions \{[\s\S]*justify-content: space-between/u, '保存操作と入力状態を同じ固定領域へまとめる');
 assert.match(main, /import '\.\/styles\/memory-bulk-editor\.css';/u, '一括追加専用CSSを読み込む');
-assert.ok(main.indexOf("memory-bulk-editor.css") < main.indexOf("layoutContracts.css"), '永続レイアウト契約より前に専用CSSを読み込む');
+assert.ok(main.indexOf('memory-bulk-editor.css') < main.indexOf('layoutContracts.css'), '永続レイアウト契約より前に専用CSSを読み込む');
 
 console.log('✅ memory bulk editor responsive layout contract passed');
