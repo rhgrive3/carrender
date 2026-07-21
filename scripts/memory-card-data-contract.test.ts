@@ -52,7 +52,8 @@ const verifiedBundle: MemorySetBundle = {
   examples: bundle.examples.map((example) => ({ ...example, verificationStatus: 'verified' as const })),
 };
 const targets = generateLearningTargets({ content: verifiedBundle, setMembers: verifiedBundle.setMembers, selectedSetIds: ['set-1'], direction: 'input' });
-assert.equal(targets.length, 2, '壊れたItem labelではなくSenseごとの英語Answerで英→日問題を作れる');
+assert.equal(targets.length, 1, '多義語は例文で意味を特定できるSenseだけ英→日対象にする');
+assert.equal(targets[0]?.senseId, 'sense-1', '壊れたItem labelではなくSenseの英語Answerと例文から対象を作る');
 
 const detailSource = await readFile(new URL('../src/features/memory/ui/MemorySetDetail.tsx', import.meta.url), 'utf8');
 assert.match(detailSource, /buildMemorySetCardRows\(bundle\)/u, '一覧は共通のSense単位selectorを使う');
@@ -62,10 +63,10 @@ assert.match(detailSource, /row\.examples\.map[\s\S]*example\.english[\s\S]*exam
 assert.match(detailSource, /verifyMemoryCard\(repository, itemId, senseId\)/u, '確認マークは表示中の1カードを確認する');
 
 const studySource = await readFile(new URL('../src/features/memory/ui/MemoryStudy.tsx', import.meta.url), 'utf8');
-assert.match(studySource, /const englishAnswers = uniqueDisplayAnswers\(answers\.map/u, '英語側はAnswerレコードから作る');
-assert.match(studySource, /target\.mode === 'input' \? englishAnswers\[0\] \?\? item\.label : sense\.promptJa/u, '英→日でAnswerをItem labelより優先する');
+assert.match(studySource, /englishFormsForSense\(bundle, sense\.id, \{ verifiedOnly: true \}\)/u, '英語側は英字を含むAnswerだけから作る');
+assert.match(studySource, /primaryEnglishForSense\(bundle, sense\.id, \{ verifiedOnly: true \}\)/u, '英→日の問題文で日本語だけのItem labelを使わない');
 assert.match(studySource, /const japaneseAnswers = uniqueDisplayAnswers\(\[sense\.promptJa, sense\.meaningJa\]\)/u, '日本語側はSenseから作る');
-assert.match(studySource, /const questionExample = target\.mode === 'input' \? example\?\.english : example\?\.japanese/u, '例文を出題方向に応じて問題面でも利用する');
-assert.match(studySource, /memory-question-example/u, '問題面へ例文コンテキストを表示する');
+assert.match(studySource, /const questionExample = target\.mode === 'input' \? examples\[0\]\?\.english : examples\[0\]\?\.japanese/u, '例文を出題方向に応じて問題面でも利用する');
+assert.match(studySource, /memory-example-list[\s\S]*examples\.map/u, '答え面では対応する全例文を表示する');
 
 console.log('✅ memory cards stay one Sense per row, preserve language direction, use examples, and verify precisely');
