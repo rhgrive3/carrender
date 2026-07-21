@@ -12,7 +12,7 @@ interface VisualViewportMetrics {
   offsetTop: number;
 }
 
-export function visibleVisualViewportBottom(
+function visibleVisualViewportBottom(
   viewport: VisualViewportMetrics | null | undefined = window.visualViewport,
 ): number {
   if (viewport
