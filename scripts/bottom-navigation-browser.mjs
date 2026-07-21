@@ -59,7 +59,11 @@ try {
         </body>
       </html>`);
     await page.addScriptTag({ content: executableGuard });
-    await page.waitForTimeout(80);
+    await page.waitForFunction(
+      () => document.querySelector('.bottom-nav')?.getAttribute('data-runtime-pinned') === 'true',
+      undefined,
+      { timeout: 2_000 },
+    );
 
     const readLayout = () => page.locator('.bottom-nav').evaluate((element) => {
       const rect = element.getBoundingClientRect();
