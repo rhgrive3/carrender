@@ -105,8 +105,19 @@ try {
     assertPinned(afterScroll, 'after scroll');
     assert.ok(Math.abs(afterScroll.left - before.left) <= tolerance, `${viewport.label}: horizontal position does not move while scrolling`);
 
-    // Simulate a future stylesheet accidentally reintroducing the exact bug:
-    // absolute positioning, a large bottom gap and a conflicting transform.
+    // Direct inline mutation changes position without changing the nav size. This
+    // must be repaired by attribute observation alone, without a synthetic resize.
+    await page.locator('.bottom-nav').evaluate((element) => {
+      if (!(element instanceof HTMLElement)) return;
+      element.style.setProperty('position', 'absolute', 'important');
+      element.style.setProperty('bottom', '96px', 'important');
+      element.style.setProperty('transform', 'translateY(-24px)', 'important');
+    });
+    await page.waitForTimeout(100);
+    assertPinned(await readLayout(), 'after direct inline mutation');
+
+    // Also keep the existing late-stylesheet regression. The added style node is
+    // followed by resize here to model browser viewport churn after CSS loading.
     await page.addStyleTag({ content: '.bottom-nav { position:absolute !important; bottom:96px !important; transform:translateY(-24px) !important; }' });
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     await page.waitForTimeout(100);
@@ -124,7 +135,7 @@ try {
     await context.close();
   }
 
-  console.log('✅ bottom navigation survives scrolling, hostile CSS, visual viewport resize and rotation on iPhone/iPad');
+  console.log('✅ bottom navigation survives scrolling, direct mutations, hostile CSS, visual viewport resize and rotation on iPhone/iPad');
 } finally {
   await browser.close();
 }
