@@ -655,7 +655,7 @@ export function appReducer(state: AppState, action: Action): AppState {
 
     case 'POSTPONE_TASK': {
       const task = state.tasks.find((x) => x.id === action.taskId);
-      if (!task || task.status === 'done') return state;
+      if (!task || task.status === 'done' || task.status === 'doing') return state;
       const next = {
         ...state,
         tasks: state.tasks.map((x) =>
@@ -667,7 +667,7 @@ export function appReducer(state: AppState, action: Action): AppState {
 
     case 'MOVE_TASK': {
       const task = state.tasks.find((x) => x.id === action.taskId);
-      if (!task || task.status === 'done') return state;
+      if (!task || task.status === 'done' || task.status === 'doing') return state;
       if (task.dueDate && task.dueDate >= t && action.date > task.dueDate) return state;
       const tasks = state.tasks.map((x) =>
         x.id === action.taskId
