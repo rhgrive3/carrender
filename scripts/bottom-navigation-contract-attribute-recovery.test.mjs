@@ -5,12 +5,12 @@ const source = readFileSync(new URL('../src/lib/fixedBottomNavigationGuard.ts', 
 
 assert.match(
   source,
-  /nav\.classList\.add\('bottom-nav'\)/,
+  /nav\.classList\.contains\('bottom-nav'\)[\s\S]*nav\.classList\.add\('bottom-nav'\)/,
   '固定ナビの必須classを削除されても復元する',
 );
 assert.match(
   source,
-  /nav\.setAttribute\('data-layout-contract', FIXED_NAV_CONTRACT\)/,
+  /nav\.getAttribute\('data-layout-contract'\) !== FIXED_NAV_CONTRACT[\s\S]*nav\.setAttribute\('data-layout-contract', FIXED_NAV_CONTRACT\)/,
   '固定契約属性そのものを削除されても復元する',
 );
 assert.match(
@@ -30,8 +30,23 @@ assert.match(
 );
 assert.match(
   source,
+  /if \(fixedInvariantsMatch\(nav, offset\)\) return false;/,
+  '固定契約が正常なscroll frameではinline styleとobserverを触らない',
+);
+assert.match(
+  source,
+  /function importantStyleMatches[\s\S]*getPropertyPriority\(invariant\.property\) === 'important'/,
+  '値だけでなくimportant優先度も含めて固定契約の正常性を判定する',
+);
+assert.match(
+  source,
+  /function setImportantStyle[\s\S]*if \(importantStyleMatches\(nav, invariant\)\) return;/,
+  '修復時も一致している個別styleを重複書込みしない',
+);
+assert.match(
+  source,
   /navAttributeObserver\?\.disconnect\(\);[\s\S]*applyFixedInvariants\(nav, offset\);[\s\S]*observeNavAttributes\(nav\);/,
-  'ガード自身のclass・契約属性復元で監視ループを作らない',
+  '実際の修復時だけobserverを一時停止して監視ループを作らない',
 );
 
-console.log('✅ bottom navigation class and contract attribute recovery passed');
+console.log('✅ bottom navigation class, contract and idempotent repair passed');
