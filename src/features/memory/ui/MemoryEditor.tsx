@@ -60,6 +60,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
   const activeRepositoryRef = useRef(repository);
   const activeItemIdRef = useRef(itemId);
   const saveActionTokenRef = useRef(0);
+  const savedDraftSnapshotRef = useRef(JSON.stringify(blankDraft()));
 
   useEffect(() => {
     mountedRef.current = true;
@@ -80,14 +81,17 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
 
   useEffect(() => {
     let cancelled = false;
+    const nextBlank = blankDraft();
+    savedDraftSnapshotRef.current = JSON.stringify(nextBlank);
     setOriginal(undefined);
-    setDraft(blankDraft());
+    setDraft(nextBlank);
     setLoadError(undefined);
     if (!repository || !itemId) return () => { cancelled = true; };
     void repository.loadContent().then((content) => {
       if (cancelled) return;
       const loaded = draftFromContent(content, itemId);
       if (!loaded) throw new Error('編集するカードが見つかりません');
+      savedDraftSnapshotRef.current = JSON.stringify(loaded);
       setOriginal(content);
       setDraft(loaded);
     }).catch((caught) => {
@@ -96,12 +100,30 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
     return () => { cancelled = true; };
   }, [repository, itemId]);
 
+  const hasUnsavedChanges = JSON.stringify(draft) !== savedDraftSnapshotRef.current;
+
+  useEffect(() => {
+    if (bulk || !hasUnsavedChanges || saving) return undefined;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [bulk, hasUnsavedChanges, saving]);
+
   if (bulk) return <MemoryBulkEditor setId={setId} />;
 
   const isLoading = Boolean(itemId && repository && !original && !loadError);
 
   const updateSense = (index: number, update: (sense: MemorySenseDraft) => MemorySenseDraft) => {
     setDraft((current) => ({ ...current, senses: current.senses.map((sense, at) => at === index ? update(sense) : sense) }));
+  };
+
+  const leaveEditor = (destination: Parameters<typeof navigate>[0]) => {
+    if (saving) return;
+    if (hasUnsavedChanges && !window.confirm('未保存の入力を破棄して移動しますか？')) return;
+    navigate(destination);
   };
 
   const save = async (continueNext: boolean) => {
@@ -151,10 +173,13 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
       void requestSync(true).catch(() => undefined);
       toast(actionItemId ? 'カードを更新しました' : savedCount > 1 ? `${savedCount}枚のカードを保存しました` : 'カードを保存しました');
       if (continueNext && !actionItemId) {
-        setDraft(blankDraft());
+        const nextBlank = blankDraft();
+        savedDraftSnapshotRef.current = JSON.stringify(nextBlank);
+        setDraft(nextBlank);
         setOriginal(undefined);
         document.getElementById('memory-prompt-0')?.focus();
       } else {
+        savedDraftSnapshotRef.current = JSON.stringify(actionDraft);
         navigate(actionSetId ? { name: 'set', setId: actionSetId } : { name: 'home' });
       }
     } catch (caught) {
@@ -198,9 +223,9 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
   return (
     <section className="memory-editor memory-simple-editor" aria-busy={saving}>
       <div className="memory-page-header">
-        <button type="button" className="icon-btn" aria-label="戻る" disabled={saving} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}><ArrowLeft size={21} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn" aria-label="戻る" disabled={saving} onClick={() => leaveEditor(setId ? { name: 'set', setId } : { name: 'home' })}><ArrowLeft size={21} aria-hidden="true" /></button>
         <div><h2>{itemId ? 'カードを編集' : 'カードを追加'}</h2><p>日本語と英語だけで登録できます</p></div>
-        {!itemId && <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => navigate({ name: 'editor', setId, bulk: true })}><Table2 size={18} aria-hidden="true" />まとめて追加</button>}
+        {!itemId && <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => leaveEditor({ name: 'editor', setId, bulk: true })}><Table2 size={18} aria-hidden="true" />まとめて追加</button>}
       </div>
 
       <fieldset className="memory-editor-card card" disabled={saving}>
@@ -232,7 +257,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
       </fieldset>
 
       <div className="memory-sticky-actions">
-        <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
+        <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => leaveEditor(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
         {!itemId && <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => void save(true)}><Save size={18} aria-hidden="true" />{saving ? '保存中…' : '保存して次へ'}</button>}
         <button type="button" className="btn btn-primary" disabled={saving} aria-busy={saving} onClick={() => void save(false)}><Save size={18} aria-hidden="true" />{saving ? '保存中…' : '保存'}</button>
       </div>
