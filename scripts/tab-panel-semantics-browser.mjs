@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import ts from 'typescript';
 
+// This test executes the production guard against the same conditional mount/unmount
+// pattern used by React so aria-controls never points at a missing panel.
 const source = await readFile(new URL('../src/lib/tabPanelSemanticsGuard.ts', import.meta.url), 'utf8');
 const executable = ts.transpileModule(
   `${source.replace(/export function normalizeTabPanelSemantics/u, 'function normalizeTabPanelSemantics').replace(/export function installTabPanelSemanticsGuard/u, 'function installTabPanelSemanticsGuard')}\ninstallTabPanelSemanticsGuard();`,
