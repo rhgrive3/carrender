@@ -113,9 +113,30 @@ try {
   check('問題作成UIを表示しない', await page.getByText('問題形式・指定表現', { exact: false }).count() === 0);
   check('カード行に複数の自然な英語を表示', (await page.locator('.memory-simple-card-row').first().innerText()).includes('allow for A'));
 
+  console.log('--- Memory UI: iOS rename and Japanese IME safety ---');
+  await page.getByRole('button', { name: 'セットを編集' }).click();
+  const editSetDialog = page.getByRole('dialog', { name: '暗記セットを編集' });
+  const editSetName = editSetDialog.getByLabel('セット名');
+  await editSetName.waitFor();
+  await page.locator('#root[inert][aria-hidden="true"]').waitFor();
+  check('編集開始時にセット名へフォーカス', await editSetName.evaluate((element) => element === document.activeElement));
+  check('ダイアログ表示中は背面UIを操作不能にする', await page.locator('#root').getAttribute('inert') !== null);
+  await editSetName.fill('LEAP 必修語');
+  check('文字入力後もセット名へフォーカスを維持', await editSetName.evaluate((element) => element === document.activeElement));
+  await editSetName.evaluate((element) => {
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'isComposing', { value: true });
+    element.dispatchEvent(event);
+  });
+  check('日本語変換中のEscapeで編集画面を閉じない', await editSetDialog.isVisible());
+  check('日本語変換中のEscape後も入力内容を保持', await editSetName.inputValue() === 'LEAP 必修語');
+  await editSetDialog.getByRole('button', { name: '変更を保存' }).click();
+  await page.getByRole('heading', { name: 'LEAP 必修語', exact: true }).waitFor();
+  check('セット名変更を詳細画面へ反映', await page.getByRole('heading', { name: 'LEAP 必修語', exact: true }).isVisible());
+
   console.log('--- Memory UI: minimal setup choices ---');
   await page.getByRole('button', { name: '暗記ホームへ戻る' }).click();
-  const setCard = page.locator('.memory-simple-set-card').filter({ hasText: 'LEAP 1〜300' });
+  const setCard = page.locator('.memory-simple-set-card').filter({ hasText: 'LEAP 必修語' });
   await setCard.getByRole('button', { name: '設定' }).click();
   check('方向は日→英と英→日の2種類だけ', await page.getByRole('radiogroup', { name: '出題方向' }).getByRole('radio').count() === 2);
   check('文脈問題とミックスを削除', await page.getByText('文中で使う', { exact: true }).count() === 0 && await page.getByText('ミックス', { exact: true }).count() === 0);
