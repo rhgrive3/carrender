@@ -88,6 +88,10 @@ const editorSource = await readFile(new URL('../src/features/memory/ui/MemoryEdi
 assert.doesNotMatch(editorSource, /sense\.examples\.length === 0/u, '例文が1件あっても追加操作を隠さない');
 assert.match(editorSource, /examples: \[\.\.\.current\.examples, \{ english: '' \}\]/u, '例文を既存配列へ追加する');
 assert.match(editorSource, /sanitizeExampleAnswerLinks/u, '別SenseのAnswer参照を例文へ残さない');
+assert.match(editorSource, /function compareCreatedRecords[\s\S]*left\.createdAt\.localeCompare\(right\.createdAt\)[\s\S]*left\.id\.localeCompare\(right\.id\)/u, '編集順は作成日時とIDで決定的にする');
+assert.match(editorSource, /content\.senses[\s\S]*?\.filter\(\(sense\) => sense\.itemId === item\.id\)[\s\S]*?\.sort\(compareCreatedRecords\)/u, '一覧と同じ順でSenseを編集し、意味番号を入れ替えない');
+assert.match(editorSource, /content\.answers[\s\S]*?\.filter\(\(answer\) => answer\.senseId === sense\.id\)[\s\S]*?\.sort\(compareCreatedRecords\)/u, 'Answerの編集順もDB返却順へ依存させない');
+assert.match(editorSource, /content\.examples[\s\S]*?\.filter\(\(example\) => example\.senseId === sense\.id\)[\s\S]*?\.sort\(compareCreatedRecords\)/u, '例文の編集順もDB返却順へ依存させない');
 
 const studySource = await readFile(new URL('../src/features/memory/ui/MemoryStudy.tsx', import.meta.url), 'utf8');
 assert.match(studySource, /primaryEnglishForSense\(bundle, sense\.id, \{ verifiedOnly: true \}\)/u, '英語側はSenseに属するAnswerから作る');
@@ -95,4 +99,4 @@ assert.match(studySource, /examplesForSense\(bundle, sense\.id, \{ verifiedOnly:
 assert.match(studySource, /memory-example-list[\s\S]*examples\.map/u, '答え面に複数例文を表示する');
 assert.match(studySource, /memory-question-example/u, '問題面でも方向に合う例文を使う');
 
-console.log('✅ memory cards keep language direction, one Sense per row, persistent verification and multiple examples');
+console.log('✅ memory cards keep language direction, one Sense per row, persistent verification, stable editing order and multiple examples');
