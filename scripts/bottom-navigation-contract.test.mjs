@@ -46,7 +46,6 @@ assert.match(
 assert.match(contractCss, /position:\s*fixed\s*!important;/, '下部ナビはviewport基準で固定する');
 assert.match(contractCss, /bottom:\s*0\s*!important;/, '下部ナビを画面下端へ固定する');
 assert.match(contractCss, /left:\s*0\s*!important;/, '固定要素をビューポート左端基準にする');
-assert.match(contractCss, /right:\s*0\s*!important;/, '固定要素をにする');
 assert.match(contractCss, /right:\s*0\s*!important;/, '固定要素をビューポート右端基準にする');
 assert.match(contractCss, /margin-inline:\s*auto\s*!important;/, '下部ナビを画面中央へ配置する');
 assert.match(contractCss, /transform:\s*none\s*!important;/, '通常状態では固定ナビ自体へ変形を残さない');
@@ -75,8 +74,9 @@ assert.match(guardSource, /body > \.bottom-nav\[data-layout-contract='fixed-bott
 for (const [property, value] of [['position', 'fixed'], ['bottom', '0px'], ['left', '0px'], ['right', '0px'], ['margin-inline', 'auto']]) {
   assert.ok(guardSource.includes(`nav.style.setProperty('${property}', '${value}', 'important')`), `${property}の実行時固定値を保持する`);
 }
-assert.match(guardSource, /window\.visualViewport\?\.height/, 'iPadの見えているviewport下端を基準にする');
-assert.match(guardSource, /const delta = visibleViewportBottom\(\) - rect\.bottom/, '実測した下端ずれを補正する');
+assert.match(guardSource, /viewport\.offsetTop \+ viewport\.height/, 'Visual Viewportが縮小・上方移動しても実際に見える下端を使う');
+assert.doesNotMatch(guardSource, /return\s+visualHeight;/, 'Visual Viewportの高さだけを下端と誤認しない');
+assert.match(guardSource, /const delta = visibleVisualViewportBottom\(\) - rect\.bottom/, '実測した下端ずれを補正する');
 assert.match(guardSource, /translate3d\(0, \$\{offset\}px, 0\)/, 'iPadOSのfixedずれを限定的な実測offsetで補正する');
 assert.match(guardSource, /new MutationObserver\(schedule\)/, 'DOM後発変更でも固定を再確認する');
 assert.match(guardSource, /new ResizeObserver\(\(\) => schedule\(\)\)/, 'ナビ自身の高さ変更でも下端を再計算する');
@@ -89,17 +89,11 @@ assert.match(
   /\.plan-history-launcher\.floating\s*\{[\s\S]*?bottom:\s*calc\(var\(--bottom-nav-content-size\)[\s\S]*?safe-area-inset-bottom[\s\S]*?14px\)\s*!important;/,
   '計画履歴ボタンを文字拡大後のナビ上端より上へ保つ',
 );
-assert.match(contractCss, /\.plan-history-launcher\.floating\s*\{[\s\S]*?z-index:\s*60\s*!important;/, '計画履歴ボタンを下部ナビの上へ保つ',
-);
+assert.match(contractCss, /\.plan-history-launcher\.floating\s*\{[\s\S]*?z-index:\s*60\s*!important;/, '計画履歴ボタンを下部ナビの上へ保つ');
 assert.match(
   contractCss,
   /\.plan-history-launcher\.floating\s*\{[\s\S]*?right:\s*max\(14px,\s*env\(safe-area-inset-right,\s*0px\)\)\s*!important;/,
   '横向きのノッチ・角丸領域から計画履歴ボタンを退避する',
-);
-assert.match(
-  contractCss,
-  /\.plan-history-launcher\.floating\s*\{[\s\S]*?z-index:\s*60\s*!important;/,
-  '計画履歴ボタンを下部ナビの背面へ沈めない',
 );
 
 assert.match(
