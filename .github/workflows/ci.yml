@@ -109,6 +109,15 @@ jobs:
         run: npx playwright install --with-deps webkit
 
       - name: iPhone and iPad fixed-navigation regression
+        shell: bash
         env:
           BROWSER: webkit
-        run: node scripts/bottom-navigation-browser.mjs
+        run: set -o pipefail; node scripts/bottom-navigation-browser.mjs 2>&1 | tee ios-webkit.log
+
+      - name: Upload WebKit failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-webkit-failure-log
+          path: ios-webkit.log
+          if-no-files-found: ignore
