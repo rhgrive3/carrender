@@ -1,6 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Eye, EyeOff, RotateCcw, X } from 'lucide-react';
 import type { MemorySession, MemorySetBundle } from '../domain/types';
+import {
+  englishFormsForSense,
+  examplesForSense,
+  primaryEnglishForSense,
+} from '../domain/cardIntegrity';
 import { currentLearningTarget, sessionQueueProgress } from '../domain/sessionQueue';
 import { answerMemoryQuestion, queueFromSession, sessionContentIsRestorable, undoMemoryAnswer } from '../application/session';
 import { useToast } from '../../../components/ui/Toast';
@@ -93,7 +98,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
           console.warn('復元不能な暗記セッション終了後に一覧を更新できませんでした', caught);
         }
         void requestSync(false).catch(() => undefined);
-        throw new Error('学習中のカードが編集または削除されました。新しい学習を開始してください');
+        throw new Error('学習中のカードが編集・削除されたか、英語と日本語の対応が壊れています。新しい学習を開始してください');
       }
       if (!cancelled) {
         setSession(loaded);
@@ -110,8 +115,6 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const progress = queue ? sessionQueueProgress(queue) : undefined;
   const item = bundle?.items.find((value) => value.id === target?.itemId);
   const sense = bundle?.senses.find((value) => value.id === target?.senseId);
-  const answers = bundle?.answers.filter((answer) => answer.senseId === target?.senseId && answer.verificationStatus === 'verified') ?? [];
-  const example = bundle?.examples.find((value) => value.senseId === target?.senseId && value.verificationStatus === 'verified');
 
   useEffect(() => {
     setRevealed(false);
@@ -249,14 +252,16 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     return <div className="memory-study-overlay"><div className="memory-study-loading" role="status" aria-live="polite">カードを準備しています…</div></div>;
   }
 
-  const englishAnswers = uniqueDisplayAnswers(answers.map((value) => value.displayForm));
+  const englishAnswers = englishFormsForSense(bundle, sense.id, { verifiedOnly: true });
+  const primaryEnglish = primaryEnglishForSense(bundle, sense.id, { verifiedOnly: true });
   const japaneseAnswers = uniqueDisplayAnswers([sense.promptJa, sense.meaningJa]);
-  const prompt = target.mode === 'input' ? englishAnswers[0] ?? item.label : sense.promptJa;
+  const prompt = target.mode === 'input' ? primaryEnglish ?? '英語表現が未設定です' : sense.promptJa;
   const displayedAnswers = target.mode === 'input' ? japaneseAnswers : englishAnswers;
   const directionLabel = target.mode === 'output' ? '日本語 → 英語' : '英語 → 日本語';
   const promptLanguage = target.mode === 'output' ? '日本語' : '英語';
   const answerLanguage = target.mode === 'output' ? '英語' : '日本語';
-  const questionExample = target.mode === 'input' ? example?.english : example?.japanese;
+  const examples = examplesForSense(bundle, sense.id, { verifiedOnly: true });
+  const questionExample = target.mode === 'input' ? examples[0]?.english : examples[0]?.japanese;
 
   return (
     <div className="memory-study-overlay memory-simple-study" role="dialog" aria-modal="true" aria-label="暗記学習">
@@ -314,7 +319,16 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
                   <div className="memory-card-answer-list">
                     {(displayedAnswers.length > 0 ? displayedAnswers : ['答えが登録されていません']).map((value, index) => <h2 key={`${value}-${index}`}>{value}</h2>)}
                   </div>
-                  {example && <div className="memory-example"><span>{example.english}</span>{example.japanese && <small>{example.japanese}</small>}</div>}
+                  {examples.length > 0 && (
+                    <div className="memory-example-list" aria-label="例文">
+                      {examples.map((example) => (
+                        <div className="memory-example" key={example.id}>
+                          <span>{example.english}</span>
+                          {example.japanese && <small>{example.japanese}</small>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <span className="memory-card-toggle-hint"><EyeOff size={18} />タップして問題に戻る</span>
                 <span className="memory-card-swipe-hint">右へスワイプでも戻せます</span>
