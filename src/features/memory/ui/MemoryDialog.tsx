@@ -15,16 +15,25 @@ export function MemoryDialog({
   footer?: ReactNode;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    dialog.current?.focus();
+    const focusFrame = window.requestAnimationFrame(() => {
+      if (dialog.current && !dialog.current.contains(document.activeElement)) {
+        dialog.current.focus({ preventScroll: true });
+      }
+    });
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !dialog.current) return;
@@ -44,11 +53,12 @@ export function MemoryDialog({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       document.body.style.overflow = overflow;
       window.removeEventListener('keydown', onKeyDown);
-      previous?.focus();
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
-  }, [onClose]);
+  }, []);
 
   return createPortal(
     <div
