@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../src/features/memory/ui/MemorySetDetail.tsx', import.meta.url), 'utf8');
+const dialogSource = await readFile(new URL('../src/features/memory/ui/MemoryDialog.tsx', import.meta.url), 'utf8');
+const dialogStyles = await readFile(new URL('../src/styles/memory-dialog-polish.css', import.meta.url), 'utf8');
+const mainSource = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
 
 assert.match(
   source,
@@ -90,6 +93,11 @@ assert.match(
 );
 assert.match(
   source,
+  /id="memory-edit-set-name" autoFocus value=\{setName\} onChange=\{\(event\) => setSetName\(event\.target\.value\)\}/u,
+  'セット名入力は制御inputのまま初期フォーカスする',
+);
+assert.match(
+  source,
   /const targets = useMemo\([\s\S]*includeUnverifiedAi: false[\s\S]*\.filter\(\(target\) => !target\.exerciseId && target\.mode === 'output'\)/u,
   'セット詳細でも通常学習へ実際に出題できる対象を算出する',
 );
@@ -104,4 +112,28 @@ assert.doesNotMatch(
   '生カード件数だけで学習可否を決める旧実装へ戻さない',
 );
 
-console.log('memory set detail post-save resilience regression passed');
+assert.match(dialogSource, /const onCloseRef = useRef\(onClose\)/u, '閉じる処理は最新callbackをrefで参照する');
+assert.match(
+  dialogSource,
+  /useEffect\(\(\) => \{\s*onCloseRef\.current = onClose;\s*\}, \[onClose\]\)/u,
+  '再描画時はcallbackだけ更新し、フォーカス管理を再初期化しない',
+);
+assert.match(
+  dialogSource,
+  /if \(dialog\.current && !dialog\.current\.contains\(document\.activeElement\)\) \{\s*dialog\.current\.focus\(\{ preventScroll: true \}\);/u,
+  'autoFocus済みの入力欄からダイアログ本体へフォーカスを奪わない',
+);
+assert.match(dialogSource, /onCloseRef\.current\(\)/u, 'Escapeキーは最新の閉じる処理を使う');
+assert.match(
+  dialogSource,
+  /window\.cancelAnimationFrame\(focusFrame\)[\s\S]*if \(previous\?\.isConnected\) previous\.focus\(\{ preventScroll: true \}\);[\s\S]*\}, \[\]\);/u,
+  'フォーカス管理effectはマウント中に一度だけ動き、閉じる時だけ元の操作へ戻す',
+);
+assert.doesNotMatch(dialogSource, /dialog\.current\?\.focus\(\);/u, 'iOSキーボードを閉じる旧focus強制処理へ戻さない');
+assert.match(dialogStyles, /\.memory-dialog \{[\s\S]*width: min\(560px, 100%\)[\s\S]*border-radius: 26px/u, '編集ダイアログを読みやすいカード形状へ整える');
+assert.match(dialogStyles, /\.memory-dialog-body input,[\s\S]*font-size: 16px/u, 'iOSで入力時ズームを起こさない文字サイズにする');
+assert.match(dialogStyles, /#memory-edit-set-name \{[\s\S]*font-weight: 750/u, 'セット名を主入力として視覚的に強調する');
+assert.match(dialogStyles, /@media \(max-width: 560px\)[\s\S]*place-items: end center[\s\S]*\.memory-dialog-footer > \.btn \{[\s\S]*width: 100%/u, 'iPhoneでは下部シート型にして保存操作を押しやすくする');
+assert.match(mainSource, /import '\.\/styles\/memory-dialog-polish\.css';/u, '暗記ダイアログ改善CSSを読み込む');
+
+console.log('memory set detail post-save and iOS rename focus regressions passed');
