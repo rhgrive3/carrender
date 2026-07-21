@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Save, Table2, Trash2 } from 'lucide-react';
 import type { MemoryContentBundle } from '../domain/types';
 import { saveMemoryItemDraft, type MemoryItemDraft, type MemorySenseDraft } from '../application/editContent';
+import { saveNewMemoryItemCards } from '../application/saveMemoryItemCards';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
 import { MemoryBulkEditor } from './MemoryBulkEditor';
@@ -122,7 +123,24 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
     );
     try {
       const members = actionSetId ? await actionRepository.listSetMembers(actionSetId) : [];
-      await saveMemoryItemDraft({ repository: actionRepository, draft: actionDraft, original: actionOriginal, setId: actionSetId, setOrder: members.length });
+      let savedCount = 1;
+      if (actionItemId) {
+        await saveMemoryItemDraft({
+          repository: actionRepository,
+          draft: actionDraft,
+          original: actionOriginal,
+          setId: actionSetId,
+          setOrder: members.length,
+        });
+      } else {
+        const savedItemIds = await saveNewMemoryItemCards({
+          repository: actionRepository,
+          draft: actionDraft,
+          setId: actionSetId,
+          setOrder: members.length,
+        });
+        savedCount = savedItemIds.length;
+      }
       if (!isCurrentAction()) return;
       try {
         await refresh();
@@ -131,7 +149,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
       }
       if (!isCurrentAction()) return;
       void requestSync(true).catch(() => undefined);
-      toast(actionItemId ? 'カードを更新しました' : 'カードを保存しました');
+      toast(actionItemId ? 'カードを更新しました' : savedCount > 1 ? `${savedCount}枚のカードを保存しました` : 'カードを保存しました');
       if (continueNext && !actionItemId) {
         setDraft(blankDraft());
         setOriginal(undefined);
@@ -175,6 +193,8 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
     );
   }
 
+  const unitLabel = itemId ? '意味' : 'カード';
+
   return (
     <section className="memory-editor memory-simple-editor" aria-busy={saving}>
       <div className="memory-page-header">
@@ -186,8 +206,8 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
       <fieldset className="memory-editor-card card" disabled={saving}>
         {draft.senses.map((sense, senseIndex) => (
           <fieldset className="memory-sense-editor memory-simple-card-editor" key={sense.id ?? `new-${senseIndex}`}>
-            <legend>{draft.senses.length > 1 ? `カード ${senseIndex + 1}` : 'カード'}</legend>
-            {draft.senses.length > 1 && <button type="button" className="memory-fieldset-remove" aria-label={`カード${senseIndex + 1}を削除`} onClick={() => setDraft((current) => ({ ...current, senses: current.senses.filter((_, index) => index !== senseIndex) }))}><Trash2 size={17} aria-hidden="true" />削除</button>}
+            <legend>{draft.senses.length > 1 ? `${unitLabel} ${senseIndex + 1}` : unitLabel}</legend>
+            {draft.senses.length > 1 && <button type="button" className="memory-fieldset-remove" aria-label={`${unitLabel}${senseIndex + 1}を削除`} onClick={() => setDraft((current) => ({ ...current, senses: current.senses.filter((_, index) => index !== senseIndex) }))}><Trash2 size={17} aria-hidden="true" />削除</button>}
             <div className="field"><label htmlFor={`memory-prompt-${senseIndex}`}>日本語</label><input id={`memory-prompt-${senseIndex}`} value={sense.promptJa} onChange={(event) => updateSense(senseIndex, (current) => ({ ...current, promptJa: event.target.value, meaningJa: event.target.value }))} placeholder="例：〜を考慮に入れる" /></div>
             <div className="memory-answer-editors">
               {sense.answers.map((answer, answerIndex) => (
@@ -208,7 +228,7 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
             </div>
           </fieldset>
         ))}
-        <button type="button" className="btn btn-ghost memory-add-sense" onClick={() => setDraft((current) => ({ ...current, senses: [...current.senses, blankSense()] }))}><Plus size={18} aria-hidden="true" />別のカードを追加</button>
+        <button type="button" className="btn btn-ghost memory-add-sense" onClick={() => setDraft((current) => ({ ...current, senses: [...current.senses, blankSense()] }))}><Plus size={18} aria-hidden="true" />{itemId ? '別の意味を追加' : '別のカードを追加'}</button>
       </fieldset>
 
       <div className="memory-sticky-actions">
