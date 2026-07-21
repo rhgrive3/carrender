@@ -25,21 +25,25 @@ export interface MemorySetCardRow {
  * storage graph intact while presenting every Sense as its own card.
  */
 export function buildMemorySetCardRows(bundle: MemorySetBundle): MemorySetCardRow[] {
-  const memberOrder = new Map(bundle.setMembers.map((member) => [member.itemId, member.order]));
-  const items = [...bundle.items].sort((left, right) => (
-    (memberOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER)
-      - (memberOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER)
-      || left.createdAt.localeCompare(right.createdAt)
-  ));
+  const memberOrder = new Map(bundle.setMembers
+    .filter((member) => !member.deletedAt)
+    .map((member) => [member.itemId, member.order]));
+  const items = bundle.items
+    .filter((item) => !item.deletedAt && memberOrder.has(item.id))
+    .sort((left, right) => (
+      (memberOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER)
+        - (memberOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+        || left.createdAt.localeCompare(right.createdAt)
+    ));
 
   return items.flatMap((item) => {
     const senses = bundle.senses
-      .filter((sense) => sense.itemId === item.id)
+      .filter((sense) => !sense.deletedAt && sense.itemId === item.id)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
     return senses.map((sense, senseIndex): MemorySetCardRow => {
-      const answers = bundle.answers.filter((answer) => answer.senseId === sense.id);
+      const answers = bundle.answers.filter((answer) => !answer.deletedAt && answer.senseId === sense.id);
       const examples = examplesForSense(bundle, sense.id);
-      const exercises = bundle.exercises.filter((exercise) => exercise.senseId === sense.id);
+      const exercises = bundle.exercises.filter((exercise) => !exercise.deletedAt && exercise.senseId === sense.id);
       const answerForms = englishFormsForSense(bundle, sense.id);
       const primaryEnglish = primaryEnglishForSense(bundle, sense.id);
       const englishForms = answerForms.length > 0
