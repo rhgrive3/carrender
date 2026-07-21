@@ -183,6 +183,13 @@ try {
   check('巨大な連結カードを作らない', detailRows[0].includes('take A into account') && !detailRows[0].includes('account for A') && detailRows[1].includes('account for A'));
   check('確認済み状態を各カードへ永続表示', await page.getByLabel('確認済み').count() === 2);
 
+  // The split-row case above is covered. Remove the test-only second Sense so
+  // the study assertions below deterministically exercise the card with examples.
+  await page.locator('.memory-simple-card-row').nth(1).getByRole('button').first().click();
+  await page.getByRole('button', { name: '意味2を削除' }).click();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.memory-simple-card-row').length === 1);
+
   console.log('--- Memory UI: iOS rename and Japanese IME safety ---');
   await page.getByRole('button', { name: 'セットを編集' }).click();
   const editSetDialog = page.getByRole('dialog', { name: '暗記セットを編集' });
