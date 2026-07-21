@@ -123,11 +123,23 @@ assert.match(
   /if \(dialog\.current && !dialog\.current\.contains\(document\.activeElement\)\) \{\s*dialog\.current\.focus\(\{ preventScroll: true \}\);/u,
   'autoFocus済みの入力欄からダイアログ本体へフォーカスを奪わない',
 );
-assert.match(dialogSource, /onCloseRef\.current\(\)/u, 'Escapeキーは最新の閉じる処理を使う');
 assert.match(
   dialogSource,
-  /window\.cancelAnimationFrame\(focusFrame\)[\s\S]*if \(previous\?\.isConnected\) previous\.focus\(\{ preventScroll: true \}\);[\s\S]*\}, \[\]\);/u,
-  'フォーカス管理effectはマウント中に一度だけ動き、閉じる時だけ元の操作へ戻す',
+  /if \(event\.isComposing \|\| event\.keyCode === 229\) return;[\s\S]*onCloseRef\.current\(\)/u,
+  '日本語IMEの変換候補を閉じるEscapeでは暗記ダイアログを閉じない',
+);
+assert.match(dialogSource, /acquireModalIsolation\(backdrop\.current\)/u, '暗記ダイアログ表示中は背面UIを操作・読み上げ対象から外す');
+assert.match(dialogSource, /backdrop\.current\?\.hasAttribute\('inert'\)/u, '背面へ回った暗記ダイアログのキーボード処理を止める');
+assert.match(dialogSource, /trapModalTabKey\(event, dialog\.current\)/u, '共通の表示判定を使ってフォーカスをダイアログ内へ保つ');
+assert.match(
+  dialogSource,
+  /onPointerDown=[\s\S]*backdropPointerRef\.current[\s\S]*onPointerUp=[\s\S]*Math\.hypot[\s\S]*moved <= 10/u,
+  '背景のタップ完了時だけ閉じ、スワイプやドラッグ開始で誤って閉じない',
+);
+assert.match(
+  dialogSource,
+  /window\.cancelAnimationFrame\(focusFrame\)[\s\S]*restoreModalIsolation\(\)[\s\S]*previous\?\.isConnected[\s\S]*previous\.focus\(\{ preventScroll: true \}\);[\s\S]*\}, \[\]\);/u,
+  'フォーカス管理effectはマウント中に一度だけ動き、閉じる時だけ有効な元操作へ戻す',
 );
 assert.doesNotMatch(dialogSource, /dialog\.current\?\.focus\(\);/u, 'iOSキーボードを閉じる旧focus強制処理へ戻さない');
 assert.match(dialogStyles, /\.memory-dialog \{[\s\S]*width: min\(560px, 100%\)[\s\S]*border-radius: 26px/u, '編集ダイアログを読みやすいカード形状へ整える');
@@ -136,4 +148,4 @@ assert.match(dialogStyles, /#memory-edit-set-name \{[\s\S]*font-weight: 750/u, '
 assert.match(dialogStyles, /@media \(max-width: 560px\)[\s\S]*place-items: end center[\s\S]*\.memory-dialog-footer > \.btn \{[\s\S]*width: 100%/u, 'iPhoneでは下部シート型にして保存操作を押しやすくする');
 assert.match(mainSource, /import '\.\/styles\/memory-dialog-polish\.css';/u, '暗記ダイアログ改善CSSを読み込む');
 
-console.log('memory set detail post-save and iOS rename focus regressions passed');
+console.log('memory set detail post-save, iOS rename focus, and IME regressions passed');
