@@ -57,12 +57,15 @@ async function bottomNavigationLayout() {
   return await page.locator('.bottom-nav').evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
+    const visualViewport = window.visualViewport;
     return {
       parentTag: element.parentElement?.tagName,
       position: style.position,
       runtimePinned: element.getAttribute('data-runtime-pinned'),
       bottom: rect.bottom,
-      viewportBottom: window.visualViewport?.height ?? window.innerHeight,
+      viewportBottom: visualViewport
+        ? visualViewport.offsetTop + visualViewport.height
+        : window.innerHeight,
     };
   });
 }
@@ -129,9 +132,13 @@ try {
     const element = document.querySelector('.bottom-nav');
     if (!(element instanceof HTMLElement)) return false;
     const rect = element.getBoundingClientRect();
+    const visualViewport = window.visualViewport;
+    const viewportBottom = visualViewport
+      ? visualViewport.offsetTop + visualViewport.height
+      : window.innerHeight;
     return getComputedStyle(element).position === 'fixed'
       && element.dataset.runtimePinned === 'true'
-      && Math.abs((window.visualViewport?.height ?? window.innerHeight) - rect.bottom) <= 1.5;
+      && Math.abs(viewportBottom - rect.bottom) <= 1.5;
   });
   await assertBottomNavigationPinned('後発の固定解除を復元後');
   await page.setViewportSize({ width: 1133, height: 630 });
@@ -226,8 +233,18 @@ try {
   await page.getByRole('button', { name: '答えを見る' }).click();
   check('自己評価は3択だけ', await page.locator('.memory-simple-assessment button').count() === 3);
   const answerFace = page.getByRole('button', { name: '問題に戻る' });
-  check('学習画面でも複数例文を表示', await answerFace.getByText('Take the delay into account.', { exact: true }).isVisible() && await answerFace.getByText('We must allow for traffic.', { exact: true }).isVisible());
-  check('学習画面でも各和訳を表示', await answerFace.getByText('遅れを考慮に入れてください。', { exact: true }).isVisible() && await answerFace.getByText('交通事情を考慮しなければならない。', { exact: true }).isVisible());
+  const firstExample = answerFace.getByText('Take the delay into account.', { exact: true });
+  const secondExample = answerFace.getByText('We must allow for traffic.', { exact: true });
+  const firstTranslation = answerFace.getByText('遅れを考慮に入れてください。', { exact: true });
+  const secondTranslation = answerFace.getByText('交通事情を考慮しなければならない。', { exact: true });
+  await Promise.all([
+    firstExample.waitFor({ state: 'visible' }),
+    secondExample.waitFor({ state: 'visible' }),
+    firstTranslation.waitFor({ state: 'visible' }),
+    secondTranslation.waitFor({ state: 'visible' }),
+  ]);
+  check('学習画面でも複数例文を表示', await firstExample.isVisible() && await secondExample.isVisible());
+  check('学習画面でも各和訳を表示', await firstTranslation.isVisible() && await secondTranslation.isVisible());
   await page.getByRole('button', { name: 'まだ' }).click();
   let answerCount = 1;
   await waitForAnswerOrResult(answerCount);
