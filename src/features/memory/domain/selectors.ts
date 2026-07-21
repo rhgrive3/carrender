@@ -1,6 +1,5 @@
 export {
   automaticQuestionCount,
-  generateLearningTargets,
   makeLearningTargetId,
   modesForDirection,
   resolveQuestionCount,
@@ -12,6 +11,11 @@ export type {
   SelectLearningTargetsInput,
 } from './targets';
 
+import { memoryTargetHasUsableLanguagePair } from './cardIntegrity';
+import {
+  generateLearningTargets as generateLearningTargetsBase,
+  type GenerateLearningTargetsInput,
+} from './targets';
 import type {
   LearningTarget,
   MemoryMode,
@@ -23,6 +27,16 @@ import {
   statKey,
   type MasterySummary,
 } from './weakness';
+
+/**
+ * All UI/session entry points import target generation through this module.
+ * Structurally valid but malformed legacy records (for example Japanese copied
+ * into the English field) remain editable, but can never become a study prompt.
+ */
+export function generateLearningTargets(input: GenerateLearningTargetsInput): LearningTarget[] {
+  return generateLearningTargetsBase(input)
+    .filter((target) => memoryTargetHasUsableLanguagePair(input.content, target));
+}
 
 export interface LearningTargetStatRef {
   targetType: MemoryTargetType;
