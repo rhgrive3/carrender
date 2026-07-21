@@ -10,6 +10,38 @@ import { UNIT_OPTIONS } from '../../data/defaults';
 import { validateMaterialDates } from '../../lib/materialValidation';
 import { useTimer } from '../timer/TimerContext';
 
+interface UnitRange { start: number; end: number }
+
+function normalizeClippedRanges(totalAmount: number, ranges: UnitRange[]): UnitRange[] {
+  const total = Math.max(0, Math.floor(totalAmount));
+  const sorted = ranges
+    .map((range) => ({ start: Math.max(1, Math.floor(range.start)), end: Math.min(total, Math.floor(range.end)) }))
+    .filter((range) => range.start <= range.end)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  const merged: UnitRange[] = [];
+  for (const range of sorted) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start <= previous.end + 1) previous.end = Math.max(previous.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
+}
+
+function rangeAmount(ranges: UnitRange[]): number {
+  return ranges.reduce((sum, range) => sum + range.end - range.start + 1, 0);
+}
+
+function rangesEqual(left: UnitRange[], right: UnitRange[]): boolean {
+  return left.length === right.length && left.every((range, index) => range.start === right[index]?.start && range.end === right[index]?.end);
+}
+
+function parseReviewIntervals(value: string): number[] | null {
+  const tokens = value.split(',').map((token) => token.trim());
+  if (tokens.length === 0 || tokens.some((token) => token === '' || !/^\d+$/.test(token))) return null;
+  const values = tokens.map(Number);
+  return values.every((item) => Number.isSafeInteger(item) && item > 0) ? values : null;
+}
+
 export function MaterialFormSheet({ material, onClose }: { material: Material | null; onClose: () => void }) {
   const { state, execute } = useApp();
   const timer = useTimer();
@@ -47,6 +79,8 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
   const [archived, setArchived] = useState(material?.archived ?? false);
   const [round, setRound] = useState(material?.round ?? 1);
 
+  const cadenceSummary = cadence === 'auto' ? '頻度は自動' : cadence === 'daily' ? '毎日' : `週${cadenceCount}回`;
+
   const save = () => {
     if (timerLocksMaterialIdentity && material && subjectId !== material.subjectId) {
       toast('この教材を計測中です。タイマーを終了してから科目を変更してください');
@@ -56,16 +90,45 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       toast('教材名・科目・総量を入力してください');
       return;
     }
+    if (!Number.isInteger(totalAmount) || !Number.isInteger(doneAmount) || doneAmount < 0 || doneAmount > totalAmount) {
+      toast('終わった量は0以上、総量以下の整数にしてください');
+      return;
+    }
+    if (cadence === 'timesPerWeek' && (!Number.isInteger(cadenceCount) || cadenceCount < 1 || cadenceCount > 7)) {
+      toast('週あたり回数は1〜7回にしてください');
+      return;
+    }
+    if (splittable && maximumChunkUnits > 0 && maximumChunkUnits < minimumChunkUnits) {
+      toast('最大チャンクは最小チャンク以上にしてください');
+      return;
+    }
     const dateError = validateMaterialDates(startDate, targetDate, preferredFinishDate, state.goal?.examDate);
     if (dateError) { toast(dateError); return; }
-    const reviewIntervals = reviewIntervalsText
-      .split(',')
-      .map((x) => Math.max(1, Number.parseInt(x.trim(), 10)))
-      .filter((x) => Number.isFinite(x));
+    const reviewIntervals = parseReviewIntervals(reviewIntervalsText);
+    if (reviewEnabled && !reviewIntervals) {
+      toast('復習間隔は「1, 3, 7」のような正の整数をカンマ区切りで入力してください');
+      return;
+    }
+
     const existingCompletedRanges = material?.completedRanges
       ?? (material && material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
-    const completedRanges = adjustCompletedRanges(totalAmount, existingCompletedRanges, doneAmount);
-    const normalizedDoneAmount = completedRanges.reduce((sum, range) => sum + range.end - range.start + 1, 0);
+    const normalizedExisting = normalizeClippedRanges(material?.totalAmount ?? totalAmount, existingCompletedRanges);
+    const clippedExisting = normalizeClippedRanges(totalAmount, existingCompletedRanges);
+    const clippedAmount = rangeAmount(clippedExisting);
+    const doneWasEdited = Boolean(material && doneAmount !== material.doneAmount);
+    const requestedDoneAmount = material && !doneWasEdited ? clippedAmount : doneAmount;
+    const completedRanges = adjustCompletedRanges(totalAmount, clippedExisting, requestedDoneAmount);
+    const normalizedDoneAmount = rangeAmount(completedRanges);
+
+    if (material) {
+      const clipped = !rangesEqual(normalizedExisting, clippedExisting);
+      const reduced = normalizedDoneAmount < clippedAmount;
+      if ((clipped || reduced) && !window.confirm(
+        `この変更では完了範囲が ${rangeAmount(normalizedExisting)}${unit} から ${normalizedDoneAmount}${unit} へ変わります。\n`+
+        '総量外の範囲または後ろ側の完了範囲は未完了へ戻り、残り計画を再計算します。続けますか？',
+      )) return;
+    }
+
     const payload: Material = {
       id: material?.id ?? genId('mat'),
       subjectId,
@@ -84,23 +147,23 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
       unitStep: Math.max(1, unitStep),
       splittable,
       minimumChunkUnits: Math.max(1, minimumChunkUnits),
-      maximumChunkUnits: maximumChunkUnits > 0 ? Math.max(minimumChunkUnits, maximumChunkUnits) : undefined,
+      maximumChunkUnits: maximumChunkUnits > 0 ? maximumChunkUnits : undefined,
       maxUnitsPerDay: maxUnitsPerDay > 0 ? maxUnitsPerDay : undefined,
-      preferredCadence: cadence === 'timesPerWeek' ? { type: 'timesPerWeek', count: Math.max(1, cadenceCount) } : { type: cadence },
+      preferredCadence: cadence === 'timesPerWeek' ? { type: 'timesPerWeek', count: cadenceCount } : { type: cadence },
       estimateMode,
       dailyTarget: dailyTarget > 0 ? dailyTarget : null,
       weeklyTarget: weeklyTarget > 0 ? weeklyTarget : null,
       deadlinePolicy,
       examRelevance,
       reviewEnabled,
-      reviewIntervals: reviewIntervals.length > 0 ? reviewIntervals : state.settings.reviewRule.intervals,
+      reviewIntervals: reviewEnabled ? reviewIntervals! : material?.reviewIntervals ?? state.settings.reviewRule.intervals,
       paused,
       round,
       archived,
       createdAt: material?.createdAt ?? new Date().toISOString(),
     };
     const result = execute({ type: isEdit ? 'UPDATE_MATERIAL' : 'ADD_MATERIAL', material: payload });
-    if (result.scheduleStatus === 'invalidInput') { toast(result.message ?? '入力内容を確認してください'); return; }
+    if (!result.changed || result.scheduleStatus === 'invalidInput') { toast(result.message ?? '入力内容を確認してください'); return; }
     toast(result.message ?? (isEdit ? '教材を更新しました' : '教材を追加しました'));
     onClose();
   };
@@ -127,124 +190,37 @@ export function MaterialFormSheet({ material, onClose }: { material: Material | 
 
   return (
     <Sheet open onClose={onClose} title={isEdit ? '教材を編集' : '教材を追加'}>
-      <div className="field">
-        <label htmlFor="mf-name">教材名</label>
-        <input id="mf-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="例: 青チャート 例題" />
-      </div>
+      <div className="field"><label htmlFor="mf-name">教材名</label><input id="mf-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="例: 青チャート 例題" /></div>
       <div className="field">
         <label htmlFor="mf-subject">科目</label>
-        <select id="mf-subject" value={subjectId} disabled={timerLocksMaterialIdentity} aria-describedby={timerLocksMaterialIdentity ? 'mf-timer-lock-hint' : undefined} onChange={(e) => setSubjectId(e.target.value)}>
-          {state.subjects.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
+        <select id="mf-subject" value={subjectId} disabled={timerLocksMaterialIdentity} aria-describedby={timerLocksMaterialIdentity ? 'mf-timer-lock-hint' : undefined} onChange={(e) => setSubjectId(e.target.value)}>{state.subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
         {timerLocksMaterialIdentity && <small id="mf-timer-lock-hint" className="field-hint">計測中は記録先を守るため、科目変更と教材削除はできません。</small>}
       </div>
-      <div className="field">
-        <label htmlFor="mf-total">総量（{unit}）</label>
-        <NumericInput id="mf-total" value={totalAmount} min={1} placeholder="例: 300" onChange={(v) => setTotalAmount(Math.max(0, v))} />
-      </div>
-      {isEdit && (
-        <div className="field">
-          <label htmlFor="mf-done">終わった量</label>
-          <NumericInput id="mf-done" value={doneAmount} min={0} placeholder="例: 40" onChange={(v) => setDoneAmount(Math.max(0, v))} />
-        </div>
-      )}
-      <div className="field">
-        <label htmlFor="mf-target">終わらせたい日</label>
-        <input id="mf-target" type="date" value={targetDate} min={isEdit ? undefined : t} max={state.goal?.examDate} onChange={(e) => setTargetDate(e.target.value)} />
-      </div>
+      <div className="field"><label htmlFor="mf-total">総量（{unit}）</label><NumericInput id="mf-total" value={totalAmount} min={1} placeholder="例: 300" onChange={(v) => setTotalAmount(Math.max(0, v))} /></div>
+      {isEdit && <div className="field"><label htmlFor="mf-done">終わった量</label><NumericInput id="mf-done" value={doneAmount} min={0} max={totalAmount} placeholder="例: 40" onChange={(v) => setDoneAmount(Math.max(0, v))} /></div>}
+      <div className="field"><label htmlFor="mf-target">終わらせたい日</label><input id="mf-target" type="date" value={targetDate} min={isEdit ? undefined : t} max={state.goal?.examDate} onChange={(e) => setTargetDate(e.target.value)} /></div>
 
-      <div className="material-form-suggestion" role="note">
-        <Sparkles size={20} aria-hidden="true" />
-        <div>
-          <strong>おすすめ設定を用意しました</strong>
-          <p>1{unit}約{minutesPerUnit}分、1回{suggestedSession}{unit}を目安にします。期限までの平均は1日{suggestedDaily}{unit}です。</p>
-          <small>最初の3回の実績から、所要時間をより正確に提案します。</small>
-        </div>
-      </div>
+      <div className="material-form-suggestion" role="note"><Sparkles size={20} aria-hidden="true" /><div><strong>おすすめ設定を用意しました</strong><p>1{unit}約{minutesPerUnit}分、1回{suggestedSession}{unit}を目安にします。期限までの平均は1日{suggestedDaily}{unit}です。</p><small>最初の3回の実績から、所要時間をより正確に提案します。</small></div></div>
 
-      <Disclosure title="おすすめ設定を変更" summary={`1${unit} ${minutesPerUnit}分・頻度は自動`}>
+      <Disclosure title="おすすめ設定を変更" summary={`1${unit} ${minutesPerUnit}分・${cadenceSummary}`}>
         <div className="field-row">
-          <div className="field">
-            <label htmlFor="mf-unit">学習量の単位</label>
-            <select id="mf-unit" value={unit} onChange={(e) => setUnit(e.target.value as Material['unit'])}>
-              {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
-          {!isEdit && (
-            <div className="field">
-              <label htmlFor="mf-done">すでに終わった量</label>
-              <NumericInput id="mf-done" value={doneAmount} min={0} placeholder="0" onChange={(v) => setDoneAmount(Math.max(0, v))} />
-            </div>
-          )}
+          <div className="field"><label htmlFor="mf-unit">学習量の単位</label><select id="mf-unit" value={unit} onChange={(e) => setUnit(e.target.value as Material['unit'])}>{UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}</select></div>
+          {!isEdit && <div className="field"><label htmlFor="mf-done">すでに終わった量</label><NumericInput id="mf-done" value={doneAmount} min={0} max={totalAmount} placeholder="0" onChange={(v) => setDoneAmount(Math.max(0, v))} /></div>}
         </div>
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="mf-start">開始日</label>
-            <input id="mf-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="mf-mpu">1{unit}あたりの分数</label>
-            <NumericInput id="mf-mpu" decimal value={minutesPerUnit} min={0.1} placeholder="例: 12" onChange={(v) => setMinutesPerUnit(v)} />
-          </div>
-        </div>
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="mf-preferred">推奨完了日</label>
-            <input id="mf-preferred" type="date" value={preferredFinishDate} min={startDate} max={targetDate} onChange={(e) => setPreferredFinishDate(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="mf-estimate-mode">見積時間の補正</label>
-            <select id="mf-estimate-mode" value={estimateMode} onChange={(e) => setEstimateMode(e.target.value as 'auto' | 'suggest' | 'fixed')}>
-              <option value="auto">自動補正</option>
-              <option value="suggest">提案のみ</option>
-              <option value="fixed">固定値</option>
-            </select>
-          </div>
-        </div>
-        <div className="field-row">
-          <div className="field">
-            <label htmlFor="mf-step">単位刻み</label>
-            <NumericInput id="mf-step" value={unitStep} min={1} onChange={(v) => setUnitStep(Math.max(1, v))} />
-          </div>
-          <div className="field">
-            <label htmlFor="mf-day-cap">1日上限({unit})</label>
-            <NumericInput id="mf-day-cap" value={maxUnitsPerDay > 0 ? maxUnitsPerDay : null} emptyValue={0} min={0} placeholder="上限なし" onChange={(v) => setMaxUnitsPerDay(Math.max(0, v))} />
-          </div>
-        </div>
-        <div className="field">
-          <label className="check-row"><input type="checkbox" checked={splittable} onChange={(e) => setSplittable(e.target.checked)} />タスクを分割可能にする</label>
-        </div>
-        {splittable && (
-          <div className="field-row">
-            <div className="field"><label htmlFor="mf-min-chunk">最小チャンク({unit})</label><NumericInput id="mf-min-chunk" value={minimumChunkUnits} min={1} onChange={(v) => setMinimumChunkUnits(Math.max(1, v))} /></div>
-            <div className="field"><label htmlFor="mf-max-chunk">最大チャンク({unit})</label><NumericInput id="mf-max-chunk" value={maximumChunkUnits > 0 ? maximumChunkUnits : null} emptyValue={0} min={0} placeholder="自動" onChange={(v) => setMaximumChunkUnits(Math.max(0, v))} /></div>
-          </div>
-        )}
-        <div className="field-row">
-          <div className="field"><label htmlFor="mf-cadence">学習頻度</label><select id="mf-cadence" value={cadence} onChange={(e) => setCadence(e.target.value as typeof cadence)}><option value="auto">自動</option><option value="daily">毎日</option><option value="timesPerWeek">週の回数</option></select></div>
-          {cadence === 'timesPerWeek' && <div className="field"><label htmlFor="mf-cadence-count">週あたり回数</label><NumericInput id="mf-cadence-count" value={cadenceCount} min={1} onChange={(v) => setCadenceCount(Math.max(1, v))} /></div>}
-        </div>
-        <div className="field-row">
-          <div className="field"><label htmlFor="mf-daily">1日の目標量(任意)</label><NumericInput id="mf-daily" decimal value={dailyTarget > 0 ? dailyTarget : null} emptyValue={0} min={0} placeholder="自動計算" onChange={(v) => setDailyTarget(v)} /></div>
-          <div className="field"><label htmlFor="mf-weekly">1週間の目標量(任意)</label><NumericInput id="mf-weekly" decimal value={weeklyTarget > 0 ? weeklyTarget : null} emptyValue={0} min={0} placeholder="自動計算" onChange={(v) => setWeeklyTarget(v)} /></div>
-        </div>
+        <div className="field-row"><div className="field"><label htmlFor="mf-start">開始日</label><input id="mf-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div><div className="field"><label htmlFor="mf-mpu">1{unit}あたりの分数</label><NumericInput id="mf-mpu" decimal value={minutesPerUnit} min={0.1} placeholder="例: 12" onChange={setMinutesPerUnit} /></div></div>
+        <div className="field-row"><div className="field"><label htmlFor="mf-preferred">推奨完了日</label><input id="mf-preferred" type="date" value={preferredFinishDate} min={startDate} max={targetDate} onChange={(e) => setPreferredFinishDate(e.target.value)} /></div><div className="field"><label htmlFor="mf-estimate-mode">見積時間の補正</label><select id="mf-estimate-mode" value={estimateMode} onChange={(e) => setEstimateMode(e.target.value as 'auto' | 'suggest' | 'fixed')}><option value="auto">自動補正</option><option value="suggest">提案のみ</option><option value="fixed">固定値</option></select></div></div>
+        <div className="field-row"><div className="field"><label htmlFor="mf-step">単位刻み</label><NumericInput id="mf-step" value={unitStep} min={1} onChange={(v) => setUnitStep(Math.max(1, v))} /></div><div className="field"><label htmlFor="mf-day-cap">1日上限({unit})</label><NumericInput id="mf-day-cap" value={maxUnitsPerDay > 0 ? maxUnitsPerDay : null} emptyValue={0} min={0} placeholder="上限なし" onChange={(v) => setMaxUnitsPerDay(Math.max(0, v))} /></div></div>
+        <div className="field"><label className="check-row"><input type="checkbox" checked={splittable} onChange={(e) => setSplittable(e.target.checked)} />タスクを分割可能にする</label></div>
+        {splittable && <div className="field-row"><div className="field"><label htmlFor="mf-min-chunk">最小チャンク({unit})</label><NumericInput id="mf-min-chunk" value={minimumChunkUnits} min={1} onChange={(v) => setMinimumChunkUnits(Math.max(1, v))} /></div><div className="field"><label htmlFor="mf-max-chunk">最大チャンク({unit})</label><NumericInput id="mf-max-chunk" value={maximumChunkUnits > 0 ? maximumChunkUnits : null} emptyValue={0} min={0} placeholder="自動" onChange={(v) => setMaximumChunkUnits(Math.max(0, v))} /></div></div>}
+        <div className="field-row"><div className="field"><label htmlFor="mf-cadence">学習頻度</label><select id="mf-cadence" value={cadence} onChange={(e) => setCadence(e.target.value as typeof cadence)}><option value="auto">自動</option><option value="daily">毎日</option><option value="timesPerWeek">週の回数</option></select></div>{cadence === 'timesPerWeek' && <div className="field"><label htmlFor="mf-cadence-count">週あたり回数</label><NumericInput id="mf-cadence-count" value={cadenceCount} min={1} max={7} onChange={setCadenceCount} /></div>}</div>
+        <div className="field-row"><div className="field"><label htmlFor="mf-daily">1日の目標量(任意)</label><NumericInput id="mf-daily" decimal value={dailyTarget > 0 ? dailyTarget : null} emptyValue={0} min={0} placeholder="自動計算" onChange={setDailyTarget} /></div><div className="field"><label htmlFor="mf-weekly">1週間の目標量(任意)</label><NumericInput id="mf-weekly" decimal value={weeklyTarget > 0 ? weeklyTarget : null} emptyValue={0} min={0} placeholder="自動計算" onChange={setWeeklyTarget} /></div></div>
         <div className="field"><label htmlFor="mf-deadline">期限の扱い</label><select id="mf-deadline" value={deadlinePolicy} onChange={(e) => setDeadlinePolicy(e.target.value as Material['deadlinePolicy'])}><option value="strict">期限厳守(最優先で配置)</option><option value="normal">できれば守りたい</option><option value="flexible">余裕があれば</option></select></div>
-        <div className="field"><label>優先度(高いほど先に配置)</label><Rating value={priority} onChange={(v) => setPriority(v)} icon={<Flag size={17} strokeWidth={2.2} />} label="優先度" /></div>
-        <div className="field"><label>難易度(復習オン時は高いほど復習を増やします)</label><Rating value={difficulty} onChange={(v) => setDifficulty(v)} icon={<Dumbbell size={17} strokeWidth={2.2} />} label="難易度" /></div>
-        <div className="field"><label>試験への重要度</label><Rating value={examRelevance} onChange={(v) => setExamRelevance(v)} icon={<Star size={17} strokeWidth={2.2} />} label="試験への重要度" /></div>
-        {state.settings.reviewRule.enabled ? (
-          <>
-            <div className="field"><label className="check-row"><input type="checkbox" checked={reviewEnabled} onChange={(e) => setReviewEnabled(e.target.checked)} />復習タスクを自動生成する(明示的にオン)</label></div>
-            {reviewEnabled && <div className="field"><label htmlFor="mf-review-intervals">復習間隔(日・カンマ区切り)</label><input id="mf-review-intervals" value={reviewIntervalsText} onChange={(e) => setReviewIntervalsText(e.target.value)} placeholder="例: 1, 3, 7, 14, 30" /></div>}
-          </>
-        ) : <p className="field-hint">復習の自動生成は設定でオフになっています(設定から再開できます)</p>}
+        <div className="field"><label>優先度(高いほど先に配置)</label><Rating value={priority} onChange={setPriority} icon={<Flag size={17} strokeWidth={2.2} />} label="優先度" /></div>
+        <div className="field"><label>難易度(復習オン時は高いほど復習を増やします)</label><Rating value={difficulty} onChange={setDifficulty} icon={<Dumbbell size={17} strokeWidth={2.2} />} label="難易度" /></div>
+        <div className="field"><label>試験への重要度</label><Rating value={examRelevance} onChange={setExamRelevance} icon={<Star size={17} strokeWidth={2.2} />} label="試験への重要度" /></div>
+        {state.settings.reviewRule.enabled ? <><div className="field"><label className="check-row"><input type="checkbox" checked={reviewEnabled} onChange={(e) => setReviewEnabled(e.target.checked)} />復習タスクを自動生成する(明示的にオン)</label></div>{reviewEnabled && <div className="field"><label htmlFor="mf-review-intervals">復習間隔(日・カンマ区切り)</label><input id="mf-review-intervals" value={reviewIntervalsText} onChange={(e) => setReviewIntervalsText(e.target.value)} placeholder="例: 1, 3, 7, 14, 30" /></div>}</> : <p className="field-hint">復習の自動生成は設定でオフになっています(設定から再開できます)</p>}
         <div className="field"><label>周回</label><div className="segmented" role="radiogroup" aria-label="周回">{[1, 2, 3].map((r) => <button key={r} type="button" role="radio" aria-checked={round === r} className={round === r ? 'active' : ''} onClick={() => setRound(r)}>{r}周目</button>)}</div></div>
-        <div className="field-row" style={{ marginBottom: 0 }}>
-          <label className="check-row"><input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} />一時停止</label>
-          <label className="check-row"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />アーカイブする</label>
-        </div>
+        <div className="field-row" style={{ marginBottom: 0 }}><label className="check-row"><input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} />一時停止</label><label className="check-row"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />アーカイブする</label></div>
       </Disclosure>
 
       <button className="btn btn-primary btn-block mt-12" onClick={save}>{isEdit ? '保存して再計算' : '追加して計画に反映'}</button>
