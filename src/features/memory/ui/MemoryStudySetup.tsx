@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { ArrowLeft, Play } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Play } from 'lucide-react';
 import type { MemoryQuestionCount, MemorySessionConfig } from '../domain/types';
 import { generateLearningTargets, resolveQuestionCount } from '../domain/targets';
 import { createSimpleStudySession } from '../application/simpleSession';
@@ -40,13 +40,11 @@ function handleRadioKeyDown<T extends string>(
   const next = choices[nextIndex];
   const group = event.currentTarget.parentElement;
   select(next);
-  requestAnimationFrame(() => {
-    group?.querySelector<HTMLButtonElement>(`[data-radio-value="${next}"]`)?.focus();
-  });
+  requestAnimationFrame(() => group?.querySelector<HTMLButtonElement>(`[data-radio-value="${next}"]`)?.focus());
 }
 
 export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] }) {
-  const { repository, ready, sets, navigate, refresh, requestSync } = useMemory();
+  const { repository, ready, sets, activeSession, navigate, refresh, requestSync } = useMemory();
   const toast = useToast();
   const initialSelectionKey = [...new Set(initialSetIds)].sort().join('\u0000');
   const [selectedSetIds, setSelectedSetIds] = useState(() => [...new Set(initialSetIds)]);
@@ -142,7 +140,16 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
       && repositoryRef.current === actionRepository
       && startTokenRef.current === actionToken;
     try {
-      const config: MemorySessionConfig = {
+    const activeBeforeConfirm = await actionRepository.getActiveSession();
+    if (activeBeforeConfirm && !window.confirm(
+      `前回の暗記学習（回答${activeBeforeConfirm.answerCount}回）が途中です。\n前回を終了して新しい学習を始めますか？`,
+    )) return;
+    if (!isCurrentAction()) return;
+    const activeBeforeCreate = await actionRepository.getActiveSession();
+    if ((activeBeforeCreate?.id ?? null) !== (activeBeforeConfirm?.id ?? null)) {
+      throw new Error('途中の暗記学習が別の操作で変更されました。内容を確認してもう一度始めてください');
+    }
+    const config: MemorySessionConfig = {
         questionCount: questionCount(countChoice),
         direction,
         includeUnverifiedAi: false,
@@ -175,44 +182,19 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         <div><h2>学習設定</h2><p>必要な項目だけ選んで、すぐ始める</p></div>
       </div>
 
+      {activeSession && (
+        <button type="button" className="memory-simple-resume card" disabled={starting} onClick={() => navigate({ name: 'study', sessionId: activeSession.id })}>
+          <ArrowRight size={22} aria-hidden="true" />
+          <span><b>前回の続きへ戻る</b><small>回答 {activeSession.answerCount}回・新規開始までは保持されます</small></span>
+        </button>
+      )}
+
       <div className="card memory-setup-card">
-        <fieldset disabled={starting}>
-          <legend>セット</legend>
-          <div className="memory-set-chips">
-            {sets.map((set) => {
-              const checked = selectedSetIds.includes(set.id);
-              return <label key={set.id} className={checked ? 'active' : ''}><input type="checkbox" checked={checked} onChange={(event) => setSelectedSetIds((current) => event.target.checked ? [...new Set([...current, set.id])] : current.filter((id) => id !== set.id))} />{set.name}</label>;
-            })}
-          </div>
-        </fieldset>
-
-        <fieldset disabled={starting}>
-          <legend>出題方向</legend>
-          <div className="memory-simple-direction" role="radiogroup" aria-label="出題方向">
-            <button type="button" role="radio" aria-checked={direction === 'output'} tabIndex={direction === 'output' ? 0 : -1} data-radio-value="output" className={direction === 'output' ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, DIRECTION_CHOICES, direction, setDirection)} onClick={() => setDirection('output')}><b>日本語 → 英語</b><span>英語を自力で思い出す</span></button>
-            <button type="button" role="radio" aria-checked={direction === 'input'} tabIndex={direction === 'input' ? 0 : -1} data-radio-value="input" className={direction === 'input' ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, DIRECTION_CHOICES, direction, setDirection)} onClick={() => setDirection('input')}><b>英語 → 日本語</b><span>意味を確認する</span></button>
-          </div>
-        </fieldset>
-
-        <fieldset disabled={starting}>
-          <legend>問題数</legend>
-          <div className="memory-option-grid three" role="radiogroup" aria-label="問題数">
-            {COUNT_CHOICES.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={countChoice === value} tabIndex={countChoice === value ? 0 : -1} data-radio-value={value} className={countChoice === value ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, COUNT_CHOICES.map(([choice]) => choice), countChoice, setCountChoice)} onClick={() => setCountChoice(value)}>{label}</button>)}
-          </div>
-        </fieldset>
-
-        <div className="memory-start-summary" aria-live="polite">
-          {selectedSetIds.length === 0
-            ? '学習するセットを選んでください'
-            : eligibilityError
-              ? <span role="alert">カード件数を読み込めませんでした。<button type="button" className="btn btn-secondary" disabled={starting} onClick={() => setEligibilityRetry((current) => current + 1)}>再読み込み</button></span>
-              : !eligibilityReady
-                ? 'カード件数を確認中…'
-                : eligibleCount === 0
-                  ? '出題できるカードがありません'
-                  : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}
-        </div>
-        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || !eligibilityReady || plannedCount === 0 || Boolean(eligibilityError)} aria-busy={starting} onClick={() => void start()}><Play size={20} fill="currentColor" aria-hidden="true" />{starting ? '準備中…' : '学習を始める'}</button>
+        <fieldset disabled={starting}><legend>セット</legend><div className="memory-set-chips">{sets.map((set) => { const checked = selectedSetIds.includes(set.id); return <label key={set.id} className={checked ? 'active' : ''}><input type="checkbox" checked={checked} onChange={(event) => setSelectedSetIds((current) => event.target.checked ? [...new Set([...current, set.id])] : current.filter((id) => id !== set.id))} />{set.name}</label>; })}</div></fieldset>
+        <fieldset disabled={starting}><legend>出題方向</legend><div className="memory-simple-direction" role="radiogroup" aria-label="出題方向"><button type="button" role="radio" aria-checked={direction === 'output'} tabIndex={direction === 'output' ? 0 : -1} data-radio-value="output" className={direction === 'output' ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, DIRECTION_CHOICES, direction, setDirection)} onClick={() => setDirection('output')}><b>日本語 → 英語</b><span>英語を自力で思い出す</span></button><button type="button" role="radio" aria-checked={direction === 'input'} tabIndex={direction === 'input' ? 0 : -1} data-radio-value="input" className={direction === 'input' ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, DIRECTION_CHOICES, direction, setDirection)} onClick={() => setDirection('input')}><b>英語 → 日本語</b><span>意味を確認する</span></button></div></fieldset>
+        <fieldset disabled={starting}><legend>問題数</legend><div className="memory-option-grid three" role="radiogroup" aria-label="問題数">{COUNT_CHOICES.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={countChoice === value} tabIndex={countChoice === value ? 0 : -1} data-radio-value={value} className={countChoice === value ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, COUNT_CHOICES.map(([choice]) => choice), countChoice, setCountChoice)} onClick={() => setCountChoice(value)}>{label}</button>)}</div></fieldset>
+        <div className="memory-start-summary" aria-live="polite">{selectedSetIds.length === 0 ? '学習するセットを選んでください' : eligibilityError ? <span role="alert">カード件数を読み込めませんでした。<button type="button" className="btn btn-secondary" disabled={starting} onClick={() => setEligibilityRetry((current) => current + 1)}>再読み込み</button></span> : !eligibilityReady ? 'カード件数を確認中…' : eligibleCount === 0 ? '出題できるカードがありません' : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}</div>
+        <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || !eligibilityReady || plannedCount === 0 || Boolean(eligibilityError)} aria-busy={starting} onClick={() => void start()}><Play size={20} fill="currentColor" aria-hidden="true" />{starting ? '準備中…' : activeSession ? '前回を終了して新しく始める' : '学習を始める'}</button>
       </div>
     </section>
   );

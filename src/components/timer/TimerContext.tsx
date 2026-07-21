@@ -22,6 +22,8 @@ type TimerPhase = 'work' | 'break' | 'longBreak';
 interface PersistedTimer {
   target: TimerTarget;
   mode: TimerMode;
+  /** 学習全体を最初に開始した不変のエポックms */
+  workStartedAt?: number;
   /** 実行中なら現在の走行開始エポックms、停止中ならnull */
   runningSince: number | null;
   /** ポモドーロの現フェーズ(ストップウォッチは常にwork) */
@@ -43,6 +45,8 @@ interface TimerContextValue {
   mode: TimerMode;
   running: boolean;
   phase: TimerPhase;
+  /** 最初に学習を開始した日時。旧保存形式で復元不能な場合はnull */
+  startedAt: string | null;
   /** 完了した集中フェーズ数 */
   cycle: number;
   /** 現フェーズの経過秒 */
@@ -78,10 +82,17 @@ function loadPersisted(owner: string | null): PersistedTimer | null {
     if (!raw) return null;
     const p = JSON.parse(raw) as Partial<PersistedTimer> & { accumulatedSec?: number };
     if (!p.target || !owner || p.owner !== owner) return null;
-    // 旧形式(ストップウォッチのみ)からの移行
+    // 旧形式では不変開始時刻がない。実行中なら現在区間の開始時刻だけを安全なfallbackにし、
+    // 停止済み・保存待ちで復元不能な場合はundefinedのまま保存時刻へ偽装しない。
+    const workStartedAt = Number.isFinite(p.workStartedAt)
+      ? p.workStartedAt
+      : Number.isFinite(p.runningSince) && p.runningSince !== null
+        ? p.runningSince
+        : undefined;
     return {
       target: p.target,
       mode: p.mode ?? 'stopwatch',
+      workStartedAt,
       runningSince: p.runningSince ?? null,
       phase: p.phase ?? 'work',
       cycle: p.cycle ?? 0,
@@ -119,7 +130,6 @@ function advancePhase(p: PersistedTimer, pomo: PomodoroSettings, now: number): P
   const dur = phaseDurationSecOf(p, pomo) ?? 0;
   const phaseElapsed = p.phaseAccumulatedSec + runSecOf(p, now);
   const overshoot = phaseElapsed - dur;
-  // 長時間放置していた場合は境界で一時停止して戻ってきたユーザーに委ねる
   const keepRunning = overshoot <= AUTO_PAUSE_GRACE_SEC;
 
   if (p.phase === 'work') {
@@ -166,7 +176,6 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     }
   }, [persisted]);
 
-  /** フェーズ境界チェック(ポモドーロ)。チャイム等の副作用があるためreducer外で行う */
   const maybeAdvance = useCallback(() => {
     const p = persistedRef.current;
     if (!p || p.mode !== 'pomodoro' || !p.runningSince) return;
@@ -203,14 +212,13 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   }, [persisted?.runningSince, maybeAdvance]);
 
   const start = useCallback((target: TimerTarget, mode?: TimerMode) => {
-    // 最小化中も別導線から開始操作ができるため、Contextを単一の上書き防止境界にする。
-    // UI個別のチェックだけでは同一フレームの連打や新しい開始導線を防げない。
     if (persistedRef.current) return false;
     const nowMs = Date.now();
     setNow(nowMs);
     const next: PersistedTimer = {
       target,
       mode: mode ?? settingsRef.current.defaultMode,
+      workStartedAt: nowMs,
       runningSince: nowMs,
       phase: 'work',
       cycle: 0,
@@ -223,7 +231,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     return true;
   }, [user?.username]);
 
-  /** モード切替。それまでの実勉強時間は引き継ぐ */
+  /** モード切替。それまでの実勉強時間と最初の開始時刻は引き継ぐ */
   const setMode = useCallback((mode: TimerMode) => {
     setPersisted((p) => {
       if (!p || p.mode === mode) return p;
@@ -315,6 +323,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       mode: persisted?.mode ?? timerSettings.defaultMode,
       running: !!persisted?.runningSince,
       phase: persisted?.phase ?? 'work',
+      startedAt: persisted?.workStartedAt ? new Date(persisted.workStartedAt).toISOString() : null,
       cycle: persisted?.cycle ?? 0,
       phaseElapsedSec,
       phaseDurationSec,

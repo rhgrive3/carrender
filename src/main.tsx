@@ -58,16 +58,12 @@ function NavigationAnnouncement() {
       )?.trim();
       const contextualLabels = [...document.querySelectorAll<HTMLElement>('[data-app-screen-label]')];
       const contextualLabel = contextualLabels.find((element) => {
-        // ラベル要素自体は表示を持たないhiddenマーカーとして置かれる。
-        // 背面タブ・モーダル背面だけを除外するため、要素自身ではなく祖先を確認する。
         return !element.parentElement?.closest('[hidden], [inert], [aria-hidden="true"]');
       })?.dataset.appScreenLabel?.trim();
       const current = document.querySelector('.bottom-nav [aria-current="page"]');
       const label = dialogLabel || contextualLabel || current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
       if (!label || label === lastLabelRef.current) return;
 
-      // iPadのタブ一覧・ブラウザ履歴・支援技術でも現在画面を識別できるよう、
-      // 視覚上のナビ選択と文書タイトルを常に同じ状態へ揃える。
       document.title = `${label} | ${APP_TITLE}`;
 
       if (lastLabelRef.current === null) {
@@ -87,9 +83,6 @@ function NavigationAnnouncement() {
     announceCurrentScreen();
 
     const observer = new MutationObserver(scheduleAnnouncement);
-    // 下部ナビとモーダルはfixedの包含ブロック問題を避けるためdocument.body直下へ
-    // portalされる。#rootだけを監視すると現在画面の変更を取り逃すため、
-    // アプリ本体とportal UIの共通祖先であるbodyを監視する。
     observer.observe(document.body, {
       subtree: true,
       childList: true,
@@ -130,8 +123,6 @@ function MainLandmarkGuard() {
 
     const normalizeNestedMain = () => {
       rootMain.querySelectorAll<HTMLElement>('main').forEach((nestedMain) => {
-        // アプリ全体のmainを一意に保つ。画面内の視覚レイアウト用mainは
-        // regionへ降格し、VoiceOverの「メイン」ランドマーク重複を防ぐ。
         if (!nestedMain.hasAttribute('role')) nestedMain.setAttribute('role', 'region');
         if (!nestedMain.hasAttribute('aria-label') && !nestedMain.hasAttribute('aria-labelledby')) {
           nestedMain.setAttribute('aria-label', '画面の主要コンテンツ');
@@ -160,12 +151,10 @@ function ShellNavigationSemanticsGuard() {
         const controlId = `shell-nav-${index}`;
         const panelId = `shell-panel-${index}`;
 
-        // ナビはフォーム外でもtypeを固定し、将来のレイアウト変更でsubmit化しないようにする。
         button.type = 'button';
         button.id = controlId;
         button.setAttribute('aria-controls', panelId);
 
-        // 各画面を名前付きregionとして公開し、ナビ項目から移動先を追跡できるようにする。
         panel.id = panelId;
         panel.setAttribute('role', 'region');
         panel.setAttribute('aria-labelledby', controlId);
@@ -205,7 +194,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 );
 
-// 起動スプラッシュをフェードアウトする。動きを減らす設定では待機・フェードを挟まず即時解除する。
 requestAnimationFrame(() => {
   const boot = document.getElementById('boot');
   if (!boot) return;

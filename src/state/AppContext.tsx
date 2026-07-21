@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import type { AppState, StudySession, StudyTask } from '../types';
+import type { AppState, Material, StudySession, StudyTask } from '../types';
 import { addDays, today } from '../lib/date';
 import { emitAppCommandMessage } from '../lib/appCommandEvents';
 import { useAuth } from './AuthContext';
@@ -150,10 +150,6 @@ function mutatesActiveTimerRecord(state: AppState, action: Action, target: Activ
   return false;
 }
 
-/**
- * UI操作では、現在の所有者に属するlocalStorage上の実タイマーを照合する。
- * 実タイマーが無いdoingは旧保存状態なので、plannedへ戻す同一更新へ変換して操作を成立させる。
- */
 function resolveUiAction(state: AppState, action: Action, owner: string | null): ResolvedAction {
   const activeTimerTarget = persistedTimerTarget(owner);
   if (mutatesActiveTimerRecord(state, action, activeTimerTarget)) return { message: ACTIVE_RECORD_MESSAGE };
@@ -239,27 +235,85 @@ function resolveUiAction(state: AppState, action: Action, owner: string | null):
       },
     };
   }
-  // 実タイマーが無い古いdoingタスクは削除可能。
   return { action };
 }
 
-/**
- * Reducerを直接使うテスト・補助処理ではタイマー実体を参照できないため保守的に拒否する。
- * statusをplanned等へ戻す明示的なUPDATE_TASKだけは復旧操作として許可する。
- */
+function materialValidationError(material: Material): string | undefined {
+  if (!Number.isFinite(material.totalAmount) || material.totalAmount <= 0) return '教材の総量は1以上にしてください';
+  if (!Number.isFinite(material.doneAmount) || material.doneAmount < 0 || material.doneAmount > material.totalAmount) return '終わった量は0以上、総量以下にしてください';
+  if (material.preferredCadence?.type === 'timesPerWeek'
+    && (!Number.isInteger(material.preferredCadence.count) || material.preferredCadence.count < 1 || material.preferredCadence.count > 7)) {
+    return '週あたり回数は1〜7回にしてください';
+  }
+  if (material.maximumChunkUnits !== undefined && material.maximumChunkUnits < Math.max(1, material.minimumChunkUnits ?? 1)) {
+    return '最大チャンクは最小チャンク以上にしてください';
+  }
+  if (material.reviewIntervals.some((value) => !Number.isInteger(value) || value <= 0)) return '復習間隔は正の整数で入力してください';
+  return undefined;
+}
+
+function hasSameEstimateObservation(previous: StudySession, input: SessionInput): boolean {
+  return previous.materialId === input.materialId
+    && previous.minutes === input.minutes
+    && previous.amountDone === input.amountDone
+    && !previous.excludedFromEstimate
+    && !previous.pausedMinutes;
+}
+
+function preserveMaterialEstimates(previous: AppState, next: AppState): AppState {
+  const estimates = new Map(previous.materials.map((material) => [material.id, {
+    minutesPerUnit: material.minutesPerUnit,
+    estimatedMinutesPerUnit: material.estimatedMinutesPerUnit,
+  }]));
+  return {
+    ...next,
+    materials: next.materials.map((material) => {
+      const before = estimates.get(material.id);
+      return before ? { ...material, ...before } : material;
+    }),
+  };
+}
+
+function deterministicReducer(state: AppState, action: Action): AppState {
+  if (action.type === 'ADD_MATERIAL' || action.type === 'UPDATE_MATERIAL') {
+    if (materialValidationError(action.material)) return state;
+  }
+  if (action.type === 'UPDATE_MATERIAL' && action.material.completedRanges) {
+    // Base reducer historically re-derived ranges from the old material and could
+    // replace clipped completed ranges with unrelated early units. Seed the reducer
+    // with the exact range decision confirmed by the form so planning uses it too.
+    const prepared: AppState = {
+      ...state,
+      materials: state.materials.map((material) => material.id === action.material.id
+        ? { ...material, completedRanges: action.material.completedRanges, doneAmount: action.material.doneAmount }
+        : material),
+    };
+    return baseAppReducer(prepared, action);
+  }
+  if (action.type === 'UPDATE_SESSION') {
+    const previous = state.sessions.find((session) => session.id === action.sessionId);
+    const next = baseAppReducer(state, action);
+    return previous && hasSameEstimateObservation(previous, action.input)
+      ? preserveMaterialEstimates(state, next)
+      : next;
+  }
+  return baseAppReducer(state, action);
+}
+
+/** Reducerを直接使うテスト・補助処理でもUIと同じ整合性境界を適用する。 */
 export function appReducer(state: AppState, action: Action): AppState {
   const taskId = taskIdOf(action);
   const current = taskId ? state.tasks.find((task) => task.id === taskId) : undefined;
   if (current?.status === 'doing' && !(action.type === 'UPDATE_TASK' && action.task.status !== 'doing')) return state;
-  return baseAppReducer(state, action);
+  return deterministicReducer(state, action);
 }
 
-function rejectedCommandResult(message: string): AppCommandResult {
+function rejectedCommandResult(message: string, errorCode = 'invalidInput'): AppCommandResult {
   let messageRead = false;
   const result = {
     changed: false,
     scheduleStatus: 'invalidInput' as const,
-    errorCode: 'activeTaskMutation',
+    errorCode,
   } as AppCommandResult;
   Object.defineProperty(result, 'message', {
     enumerable: true,
@@ -269,11 +323,16 @@ function rejectedCommandResult(message: string): AppCommandResult {
     },
   });
   queueMicrotask(() => {
-    // 呼び出し側がresult.messageを読んだ場合は、そちらのトースト表示に任せる。
-    // 戻り値を無視する導線だけ、中央から明示的な通知を補う。
     if (!messageRead) emitAppCommandMessage(message, 'warning');
   });
   return result;
+}
+
+function requiresDeterministicReplacement(state: AppState, action: Action): boolean {
+  if (action.type === 'UPDATE_MATERIAL' && Boolean(action.material.completedRanges)) return true;
+  if (action.type !== 'UPDATE_SESSION') return false;
+  const previous = state.sessions.find((session) => session.id === action.sessionId);
+  return Boolean(previous && hasSameEstimateObservation(previous, action.input));
 }
 
 function GuardedAppBridge({ children }: { children: ReactNode }) {
@@ -283,16 +342,36 @@ function GuardedAppBridge({ children }: { children: ReactNode }) {
 
   const dispatch = useCallback((action: Action) => {
     const resolved = resolveUiAction(base.state, action, owner);
-    if (resolved.action) {
-      base.dispatch(resolved.action);
+    if (!resolved.action) {
+      if (resolved.message) emitAppCommandMessage(resolved.message, 'warning');
       return;
     }
-    if (resolved.message) emitAppCommandMessage(resolved.message, 'warning');
+    if ((resolved.action.type === 'ADD_MATERIAL' || resolved.action.type === 'UPDATE_MATERIAL')) {
+      const validation = materialValidationError(resolved.action.material);
+      if (validation) {
+        emitAppCommandMessage(validation, 'warning');
+        return;
+      }
+    }
+    if (requiresDeterministicReplacement(base.state, resolved.action)) {
+      base.dispatch({ type: 'REPLACE_STATE', state: deterministicReducer(base.state, resolved.action) });
+      return;
+    }
+    base.dispatch(resolved.action);
   }, [base, owner]);
 
   const execute = useCallback((action: Action): AppCommandResult => {
     const resolved = resolveUiAction(base.state, action, owner);
-    if (!resolved.action) return rejectedCommandResult(resolved.message ?? ACTIVE_TASK_MESSAGE);
+    if (!resolved.action) return rejectedCommandResult(resolved.message ?? ACTIVE_TASK_MESSAGE, 'activeTaskMutation');
+    if (resolved.action.type === 'ADD_MATERIAL' || resolved.action.type === 'UPDATE_MATERIAL') {
+      const validation = materialValidationError(resolved.action.material);
+      if (validation) return rejectedCommandResult(validation);
+    }
+    if (requiresDeterministicReplacement(base.state, resolved.action)) {
+      const next = deterministicReducer(base.state, resolved.action);
+      if (next === base.state) return rejectedCommandResult('入力内容を確認してください');
+      return base.execute({ type: 'REPLACE_STATE', state: next });
+    }
     return base.execute(resolved.action);
   }, [base, owner]);
 
