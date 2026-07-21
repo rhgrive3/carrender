@@ -33,6 +33,20 @@ function normalizeGroup(group: Element, role: ChoiceRole): void {
   for (const choice of choices) choice.tabIndex = choice === selected ? 0 : -1;
 }
 
+function movementFor(event: KeyboardEvent, group: Element, role: ChoiceRole): -1 | 0 | 1 | null {
+  if (event.key === 'Home') return 0;
+  if (event.key === 'End') return 1;
+  if (role === 'radio') {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') return 1;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') return -1;
+    return null;
+  }
+  const vertical = group.getAttribute('aria-orientation') === 'vertical';
+  if (event.key === (vertical ? 'ArrowDown' : 'ArrowRight')) return 1;
+  if (event.key === (vertical ? 'ArrowUp' : 'ArrowLeft')) return -1;
+  return null;
+}
+
 function moveSelection(event: KeyboardEvent, choice: HTMLElement, role: ChoiceRole): void {
   const group = choice.closest(groupSelectorFor(role));
   if (!group) return;
@@ -40,12 +54,13 @@ function moveSelection(event: KeyboardEvent, choice: HTMLElement, role: ChoiceRo
   const currentIndex = choices.indexOf(choice);
   if (currentIndex < 0 || choices.length === 0) return;
 
-  let nextIndex: number | null = null;
-  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % choices.length;
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + choices.length) % choices.length;
-  if (event.key === 'Home') nextIndex = 0;
-  if (event.key === 'End') nextIndex = choices.length - 1;
-  if (nextIndex === null) return;
+  const movement = movementFor(event, group, role);
+  if (movement === null) return;
+  const nextIndex = event.key === 'Home'
+    ? 0
+    : event.key === 'End'
+      ? choices.length - 1
+      : (currentIndex + movement + choices.length) % choices.length;
 
   event.preventDefault();
   const next = choices[nextIndex];
@@ -94,7 +109,7 @@ export function installRadiogroupKeyboardGuard(): () => void {
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ['aria-checked', 'aria-selected', 'disabled', 'role'],
+    attributeFilter: ['aria-checked', 'aria-selected', 'aria-orientation', 'disabled', 'role'],
   });
 
   const cleanup = () => {
