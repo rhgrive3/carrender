@@ -306,7 +306,7 @@
 }
 
 /* iPadは横向きでも表を無理に縮めず、各カードを見渡せる2列フォームにする。 */
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .memory-bulk-editor .memory-grid-scroll {
     max-height: none;
     overflow: visible;
@@ -402,9 +402,6 @@
 
   .memory-bulk-editor .memory-edit-grid td[data-required="true"]::before {
     content: attr(data-label) "  必須";
-  }
-
-  .memory-bulk-editor .memory-edit-grid td[data-required="true"]::before {
     color: var(--text);
   }
 
