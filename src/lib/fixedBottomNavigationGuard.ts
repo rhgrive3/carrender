@@ -9,10 +9,16 @@ interface GuardWindow extends Window {
 
 function visibleViewportBottom(): number {
   const visualHeight = window.visualViewport?.height;
-  if (typeof visualHeight === 'number' && Number.isFinite(visualHeight) && visualHeight > 0) {
-    // getBoundingClientRect is expressed in the visual viewport coordinate
-    // space on iOS/iPadOS, so its visible bottom is visualViewport.height.
-    return visualHeight;
+  const visualOffsetTop = window.visualViewport?.offsetTop;
+  if (typeof visualHeight === 'number'
+    && Number.isFinite(visualHeight)
+    && visualHeight > 0
+    && typeof visualOffsetTop === 'number'
+    && Number.isFinite(visualOffsetTop)) {
+    // getBoundingClientRect() is measured in layout-viewport client
+    // coordinates. iPadOS may both shrink and move the visual viewport, so the
+    // visible lower edge is offsetTop + height rather than height alone.
+    return visualOffsetTop + visualHeight;
   }
   return document.documentElement.clientHeight || window.innerHeight;
 }
