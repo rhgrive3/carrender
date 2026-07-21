@@ -45,6 +45,10 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const actionToken = useRef(0);
   activeSessionId.current = sessionId;
 
+  const requestSyncSafely = (force: boolean) => {
+    void requestSync(force).catch(() => undefined);
+  };
+
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
@@ -87,7 +91,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         } catch (caught) {
           console.warn('旧形式の暗記セッション終了後に一覧を更新できませんでした', caught);
         }
-        void requestSync(false).catch(() => undefined);
+        requestSyncSafely(false);
         throw new Error('旧形式の問題セッションは廃止されました。新しいカード学習を開始してください');
       }
       if (!sessionContentIsRestorable(content, targets, false)) {
@@ -97,8 +101,8 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         } catch (caught) {
           console.warn('復元不能な暗記セッション終了後に一覧を更新できませんでした', caught);
         }
-        void requestSync(false).catch(() => undefined);
-        throw new Error('学習中のカードが編集・削除されたか、英語と日本語の対応が壊れています。新しい学習を開始してください');
+        requestSyncSafely(false);
+        throw new Error('学習中のカードが編集または削除されました。英語と日本語の対応が壊れている場合もあります。新しい学習を開始してください');
       }
       if (!cancelled) {
         setSession(loaded);
@@ -121,10 +125,6 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     setFlipDirection(undefined);
     questionStarted.current = performance.now();
   }, [session?.answerCount, target?.id]);
-
-  const requestSyncSafely = (force: boolean) => {
-    void requestSync(force).catch(() => undefined);
-  };
 
   const refreshAfterPersist = async (operation: '回答保存' | '回答取り消し') => {
     try {
