@@ -15,36 +15,52 @@ function blankDraft(): MemoryItemDraft {
   return { kind: 'expression', senses: [blankSense()] };
 }
 
+function compareCreatedRecords(
+  left: { createdAt: string; id: string },
+  right: { createdAt: string; id: string },
+): number {
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
 function draftFromContent(content: MemoryContentBundle, itemId: string): MemoryItemDraft | null {
   const item = content.items.find((value) => value.id === itemId);
   if (!item) return null;
-  const senses = content.senses.filter((sense) => sense.itemId === item.id).map((sense): MemorySenseDraft => ({
-    id: sense.id,
-    siblingGroupId: sense.siblingGroupId,
-    promptJa: sense.promptJa,
-    meaningJa: sense.meaningJa,
-    explanation: sense.explanation,
-    tags: sense.tags.join(', '),
-    answers: content.answers.filter((answer) => answer.senseId === sense.id).map((answer) => ({
-      id: answer.id,
-      displayForm: answer.displayForm,
-      citationForm: answer.citationForm,
-      pattern: answer.pattern,
-      acceptedVariants: answer.acceptedVariants.join(', '),
-      orthographicVariants: answer.orthographicVariants.join(', '),
-      register: answer.register,
-      nuance: answer.nuance,
-      note: answer.note,
-    })),
-    examples: content.examples.filter((example) => example.senseId === sense.id).map((example) => ({
-      id: example.id,
-      english: example.english,
-      japanese: example.japanese,
-      note: example.note,
-      answerId: example.answerId,
-    })),
-    exercises: [],
-  }));
+  const senses = content.senses
+    .filter((sense) => sense.itemId === item.id)
+    .sort(compareCreatedRecords)
+    .map((sense): MemorySenseDraft => ({
+      id: sense.id,
+      siblingGroupId: sense.siblingGroupId,
+      promptJa: sense.promptJa,
+      meaningJa: sense.meaningJa,
+      explanation: sense.explanation,
+      tags: sense.tags.join(', '),
+      answers: content.answers
+        .filter((answer) => answer.senseId === sense.id)
+        .sort(compareCreatedRecords)
+        .map((answer) => ({
+          id: answer.id,
+          displayForm: answer.displayForm,
+          citationForm: answer.citationForm,
+          pattern: answer.pattern,
+          acceptedVariants: answer.acceptedVariants.join(', '),
+          orthographicVariants: answer.orthographicVariants.join(', '),
+          register: answer.register,
+          nuance: answer.nuance,
+          note: answer.note,
+        })),
+      examples: content.examples
+        .filter((example) => example.senseId === sense.id)
+        .sort(compareCreatedRecords)
+        .map((example) => ({
+          id: example.id,
+          english: example.english,
+          japanese: example.japanese,
+          note: example.note,
+          answerId: example.answerId,
+        })),
+      exercises: [],
+    }));
   return { id: item.id, kind: item.kind, label: item.label, lemma: item.lemma, tags: item.tags.join(', '), senses: senses.length ? senses : [blankSense()] };
 }
 
