@@ -26,6 +26,10 @@ function directTabs(tablist: Element): HTMLElement[] {
   ));
 }
 
+function setAttributeIfChanged(element: HTMLElement, name: string, value: string): void {
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+}
+
 function generatedPanel(container: HTMLElement, mapping: TabPanelMapping): HTMLElement {
   const existing = container.querySelector<HTMLElement>(`#${mapping.panelId}[${GENERATED_PANEL_ATTRIBUTE}]`);
   if (existing) return existing;
@@ -50,17 +54,17 @@ function connectTablist(
   mappings.forEach((mapping, index) => {
     const tab = tabs[index];
     if (!tab) return;
-    tab.id = mapping.tabId;
-    tab.setAttribute('aria-controls', mapping.panelId);
+    if (tab.id !== mapping.tabId) tab.id = mapping.tabId;
+    setAttributeIfChanged(tab, 'aria-controls', mapping.panelId);
 
     const actualPanel = container.querySelector<HTMLElement>(mapping.panelSelector);
     const stalePlaceholder = container.querySelector<HTMLElement>(`#${mapping.panelId}[${GENERATED_PANEL_ATTRIBUTE}]`);
     if (actualPanel) {
       if (stalePlaceholder && stalePlaceholder !== actualPanel) stalePlaceholder.remove();
-      actualPanel.id = mapping.panelId;
-      actualPanel.setAttribute('role', 'tabpanel');
-      actualPanel.setAttribute('aria-labelledby', mapping.tabId);
-      actualPanel.tabIndex = 0;
+      if (actualPanel.id !== mapping.panelId) actualPanel.id = mapping.panelId;
+      setAttributeIfChanged(actualPanel, 'role', 'tabpanel');
+      setAttributeIfChanged(actualPanel, 'aria-labelledby', mapping.tabId);
+      if (actualPanel.tabIndex !== 0) actualPanel.tabIndex = 0;
       actualPanel.removeAttribute(GENERATED_PANEL_ATTRIBUTE);
     } else {
       generatedPanel(container, mapping);
@@ -71,13 +75,13 @@ function connectTablist(
 function normalizeRecordPeriodChoice(container: HTMLElement): void {
   const group = container.querySelector<HTMLElement>('.record-overview > .segmented[role="tablist"][aria-label="集計期間"], .record-overview > .segmented[role="radiogroup"][aria-label="集計期間"]');
   if (!group) return;
-  group.setAttribute('role', 'radiogroup');
+  setAttributeIfChanged(group, 'role', 'radiogroup');
   [...group.children].forEach((child) => {
     if (!(child instanceof HTMLElement)) return;
     const selected = child.getAttribute('aria-selected') === 'true'
       || child.getAttribute('aria-checked') === 'true';
-    child.setAttribute('role', 'radio');
-    child.setAttribute('aria-checked', selected ? 'true' : 'false');
+    setAttributeIfChanged(child, 'role', 'radio');
+    setAttributeIfChanged(child, 'aria-checked', selected ? 'true' : 'false');
     child.removeAttribute('aria-selected');
     child.removeAttribute('aria-controls');
   });
@@ -118,7 +122,7 @@ export function installTabPanelSemanticsGuard(): () => void {
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ['aria-selected', 'class', 'role'],
+    attributeFilter: ['aria-selected', 'class'],
   });
 
   const cleanup = () => {
