@@ -33,5 +33,15 @@ assert.match(guard, /attributeFilter: \['aria-checked', 'aria-selected', 'aria-d
 assert.match(records, /role="tablist" aria-label="記録画面の切替"[\s\S]*role="tab"[\s\S]*role="tab"/, '記録画面切替をtablistとして公開する');
 assert.match(records, /role="tablist" aria-label="集計期間"[\s\S]*role="tab"[\s\S]*role="tab"/, '週月切替をtablistとして公開する');
 assert.match(main, /installRadiogroupKeyboardGuard\(\);/, 'アプリ起動時に共有選択グループガードを有効化する');
+assert.match(main, /function RecordTabPanelSemanticsGuard\(\)/, '記録画面のtabとtabpanelを接続する共有ガードを持つ');
+assert.match(main, /overviewTab\.id = 'records-overview-tab'[\s\S]*aria-controls', 'records-overview-panel'/, '集計tabから集計panelを参照する');
+assert.match(main, /logTab\.id = 'records-log-tab'[\s\S]*aria-controls', 'records-log-panel'/, '学習ログtabからログpanelを参照する');
+assert.match(main, /overviewPanel\.id = 'records-overview-panel'[\s\S]*setAttribute\('role', 'tabpanel'\)[\s\S]*setAttribute\('aria-labelledby', overviewTab\.id\)/, '集計panelから集計tabを参照する');
+assert.match(main, /logPanel\.id = 'records-log-panel'[\s\S]*setAttribute\('role', 'tabpanel'\)[\s\S]*setAttribute\('aria-labelledby', logTab\.id\)/, 'ログpanelからログtabを参照する');
+assert.match(main, /weekTab\.id = 'records-week-tab'[\s\S]*aria-controls', 'records-week-panel'/, '週tabから週panelを参照する');
+assert.match(main, /monthTab\.id = 'records-month-tab'[\s\S]*aria-controls', 'records-month-panel'/, '月tabから月panelを参照する');
+assert.match(main, /periodPanel\.id = periodPanelId[\s\S]*setAttribute\('role', 'tabpanel'\)[\s\S]*setAttribute\('aria-labelledby', selectedPeriodTab\.id\)/, '表示中の期間panelを選択tabへ関連付ける');
+assert.match(main, /attributeFilter: \['aria-selected'\]/, 'Reactのtab選択変更後に関連付けを再構築する');
+assert.match(main, /<RecordTabPanelSemanticsGuard \/>/, 'アプリ起動時に記録tabpanelガードを有効化する');
 
-console.log('✅ Segmented, repaired radiogroup, disabled-choice, and orientation-aware tablist accessibility contracts passed');
+console.log('✅ Segmented, repaired radiogroup, tabpanel relationships, disabled-choice, and orientation-aware tablist accessibility contracts passed');
