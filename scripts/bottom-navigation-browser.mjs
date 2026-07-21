@@ -59,11 +59,15 @@ try {
         </body>
       </html>`);
     await page.addScriptTag({ content: executableGuard });
-    await page.waitForFunction(
-      () => document.querySelector('.bottom-nav')?.getAttribute('data-runtime-pinned') === 'true',
-      undefined,
-      { timeout: 2_000 },
-    );
+
+    const waitForPinnedState = () => page.waitForFunction(() => {
+      const element = document.querySelector('.bottom-nav');
+      if (!(element instanceof HTMLElement)) return false;
+      return element.getAttribute('data-runtime-pinned') === 'true'
+        && getComputedStyle(element).position === 'fixed';
+    }, undefined, { timeout: 2_000 });
+
+    await waitForPinnedState();
 
     const readLayout = () => page.locator('.bottom-nav').evaluate((element) => {
       const rect = element.getBoundingClientRect();
@@ -106,7 +110,7 @@ try {
     assertPinned(before, 'initial');
 
     await page.evaluate(() => window.scrollTo(0, 600));
-    await page.waitForTimeout(80);
+    await waitForPinnedState();
     const afterScroll = await readLayout();
     assertPinned(afterScroll, 'after scroll');
     assert.ok(Math.abs(afterScroll.left - before.left) <= tolerance, `${browserName} ${viewport.label}: horizontal position does not move while scrolling`);
@@ -117,21 +121,21 @@ try {
       element.style.setProperty('bottom', '96px', 'important');
       element.style.setProperty('transform', 'translateY(-24px)', 'important');
     });
-    await page.waitForTimeout(100);
+    await waitForPinnedState();
     assertPinned(await readLayout(), 'after direct inline mutation');
 
     await page.addStyleTag({ content: '.bottom-nav { position:absolute !important; bottom:96px !important; transform:translateY(-24px) !important; }' });
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
-    await page.waitForTimeout(100);
+    await waitForPinnedState();
     assertPinned(await readLayout(), 'after hostile late CSS');
 
     const resizedHeight = Math.max(360, viewport.height - 137);
     await page.setViewportSize({ width: viewport.width, height: resizedHeight });
-    await page.waitForTimeout(100);
+    await waitForPinnedState();
     assertPinned(await readLayout(), 'after visual viewport resize');
 
     await page.setViewportSize({ width: viewport.height, height: viewport.width });
-    await page.waitForTimeout(100);
+    await waitForPinnedState();
     assertPinned(await readLayout(), 'after orientation change');
 
     await context.close();
