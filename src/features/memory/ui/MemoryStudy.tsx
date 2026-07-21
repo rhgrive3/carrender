@@ -82,9 +82,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         } catch (caught) {
           console.warn('旧形式の暗記セッション終了後に一覧を更新できませんでした', caught);
         }
-        void requestSync(false).catch(() => {
-          // 終了状態は端末へ保存済み。同期失敗はContextの状態表示と次回同期へ委ねる。
-        });
+        void requestSync(false).catch(() => undefined);
         throw new Error('旧形式の問題セッションは廃止されました。新しいカード学習を開始してください');
       }
       if (!sessionContentIsRestorable(content, targets, false)) {
@@ -94,9 +92,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         } catch (caught) {
           console.warn('復元不能な暗記セッション終了後に一覧を更新できませんでした', caught);
         }
-        void requestSync(false).catch(() => {
-          // 終了状態は端末へ保存済み。同期失敗はContextの状態表示と次回同期へ委ねる。
-        });
+        void requestSync(false).catch(() => undefined);
         throw new Error('学習中のカードが編集または削除されました。新しい学習を開始してください');
       }
       if (!cancelled) {
@@ -124,9 +120,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   }, [session?.answerCount, target?.id]);
 
   const requestSyncSafely = (force: boolean) => {
-    void requestSync(force).catch(() => {
-      // 回答・取り消しは端末へ保存済み。同期失敗はContextの状態表示と次回同期へ委ねる。
-    });
+    void requestSync(force).catch(() => undefined);
   };
 
   const refreshAfterPersist = async (operation: '回答保存' | '回答取り消し') => {
@@ -255,13 +249,14 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     return <div className="memory-study-overlay"><div className="memory-study-loading" role="status" aria-live="polite">カードを準備しています…</div></div>;
   }
 
-  const prompt = target.mode === 'input' ? item.label : sense.promptJa;
-  const displayedAnswers = target.mode === 'input'
-    ? uniqueDisplayAnswers([sense.promptJa])
-    : uniqueDisplayAnswers(answers.map((value) => value.displayForm));
+  const englishAnswers = uniqueDisplayAnswers(answers.map((value) => value.displayForm));
+  const japaneseAnswers = uniqueDisplayAnswers([sense.promptJa, sense.meaningJa]);
+  const prompt = target.mode === 'input' ? englishAnswers[0] ?? item.label : sense.promptJa;
+  const displayedAnswers = target.mode === 'input' ? japaneseAnswers : englishAnswers;
   const directionLabel = target.mode === 'output' ? '日本語 → 英語' : '英語 → 日本語';
   const promptLanguage = target.mode === 'output' ? '日本語' : '英語';
   const answerLanguage = target.mode === 'output' ? '英語' : '日本語';
+  const questionExample = target.mode === 'input' ? example?.english : example?.japanese;
 
   return (
     <div className="memory-study-overlay memory-simple-study" role="dialog" aria-modal="true" aria-label="暗記学習">
@@ -300,6 +295,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
               >
                 <span className="memory-card-side-label">問題 <small>{promptLanguage}</small></span>
                 <h1>{prompt}</h1>
+                {questionExample && <div className="memory-question-example">{questionExample}</div>}
                 <span className="memory-card-toggle-hint"><Eye size={18} />タップして答えを見る</span>
                 <span className="memory-card-swipe-hint">左へスワイプでもめくれます</span>
               </button>
