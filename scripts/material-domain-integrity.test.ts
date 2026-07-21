@@ -4,6 +4,8 @@ import { emptyState, appReducer } from '../src/state/AppContext';
 import { generatePlanV2 } from '../src/lib/schedulerRecovery';
 import { validateMaterialIntegrity } from '../src/lib/materialIntegrity';
 
+// Keep the UI/reducer boundary and the production scheduler entry on the same
+// integer and finite-number contract so persisted legacy data cannot bypass it.
 const material = (overrides: Partial<Material> = {}): Material => ({
   id: 'material-integrity',
   subjectId: 'subject-1',
