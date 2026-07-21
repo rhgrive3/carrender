@@ -13,6 +13,7 @@ import './styles/memory-dialog-polish.css';
 import './styles/memory-card-ux.css';
 import './styles/memory-android-flip-fix.css';
 import './styles/memory-compact-fixes.css';
+import './styles/memory-study-polish.css';
 import './styles/memory-bulk-editor.css';
 import './styles/record-chart-fixes.css';
 import './styles/material-shelf.css';

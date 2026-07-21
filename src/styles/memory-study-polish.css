@@ -1,0 +1,55 @@
+/* 暗記学習の問題面は、カードをめくる操作へ集中できる固定viewportにする。 */
+.memory-simple-study:has(.memory-study-card[data-card-side='question']) .memory-study-stage {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.memory-simple-study:has(.memory-study-card[data-card-side='question']) .memory-study-flip-shell {
+  touch-action: none;
+}
+
+.memory-simple-study:has(.memory-study-card[data-card-side='question']) .memory-study-card-front {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/*
+ * 不正解・部分正解は強い全面色を避け、覚えたボタンより一段控えめな
+ * トーン面へする。意味の違いは色相と枠線で残す。
+ */
+.memory-simple-assessment :is(.memory-again, .memory-partial) {
+  border: 1px solid color-mix(in srgb, var(--assessment-tone) 38%, var(--border-strong));
+  color: color-mix(in srgb, var(--assessment-tone) 76%, var(--text));
+  -webkit-text-fill-color: currentColor;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--assessment-tone) 16%, var(--bg-elev1)),
+      color-mix(in srgb, var(--assessment-tone) 6%, var(--bg-elev1))
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 58%, transparent),
+    0 6px 16px color-mix(in srgb, var(--assessment-tone) 11%, transparent);
+}
+
+.memory-simple-assessment .memory-again {
+  --assessment-tone: #bd6078;
+}
+
+.memory-simple-assessment .memory-partial {
+  --assessment-tone: #b47b36;
+}
+
+.memory-simple-assessment :is(.memory-again, .memory-partial) small {
+  opacity: 0.72;
+}
+
+@media (hover: hover) {
+  .memory-simple-assessment :is(.memory-again, .memory-partial):hover:not(:disabled) {
+    filter: brightness(1.035);
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, #fff 64%, transparent),
+      0 9px 22px color-mix(in srgb, var(--assessment-tone) 15%, transparent);
+  }
+}
