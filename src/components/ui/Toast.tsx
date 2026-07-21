@@ -9,6 +9,7 @@ import {
   type ToastInput,
   type ToastTone,
 } from './toastModel';
+import { APP_COMMAND_MESSAGE_EVENT, type AppCommandMessageDetail } from '../../lib/appCommandEvents';
 import './Toast.css';
 
 export type { ToastInput, ToastRequest, ToastTone } from './toastModel';
@@ -38,6 +39,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     idSequence.current += 1;
     setQueue({ type: 'enqueue', item: createToastItem(input, requestedTone, `toast-${idSequence.current}`) });
   }, []);
+
+  useEffect(() => {
+    const handleCommandMessage = (event: Event) => {
+      const detail = (event as CustomEvent<AppCommandMessageDetail>).detail;
+      if (!detail || typeof detail.message !== 'string') return;
+      show(detail.message, detail.tone);
+    };
+    window.addEventListener(APP_COMMAND_MESSAGE_EVENT, handleCommandMessage);
+    return () => window.removeEventListener(APP_COMMAND_MESSAGE_EVENT, handleCommandMessage);
+  }, [show]);
 
   const dismiss = useCallback(() => setQueue({ type: 'advance' }), []);
   const active = queue.active;
