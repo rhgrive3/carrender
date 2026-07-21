@@ -119,8 +119,12 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     }
   };
 
-  const removeFromSet = async (itemId: string) => {
-    if (!repository || !window.confirm('このカードをセットから外しますか？')) return;
+  const removeFromSet = async (itemId: string, cardCount: number) => {
+    if (!repository) return;
+    const message = cardCount > 1
+      ? `同じ項目に属する${cardCount}枚のカードをすべてセットから外しますか？`
+      : 'このカードをセットから外しますか？';
+    if (!window.confirm(message)) return;
     const member = bundle?.setMembers.find((value) => value.itemId === itemId);
     if (!member) return;
     await runAction(async (isCurrent) => {
@@ -131,12 +135,12 @@ export function MemorySetDetail({ setId }: { setId: string }) {
   };
 
   const verifySense = async (itemId: string, senseId: string) => {
-    if (!repository || !window.confirm('このカードを確認済みにして通常学習へ含めますか？')) return;
+    if (!repository) return;
     await runAction(async (isCurrent) => {
       const count = await verifyMemoryCard(repository, itemId, senseId);
       await refreshAfterMutation('確認済み化', isCurrent);
       requestSyncSafely();
-      if (isCurrent()) toast(count > 0 ? `${count}件を確認済みにしました` : 'このカードは確認済みです');
+      if (isCurrent()) toast(count > 0 ? 'このカードを確認済みにしました' : 'このカードは確認済みです');
     }, '内容を確認済みにできませんでした');
   };
 
@@ -212,18 +216,26 @@ export function MemorySetDetail({ setId }: { setId: string }) {
       <div className="memory-simple-card-list" role="list" aria-busy={actionBusy}>
         {filtered.map((row) => (
           <article className="card memory-simple-card-row" key={row.senseId} role="listitem" data-memory-sense-id={row.senseId}>
-            <button type="button" className="memory-simple-card-main" disabled={actionBusy} onClick={() => navigate({ name: 'editor', setId, itemId: row.itemId })}>
-              <span className="memory-content-meaning">{row.japanese}</span>
-              <b>{row.englishForms.join('／') || '英語表現が未設定です'}</b>
-              {row.examples.map((example) => (
-                <small className="memory-card-example" key={example.id}>
-                  <span>{example.english}</span>
-                  {example.japanese && <span>{example.japanese}</span>}
-                </small>
-              ))}
+            <button type="button" className="memory-simple-card-main" aria-label={`${row.japanese}のカードを編集`} disabled={actionBusy} onClick={() => navigate({ name: 'editor', setId, itemId: row.itemId })}>
+              <span className="memory-card-japanese">{row.japanese}</span>
+              <b className={`memory-card-english ${row.englishForms.length === 0 ? 'memory-card-language-error' : ''}`}>{row.englishForms.join('／') || '英語表現が未設定です'}</b>
+              {row.examples.length > 0 && (
+                <span className="memory-card-example-list">
+                  {row.examples.map((example) => (
+                    <small key={example.id}>{example.english}{example.japanese && <span>{example.japanese}</span>}</small>
+                  ))}
+                </span>
+              )}
+              {row.itemSenseCount > 1 && <small className="memory-card-group-note">同じ保存項目の {row.senseIndex + 1} / {row.itemSenseCount}</small>}
             </button>
-            {row.hasUnverified && <button type="button" className="icon-btn memory-verify" aria-label="このカードを確認済みにする" disabled={actionBusy} onClick={() => void verifySense(row.itemId, row.senseId)}><CheckCircle2 size={18} /></button>}
-            <button type="button" className="icon-btn memory-remove" aria-label="セットから外す" disabled={actionBusy} onClick={() => void removeFromSet(row.itemId)}><Trash2 size={18} /></button>
+            <div className="memory-card-row-actions">
+              {row.hasUnverified ? (
+                <button type="button" className="memory-card-pending" aria-label="このカードを確認済みにする" disabled={actionBusy} onClick={() => void verifySense(row.itemId, row.senseId)}><CheckCircle2 size={19} /></button>
+              ) : (
+                <span className="memory-card-verified" role="img" aria-label="確認済み"><CheckCircle2 size={19} /></span>
+              )}
+              {row.isFirstSense && <button type="button" className="icon-btn memory-remove" aria-label={row.itemSenseCount > 1 ? `${row.itemSenseCount}枚をセットから外す` : 'セットから外す'} disabled={actionBusy} onClick={() => void removeFromSet(row.itemId, row.itemSenseCount)}><Trash2 size={18} /></button>}
+            </div>
           </article>
         ))}
       </div>
