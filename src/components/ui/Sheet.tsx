@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
-import type { ReactNode } from 'react';
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, X } from 'lucide-react';
 
@@ -20,6 +20,9 @@ const modalStack: HTMLElement[] = [];
 let appRootState: { hadInert: boolean; ariaHidden: string | null } | null = null;
 let portalBackgroundStates: Array<{ element: HTMLElement; hadInert: boolean; ariaHidden: string | null }> = [];
 let bodyOverflowState: string | null = null;
+
+const DEFAULT_UNSAVED_CONTROL_SELECTOR = 'input, select, textarea, [role="radio"], output';
+const DAY_DETAIL_MEMO_SELECTOR = 'textarea[id^="day-memo-"]';
 
 function refreshModalIsolation() {
   modalStack.forEach((backdrop, index) => {
@@ -159,8 +162,8 @@ export function trapModalTabKey(e: KeyboardEvent, root: HTMLElement) {
   }
 }
 
-function sheetControlSnapshot(root: HTMLElement): string {
-  return JSON.stringify([...root.querySelectorAll<HTMLElement>('input, select, textarea, [role="radio"], output')].map((element, index) => {
+export function sheetControlSnapshot(root: HTMLElement, selector = DEFAULT_UNSAVED_CONTROL_SELECTOR): string {
+  return JSON.stringify([...root.querySelectorAll<HTMLElement>(selector)].map((element, index) => {
     const key = element.id || element.getAttribute('aria-label') || String(index);
     if (element instanceof HTMLInputElement) return ['input', key, element.type, element.value, element.checked];
     if (element instanceof HTMLSelectElement) return ['select', key, element.value];
@@ -168,6 +171,27 @@ function sheetControlSnapshot(root: HTMLElement): string {
     if (element.getAttribute('role') === 'radio') return ['radio', key, element.getAttribute('aria-checked')];
     return ['output', key, element.textContent?.trim() ?? ''];
   }));
+}
+
+function automaticallyProtectUnsavedChanges(dialogName: string): boolean {
+  return dialogName.includes('記録')
+    || dialogName.includes('教材')
+    || dialogName.includes('タスク')
+    || dialogName.endsWith('の詳細計画');
+}
+
+function trackedControlSelector(dialogName: string): string {
+  // 日別負荷は選択時に即保存されるため、明示保存式の日別メモだけを未保存対象にする。
+  return dialogName.endsWith('の詳細計画') ? DAY_DETAIL_MEMO_SELECTOR : DEFAULT_UNSAVED_CONTROL_SELECTOR;
+}
+
+function defaultDiscardMessage(dialogName: string, destination: 'close' | 'back'): string {
+  const action = destination === 'close' ? '閉じますか？' : '前の画面へ戻りますか？';
+  if (dialogName.includes('記録')) return `入力中の学習記録を破棄して${action}`;
+  if (dialogName.includes('教材')) return `入力中の教材設定を破棄して${action}`;
+  if (dialogName.includes('タスク')) return `入力中のタスク設定を破棄して${action}`;
+  if (dialogName.endsWith('の詳細計画')) return `未保存の日別メモを破棄して${action}`;
+  return `保存されていない入力を破棄して${action}`;
 }
 
 /** モバイル向けボトムシート */
@@ -189,23 +213,47 @@ export function Sheet({
   const backdropPointerRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const titleId = useId();
   const dialogName = title?.trim() || '操作パネル';
-  // RecordSheetは複数の呼び出し元から開かれるため、タイトル契約でも保護する。
-  // 他の入力Sheetは必要に応じて明示的にopt-in / opt-outできる。
-  const shouldProtectUnsavedChanges = protectUnsavedChanges ?? dialogName.includes('記録');
-  const closeConfirmationMessage = unsavedChangesMessage
-    ?? (dialogName.includes('記録') ? '入力中の学習記録を破棄して閉じますか？' : '保存されていない入力を破棄して閉じますか？');
+  const shouldProtectUnsavedChanges = protectUnsavedChanges ?? automaticallyProtectUnsavedChanges(dialogName);
+  const controlSelector = trackedControlSelector(dialogName);
+  const closeConfirmationMessage = unsavedChangesMessage ?? defaultDiscardMessage(dialogName, 'close');
 
   const hasUnsavedChanges = () => {
     const sheet = sheetRef.current;
     const initial = initialControlSnapshotRef.current;
-    return Boolean(shouldProtectUnsavedChanges && sheet && initial !== null && sheetControlSnapshot(sheet) !== initial);
+    return Boolean(
+      shouldProtectUnsavedChanges
+      && sheet
+      && initial !== null
+      && sheetControlSnapshot(sheet, controlSelector) !== initial
+    );
   };
   const requestClose = () => {
     if (hasUnsavedChanges() && !window.confirm(closeConfirmationMessage)) return;
     onClose();
   };
+  const requestBack = () => {
+    if (!onBack) return;
+    if (hasUnsavedChanges() && !window.confirm(defaultDiscardMessage(dialogName, 'back'))) return;
+    onBack();
+  };
   const onCloseRef = useRef(requestClose);
   onCloseRef.current = requestClose;
+
+  const guardDraftDiscardingAction = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!hasUnsavedChanges() || (dialogName !== 'タスク詳細' && !dialogName.endsWith('の詳細計画'))) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLButtonElement>('button');
+    if (!button || button.disabled || !sheetRef.current?.contains(button)) return;
+    if (button.classList.contains('sheet-close') || button.classList.contains('sheet-back')) return;
+    if (button.closest('.stepper, .segmented, details, summary')) return;
+    const label = button.getAttribute('aria-label')?.trim() || button.textContent?.replace(/\s+/g, ' ').trim() || 'この操作';
+    if (label === '変更を保存' || label === 'メモを保存') return;
+    if (window.confirm(`入力中の変更を保存せずに「${label}」を実行しますか？`)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.nativeEvent.stopImmediatePropagation();
+  };
 
   useEffect(() => {
     if (!open || !backdropRef.current) {
@@ -223,7 +271,7 @@ export function Sheet({
     let snapshotFrame = 0;
     const baselineFrame = window.requestAnimationFrame(() => {
       snapshotFrame = window.requestAnimationFrame(() => {
-        initialControlSnapshotRef.current = sheetRef.current ? sheetControlSnapshot(sheetRef.current) : null;
+        initialControlSnapshotRef.current = sheetRef.current ? sheetControlSnapshot(sheetRef.current, controlSelector) : null;
       });
     });
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -258,7 +306,7 @@ export function Sheet({
         prevFocus.focus();
       }
     };
-  }, [open, shouldProtectUnsavedChanges]);
+  }, [controlSelector, open, shouldProtectUnsavedChanges]);
 
   if (!open) return null;
 
@@ -284,10 +332,19 @@ export function Sheet({
         backdropPointerRef.current = null;
       }}
     >
-      <div className={`sheet${className ? ` ${className}` : ''}`} ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : dialogName}>
+      <div
+        className={`sheet${className ? ` ${className}` : ''}`}
+        ref={sheetRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-label={title ? undefined : dialogName}
+        onClickCapture={guardDraftDiscardingAction}
+      >
         <div className="sheet-title-row">
           {onBack && (
-            <button className="sheet-back" type="button" aria-label={backLabel} onClick={onBack}>
+            <button className="sheet-back" type="button" aria-label={backLabel} onClick={requestBack}>
               <ArrowLeft size={19} strokeWidth={2.2} aria-hidden="true" />
             </button>
           )}
