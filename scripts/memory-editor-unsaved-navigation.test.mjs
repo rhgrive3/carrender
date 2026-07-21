@@ -15,6 +15,9 @@ assert.ok(source.includes('savedDraftSnapshotRef.current = JSON.stringify(nextBl
 assert.ok(context.includes("const MEMORY_EDITOR_SELECTOR = '.memory-editor, .memory-bulk-editor'"), '外側導線からも編集中画面を識別する');
 assert.ok(context.includes("new Event('beforeunload', { cancelable: true })"), '既存の未保存判定を中央ナビゲーション境界で再利用する');
 assert.ok(context.includes("window.confirm('未保存の暗記カード入力を破棄して移動しますか？')"), '別タブ経由の暗記遷移でも破棄確認する');
-assert.ok(context.includes('activeElement.closest(MEMORY_EDITOR_SELECTOR)'), '編集画面内の既存確認と二重に確認しない');
+assert.ok(context.includes("window.addEventListener('pointerdown', onPointerDown, true)"), '実際に押された場所から編集画面内操作か外部操作かを判定する');
+assert.ok(context.includes('keyboardEditorAction || recentEditorPointerAction || editorSaving'), '編集画面自身の操作と保存完了遷移だけ確認を重ねない');
+assert.doesNotMatch(context, /activeElement instanceof Element && activeElement\.closest\(MEMORY_EDITOR_SELECTOR\)/u, 'iOSで入力フォーカスが残るだけでは外部遷移を内部操作扱いしない');
+assert.ok(context.includes('lastEditorPointerDownAt.current = 0'), '外部タップと次回遷移へ古い内部操作判定を持ち越さない');
 
-console.log('memory editor unsaved navigation contract: ok');
+console.log('memory editor unsaved navigation and iOS external touch contract: ok');

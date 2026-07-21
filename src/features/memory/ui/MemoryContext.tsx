@@ -32,18 +32,24 @@ interface MemoryContextValue {
 
 const MemoryContext = createContext<MemoryContextValue | null>(null);
 const MEMORY_EDITOR_SELECTOR = '.memory-editor, .memory-bulk-editor';
+const INTERNAL_EDITOR_POINTER_WINDOW_MS = 1_000;
+// IndexedDBを開けない場合だけ暗記機能全体のエラーにする。同期失敗は端末データを使える状態のまま扱う。
 
-/**
- * MemoryEditor / MemoryBulkEditor already expose their dirty state through a
- * cancelable beforeunload event. Reuse that contract when another mounted tab
- * tries to replace the memory view, while leaving editor-owned navigation to
- * the editor's more specific confirmation path.
- */
-function shouldConfirmExternalMemoryNavigation(): boolean {
+function shouldConfirmExternalMemoryNavigation(lastEditorPointerDownAt: number): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
-  if (!document.querySelector(MEMORY_EDITOR_SELECTOR)) return false;
+  const editor = document.querySelector<HTMLElement>(MEMORY_EDITOR_SELECTOR);
+  if (!editor) return false;
+
   const activeElement = document.activeElement;
-  if (activeElement instanceof Element && activeElement.closest(MEMORY_EDITOR_SELECTOR)) return false;
+  const keyboardEditorAction = activeElement instanceof HTMLButtonElement && editor.contains(activeElement);
+  const recentEditorPointerAction = lastEditorPointerDownAt > 0
+    && performance.now() - lastEditorPointerDownAt <= INTERNAL_EDITOR_POINTER_WINDOW_MS;
+  const editorSaving = editor.getAttribute('aria-busy') === 'true';
+
+  // iOSでは別タブをタップしても入力欄へフォーカスが残る場合があるため、
+  // 「activeElementがEditor内」だけでは内部操作と判定しない。
+  if (keyboardEditorAction || recentEditorPointerAction || editorSaving) return false;
+
   const event = new Event('beforeunload', { cancelable: true });
   window.dispatchEvent(event);
   return event.defaultPrevented;
@@ -64,14 +70,13 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
   const activeRepository = useRef<MemoryRepository | null>(null);
   const syncInFlight = useRef<Promise<void> | null>(null);
   const syncForceQueued = useRef(false);
+  const lastEditorPointerDownAt = useRef(0);
 
   useLayoutEffect(() => {
-    // 所有者切替時は旧所有者の詳細画面・一覧・進行中セッションだけでなく、
-    // 操作先のrepository自体も描画前に切り離す。次のeffectで新しいDBを開くまで、
-    // 旧所有者のreadyなContextを子画面へ公開しない。
     activeRepository.current = null;
     syncInFlight.current = null;
     syncForceQueued.current = false;
+    lastEditorPointerDownAt.current = 0;
     setRepository(null);
     setReady(false);
     setError(null);
@@ -91,9 +96,6 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
       target.pendingMutations(10_000),
       target.listConflicts(),
     ]);
-    // An auth reconciliation can replace the legacy username owner with the
-    // stable server user ID while an IndexedDB read is still in flight. Never
-    // let that superseded repository publish another owner's stale snapshot.
     if (!mounted.current || activeRepository.current !== target) return;
     setSets(nextSets);
     setActiveSession(session ?? null);
@@ -113,8 +115,6 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     setSyncStatus('idle');
     setSyncError(null);
     void (async () => {
-      // IndexedDBを開けない場合だけ暗記機能全体のエラーにする。端末データを
-      // 読めた後のネットワーク・同期失敗まで致命扱いにして画面を塞がない。
       try {
         await next.clientId();
         await refreshRepository(next);
@@ -137,8 +137,6 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
         setSyncError(null);
       }
       try {
-        // Startup also drains pending offline edits and paginated remote changes.
-        // Five-record transport chunks keep each Pages Function under D1 limits.
         const result = await flushMemorySync(next, 100);
         if (mounted.current && activeRepository.current === next) {
           setSyncStatus(result.status);
@@ -170,10 +168,6 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
 
   const requestSync = useCallback((force = false): Promise<void> => {
     if (!repository) return Promise.resolve();
-    // 画面復帰・online・回答保存・手動操作が同時に発火しても、同じ端末キューを
-    // 複数のflushが並行処理しないよう、実行中の同期Promiseへ合流させる。
-    // ただし合流した要求が強制同期なら、現在の判定処理が終わった直後に同じ
-    // single-flight内で必ず強制実行し、利用者の「今すぐ同期」を失わない。
     if (syncInFlight.current) {
       if (force) syncForceQueued.current = true;
       return syncInFlight.current;
@@ -189,9 +183,6 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
             target.unsyncedAttempts(runForced ? 20 : 21),
             target.hasPendingContentMutations(),
           ]);
-          // 回答だけは20件ごとにバッチ送信する一方、カード/セットの編集は
-          // 1件でも即時同期する。以前は未同期回答数だけを見ていたため、編集だけが
-          // 次の回答・画面遷移まで端末に残ることがあった。
           if (!runForced && !hasPendingContentMutations && unsynced.length < 20) {
             await refreshRepository(target);
           } else {
@@ -232,11 +223,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void requestSync(true);
     };
-    const onPageHide = () => {
-      // pagehide cannot be awaited; attempts are already durable in IndexedDB.
-      // A best-effort request is safe and the next launch retries remaining rows.
-      void requestSync(true);
-    };
+    const onPageHide = () => void requestSync(true);
     window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onPageHide);
@@ -247,11 +234,24 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     };
   }, [repository, requestSync]);
 
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      lastEditorPointerDownAt.current = target instanceof Element && target.closest(MEMORY_EDITOR_SELECTOR)
+        ? performance.now()
+        : 0;
+    };
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => window.removeEventListener('pointerdown', onPointerDown, true);
+  }, []);
+
   const navigate = useCallback((next: MemoryView) => {
-    if (shouldConfirmExternalMemoryNavigation()
-      && !window.confirm('未保存の暗記カード入力を破棄して移動しますか？')) return;
+    const needsConfirmation = shouldConfirmExternalMemoryNavigation(lastEditorPointerDownAt.current);
+    lastEditorPointerDownAt.current = 0;
+    if (needsConfirmation && !window.confirm('未保存の暗記カード入力を破棄して移動しますか？')) return;
     setView(next);
   }, []);
+
   const value = useMemo<MemoryContextValue>(() => ({
     repository,
     ready,
