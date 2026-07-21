@@ -8,6 +8,7 @@ export interface MemorySwipeStart {
 
 export type MemorySwipeDirection = 'left' | 'right';
 
+/** Vertical or ambiguous movement stays native scrolling; only dominant horizontal movement flips the card. */
 export function memorySwipeDirection(
   start: MemorySwipeStart | null,
   input: { pointerId: number; x: number; y: number; isPrimary: boolean },
