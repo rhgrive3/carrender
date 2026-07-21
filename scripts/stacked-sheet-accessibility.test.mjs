@@ -44,7 +44,7 @@ assert.match(source, /backdropPointerRef = useRef<\{ pointerId: number; x: numbe
 assert.match(source, /event\.isPrimary[\s\S]*event\.button === 0[\s\S]*event\.target === event\.currentTarget/, 'only a primary left/touch pointer that starts on the backdrop may dismiss');
 assert.match(source, /event\.pointerId !== start\.pointerId \|\| event\.target !== event\.currentTarget/, 'the same pointer must finish on the backdrop');
 assert.match(source, /Math\.hypot\(event\.clientX - start\.x, event\.clientY - start\.y\)/, 'backdrop dismissal must measure movement');
-assert.match(source, /if \(moved <= 10\) onClose\(\)/, 'drag and scroll gestures must not close the sheet');
+assert.match(source, /if \(moved <= 10\) requestClose\(\)/, 'drag and scroll gestures must not close the sheet, and taps must use the guarded close path');
 assert.match(source, /onPointerCancel=\{\(\) => \{[\s\S]*backdropPointerRef\.current = null/, 'cancelled gestures must not retain stale dismissal state');
 assert.doesNotMatch(source, /onClick=\{\(e\) => \{[\s\S]*e\.target === e\.currentTarget[\s\S]*onClose\(\)/, 'click-only backdrop dismissal must not return');
 
