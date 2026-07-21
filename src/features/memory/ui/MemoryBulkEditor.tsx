@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, ClipboardPaste, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { parseImportText, type ImportParseError, type ParsedImportRow } from '../domain/importExport';
 import {
   findImportDuplicates,
@@ -19,6 +19,8 @@ interface GridRow {
   tags: string;
   setId: string;
 }
+
+type TextColumn = keyof Pick<GridRow, 'japanese' | 'english' | 'meaning' | 'example' | 'tags'>;
 
 function emptyRow(setId = ''): GridRow {
   return { id: crypto.randomUUID(), japanese: '', english: '', meaning: '', example: '', tags: '', setId };
@@ -43,6 +45,25 @@ const COLUMNS: Array<keyof Pick<GridRow, 'japanese' | 'english' | 'meaning' | 'e
   'japanese', 'english', 'meaning', 'example', 'tags', 'setId',
 ];
 
+const TEXT_COLUMNS: TextColumn[] = ['japanese', 'english', 'meaning', 'example', 'tags'];
+
+const COLUMN_LABEL: Record<(typeof COLUMNS)[number], string> = {
+  japanese: '日本語',
+  english: '英語',
+  meaning: '意味・ニュアンス',
+  example: '例文',
+  tags: 'タグ',
+  setId: 'セット',
+};
+
+const COLUMN_PLACEHOLDER: Record<TextColumn, string> = {
+  japanese: '例：考慮する',
+  english: '例：take A into account',
+  meaning: '任意：使い分け・補足',
+  example: '任意：例文',
+  tags: '任意：熟語, LEAP',
+};
+
 const RESOLUTION_LABEL: Record<DuplicateResolution, string> = {
   merge: '既存の意味へ統合',
   new_sense: '別の意味として追加',
@@ -50,6 +71,14 @@ const RESOLUTION_LABEL: Record<DuplicateResolution, string> = {
   replace: '既存を置換',
   skip: 'スキップ',
 };
+
+function rowHasContent(row: GridRow): boolean {
+  return Boolean(row.japanese.trim() || row.english.trim() || row.meaning.trim() || row.example.trim() || row.tags.trim());
+}
+
+function rowIsIncomplete(row: GridRow): boolean {
+  return rowHasContent(row) && (!row.japanese.trim() || !row.english.trim());
+}
 
 export function MemoryBulkEditor({ setId }: { setId?: string }) {
   const { repository, sets, navigate, refresh, requestSync } = useMemory();
@@ -66,6 +95,8 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
   const activeSetIdRef = useRef(setId);
   const saveActionTokenRef = useRef(0);
   const validRows = useMemo(() => rows.filter((row) => row.japanese.trim() || row.english.trim()), [rows]);
+  const incompleteCount = useMemo(() => rows.filter(rowIsIncomplete).length, [rows]);
+  const hasAnyInput = useMemo(() => rows.some(rowHasContent), [rows]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -88,10 +119,34 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
     setResolutions(new Map());
   }, [repository, setId]);
 
-  const update = (id: string, key: keyof GridRow, value: string) => {
-    setRows((current) => current.map((row) => row.id === id ? { ...row, [key]: value } : row));
+  const resetValidation = () => {
+    setPasteErrors([]);
     setDuplicatePreview(undefined);
     setResolutions(new Map());
+  };
+
+  const update = (id: string, key: keyof GridRow, value: string) => {
+    setRows((current) => current.map((row) => row.id === id ? { ...row, [key]: value } : row));
+    resetValidation();
+  };
+
+  const appendRows = (count: number) => {
+    setRows((current) => [...current, ...Array.from({ length: count }, () => emptyRow(defaultSetId))]);
+    resetValidation();
+  };
+
+  const removeRow = (id: string) => {
+    setRows((current) => {
+      const next = current.filter((value) => value.id !== id);
+      return next.length > 0 ? next : [emptyRow(defaultSetId)];
+    });
+    resetValidation();
+  };
+
+  const clearAllRows = () => {
+    if (hasAnyInput && !window.confirm('入力中のカードをすべて消しますか？')) return;
+    setRows(Array.from({ length: 8 }, () => emptyRow(defaultSetId)));
+    resetValidation();
   };
 
   const focusCell = (rowIndex: number, columnIndex: number) => {
@@ -99,6 +154,7 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>, rowIndex: number, columnIndex: number) => {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       focusCell(Math.max(0, Math.min(rows.length - 1, rowIndex + (event.key === 'ArrowDown' ? 1 : -1))), columnIndex);
@@ -232,39 +288,94 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
 
   return (
     <section className="memory-bulk-editor" aria-busy={saving}>
-      <div className="memory-page-header">
+      <span data-app-screen-label="暗記カードをまとめて追加" hidden />
+      <div className="memory-page-header memory-bulk-header">
         <button type="button" className="icon-btn" aria-label="1枚入力へ戻る" disabled={saving} onClick={() => navigate({ name: 'editor', setId })}><ArrowLeft size={21} aria-hidden="true" /></button>
-        <div><h2>表形式で一括登録</h2><p>CSV・TSV・コピーした表をそのまま貼り付けできます</p></div>
-        <span className="status-badge">{validRows.length}件</span>
-      </div>
-      <div className="memory-grid-help">列：日本語／英語／意味・ニュアンス／例文／タグ／セット。Tab・Enter・矢印キーで移動できます。</div>
-      {pasteErrors.length > 0 && (
-        <div className="memory-import-errors" role="alert">
-          <b>解析できない行があるため保存できません</b>
-          <p>内容を修正し、欠けた行を含む全データをもう一度貼り付けてください。</p>
-          <ul>{pasteErrors.slice(0, 8).map((error, index) => <li key={`${error.line}-${index}`}>{error.line}行目：{error.message}</li>)}</ul>
+        <div className="memory-bulk-header-copy">
+          <span className="memory-bulk-eyebrow">暗記カード</span>
+          <h2>まとめて追加</h2>
+          <p>手入力でも、Excel・スプレッドシートからの貼り付けでも登録できます</p>
         </div>
-      )}
-      <div className="memory-grid-scroll" onPaste={onPaste}>
-        <table className="memory-edit-grid">
-          <thead><tr><th>日本語</th><th>英語</th><th>意味・ニュアンス</th><th>例文</th><th>タグ</th><th>セット</th><th><span className="sr-only">操作</span></th></tr></thead>
-          <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr key={row.id}>
-                {COLUMNS.slice(0, 5).map((column, columnIndex) => (
-                  <td key={column}><input disabled={saving} data-memory-grid-row={rowIndex} data-memory-grid-col={columnIndex} aria-label={`${rowIndex + 1}行 ${column}`} value={row[column]} onKeyDown={(event) => onKeyDown(event, rowIndex, columnIndex)} onChange={(event) => update(row.id, column, event.target.value)} /></td>
-                ))}
-                <td>
-                  <select disabled={saving} data-memory-grid-row={rowIndex} data-memory-grid-col={5} aria-label={`${rowIndex + 1}行 セット`} value={row.setId} onKeyDown={(event) => onKeyDown(event, rowIndex, 5)} onChange={(event) => update(row.id, 'setId', event.target.value)}>
-                    <option value="">セットなし</option>{sets.map((set) => <option key={set.id} value={set.id}>{set.name}</option>)}
-                  </select>
-                </td>
-                <td><button type="button" className="icon-btn" disabled={saving} aria-label={`${rowIndex + 1}行を削除`} onClick={() => { setRows((current) => current.filter((value) => value.id !== row.id)); setDuplicatePreview(undefined); setResolutions(new Map()); }}><Trash2 size={17} aria-hidden="true" /></button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="memory-bulk-count" aria-live="polite" aria-atomic="true">
+          <strong>{validRows.length}</strong>
+          <span>入力済み</span>
+        </div>
       </div>
+
+      <div className="memory-bulk-workspace" onPaste={onPaste}>
+        <div className="memory-bulk-guide">
+          <div className="memory-bulk-guide-icon" aria-hidden="true"><ClipboardPaste size={22} /></div>
+          <div>
+            <b>表をコピーして、そのまま貼り付け</b>
+            <p>日本語・英語の2列だけでもOK。複数行を貼ると自動でカード行へ展開します。</p>
+          </div>
+          <button type="button" className="btn btn-ghost memory-bulk-clear" disabled={saving || !hasAnyInput} onClick={clearAllRows}>
+            <RotateCcw size={16} aria-hidden="true" />入力をクリア
+          </button>
+        </div>
+        <div className="memory-grid-help">必須は「日本語」と「英語」だけです。パソコンではTab・Enter・矢印キーで移動できます。</div>
+
+        {pasteErrors.length > 0 && (
+          <div className="memory-import-errors" role="alert">
+            <b>解析できない行があるため保存できません</b>
+            <p>内容を修正し、欠けた行を含む全データをもう一度貼り付けてください。</p>
+            <ul>{pasteErrors.slice(0, 8).map((error, index) => <li key={`${error.line}-${index}`}>{error.line}行目：{error.message}</li>)}</ul>
+          </div>
+        )}
+
+        <div className="memory-grid-scroll">
+          <table className="memory-edit-grid">
+            <caption className="sr-only">暗記カードのまとめて追加。日本語と英語は必須です。</caption>
+            <colgroup>
+              <col className="memory-bulk-col-number" />
+              <col className="memory-bulk-col-japanese" />
+              <col className="memory-bulk-col-english" />
+              <col className="memory-bulk-col-meaning" />
+              <col className="memory-bulk-col-example" />
+              <col className="memory-bulk-col-tags" />
+              <col className="memory-bulk-col-set" />
+              <col className="memory-bulk-col-actions" />
+            </colgroup>
+            <thead>
+              <tr><th scope="col">#</th><th scope="col">日本語<span>必須</span></th><th scope="col">英語<span>必須</span></th><th scope="col">意味・ニュアンス</th><th scope="col">例文</th><th scope="col">タグ</th><th scope="col">セット</th><th scope="col"><span className="sr-only">操作</span></th></tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => {
+                const incomplete = rowIsIncomplete(row);
+                return (
+                  <tr key={row.id} className={`memory-bulk-row${incomplete ? ' is-incomplete' : ''}`}>
+                    <th scope="row" className="memory-bulk-row-number"><span>{rowIndex + 1}</span></th>
+                    {TEXT_COLUMNS.map((column, columnIndex) => {
+                      const required = column === 'japanese' || column === 'english';
+                      const invalid = incomplete && !row[column].trim() && required;
+                      return (
+                        <td key={column} data-label={COLUMN_LABEL[column]} data-required={required ? 'true' : undefined}>
+                          <input disabled={saving} data-memory-grid-row={rowIndex} data-memory-grid-col={columnIndex} aria-label={`${rowIndex + 1}行 ${COLUMN_LABEL[column]}`} aria-required={required} aria-invalid={invalid || undefined} value={row[column]} placeholder={COLUMN_PLACEHOLDER[column]} onKeyDown={(event) => onKeyDown(event, rowIndex, columnIndex)} onChange={(event) => update(row.id, column, event.target.value)} />
+                        </td>
+                      );
+                    })}
+                    <td data-label="セット">
+                      <select disabled={saving} data-memory-grid-row={rowIndex} data-memory-grid-col={5} aria-label={`${rowIndex + 1}行 セット`} value={row.setId} onKeyDown={(event) => onKeyDown(event, rowIndex, 5)} onChange={(event) => update(row.id, 'setId', event.target.value)}>
+                        <option value="">セットなし</option>{sets.map((set) => <option key={set.id} value={set.id}>{set.name}</option>)}
+                      </select>
+                    </td>
+                    <td className="memory-bulk-delete-cell">
+                      <button type="button" className="memory-bulk-delete" disabled={saving} aria-label={`${rowIndex + 1}行を削除`} onClick={() => removeRow(row.id)}><Trash2 size={17} aria-hidden="true" /><span>削除</span></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="memory-bulk-row-tools">
+          <button type="button" className="btn btn-ghost memory-add-row" disabled={saving} onClick={() => appendRows(1)}><Plus size={18} aria-hidden="true" />1行追加</button>
+          <button type="button" className="btn btn-ghost memory-add-five" disabled={saving} onClick={() => appendRows(5)}><Plus size={18} aria-hidden="true" />5行追加</button>
+          <span>{rows.length}行用意済み</span>
+        </div>
+      </div>
+
       {duplicatePreview && (
         <div className="card memory-bulk-duplicate-preview" role="region" aria-label="重複候補の確認">
           <h3>重複候補を確認</h3>
@@ -293,10 +404,16 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
           </div>
         </div>
       )}
-      <button type="button" className="btn btn-ghost memory-add-row" disabled={saving} onClick={() => { setRows((current) => [...current, emptyRow(defaultSetId)]); setDuplicatePreview(undefined); setResolutions(new Map()); }}><Plus size={18} aria-hidden="true" />行を追加</button>
-      <div className="memory-sticky-actions">
-        <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
-        <button type="button" className="btn btn-primary" disabled={saving || validRows.length === 0 || pasteErrors.length > 0} aria-busy={saving} onClick={() => void save()}><Save size={18} aria-hidden="true" />{saving ? '保存中…' : duplicatePreview ? '確認して保存' : `${validRows.length}件を保存`}</button>
+
+      <div className="memory-sticky-actions memory-bulk-actions">
+        <div className="memory-bulk-action-summary" id="memory-bulk-save-status">
+          <b>{validRows.length}件を保存</b>
+          <span>{pasteErrors.length > 0 ? '貼り付けエラーを修正してください' : incompleteCount > 0 ? `${incompleteCount}行の必須項目が未入力です` : validRows.length > 0 ? '日本語と英語を確認して保存' : 'カードを入力してください'}</span>
+        </div>
+        <div className="memory-bulk-action-buttons">
+          <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => navigate(setId ? { name: 'set', setId } : { name: 'home' })}>キャンセル</button>
+          <button type="button" className="btn btn-primary" disabled={saving || validRows.length === 0 || pasteErrors.length > 0 || incompleteCount > 0} aria-describedby="memory-bulk-save-status" aria-busy={saving} onClick={() => void save()}><Save size={18} aria-hidden="true" />{saving ? '保存中…' : duplicatePreview ? '確認して保存' : `${validRows.length}件を保存`}</button>
+        </div>
       </div>
     </section>
   );
