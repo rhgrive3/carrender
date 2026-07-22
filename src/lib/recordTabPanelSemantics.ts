@@ -48,7 +48,6 @@ function connectRecordTabsToPanels(): void {
     logTab.id = 'records-log-tab';
     logTab.setAttribute('aria-controls', 'records-log-panel');
   }
-  // 既存の静的契約と実panelの即時関連付けを維持する。
   if (overviewPanel && overviewTab) {
     overviewPanel.id = 'records-overview-panel';
     overviewPanel.setAttribute('role', 'tabpanel');
@@ -59,7 +58,6 @@ function connectRecordTabsToPanels(): void {
     logPanel.setAttribute('role', 'tabpanel');
     logPanel.setAttribute('aria-labelledby', logTab.id);
   }
-  // 非選択側が条件描画で外れていてもaria-controls先を失わせない。
   if (recordContainer) {
     connectPanel(recordContainer, overviewPanel, 'records-overview-panel', overviewTab);
     connectPanel(recordContainer, logPanel, 'records-log-panel', logTab);
@@ -71,6 +69,9 @@ function connectRecordTabsToPanels(): void {
   const selectedPeriodTab = [weekTab, monthTab].find((tab) => tab?.getAttribute('aria-selected') === 'true');
   const weekPanel = overviewPanel?.querySelector<HTMLElement>('.studyplus-chart-card') ?? null;
   const monthPanel = overviewPanel?.querySelector<HTMLElement>('[data-month-calendar]')?.closest<HTMLElement>('.card') ?? null;
+  const periodPanel = weekPanel ?? monthPanel;
+  const selectedPeriod = selectedPeriodTab === monthTab ? 'month' : 'week';
+  const periodPanelId = `records-${selectedPeriod}-panel`;
 
   if (weekTab) {
     weekTab.id = 'records-week-tab';
@@ -79,6 +80,11 @@ function connectRecordTabsToPanels(): void {
   if (monthTab) {
     monthTab.id = 'records-month-tab';
     monthTab.setAttribute('aria-controls', 'records-month-panel');
+  }
+  if (periodPanel && selectedPeriodTab) {
+    periodPanel.id = periodPanelId;
+    periodPanel.setAttribute('role', 'tabpanel');
+    periodPanel.setAttribute('aria-labelledby', selectedPeriodTab.id);
   }
   if (weekPanel && weekTab) {
     weekPanel.id = 'records-week-panel';
