@@ -4,15 +4,63 @@ import {
   type AppStateValidationResult,
 } from '../../functions/_shared/appState';
 import {
+  clearEmergencyStateCache,
+  clearOwnedState as clearOwnedStateLegacy,
   isAppStateShape as isLegacyAppStateShape,
   migrateState as migrateLegacyState,
+  saveStateNow as saveStateNowLegacy,
+  subscribeStateSaveFailure,
   type MigrationResult,
+  type StateSaveFailure,
 } from './storageLegacy';
 
 export * from './storageLegacy';
 
 const KEY = 'studycommander_state_v1';
 const BACKUP_KEY = 'studycommander_state_migration_backup';
+let compatibilitySaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Preserve the legacy optional-cache and user-notification contracts while
+ * preventing a successful state write from remaining paired with an older
+ * timestamp when the second localStorage write fails.
+ */
+export function saveStateNow(state: AppState): void {
+  if (compatibilitySaveTimer) clearTimeout(compatibilitySaveTimer);
+  compatibilitySaveTimer = null;
+  const serialized = JSON.stringify(state);
+  let observedFailure: StateSaveFailure | null = null;
+  const unsubscribe = subscribeStateSaveFailure((failure) => { observedFailure = failure; });
+  const failureBefore = observedFailure;
+  saveStateNowLegacy(state);
+  unsubscribe();
+
+  const failureAfter = observedFailure;
+  if (failureAfter && failureAfter !== failureBefore) {
+    try {
+      // If the first write succeeded, the cache now contains this generation but
+      // its timestamp write failed. Remove both keys so bootstrap cannot compare
+      // different generations. A first-write failure leaves the prior snapshot.
+      if (localStorage.getItem(KEY) === serialized) clearEmergencyStateCache();
+    } catch {
+      // Keep the original save failure visible even when cleanup is also blocked.
+    }
+  }
+}
+
+export function saveState(state: AppState): void {
+  if (compatibilitySaveTimer) clearTimeout(compatibilitySaveTimer);
+  compatibilitySaveTimer = setTimeout(() => {
+    compatibilitySaveTimer = null;
+    saveStateNow(state);
+  }, 250);
+}
+
+export function clearOwnedState(): void {
+  if (compatibilitySaveTimer) clearTimeout(compatibilitySaveTimer);
+  compatibilitySaveTimer = null;
+  clearOwnedStateLegacy();
+}
 
 function validationIssue(result: AppStateValidationResult): ValidationIssue {
   const reason = result.error ?? '学習データの形式が正しくありません';
