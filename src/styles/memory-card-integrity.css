@@ -60,6 +60,25 @@
   padding-right: 7px;
 }
 
+.memory-split-cards {
+  min-width: 48px;
+  min-height: 44px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.memory-split-cards:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 .memory-card-verified,
 .memory-card-pending {
   min-width: 44px;
@@ -129,6 +148,11 @@
   .memory-card-row-actions {
     gap: 1px;
     padding-right: 3px;
+  }
+
+  .memory-split-cards {
+    min-width: 44px;
+    padding-inline: 4px;
   }
 
   .memory-card-verified {
