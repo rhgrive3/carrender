@@ -11,7 +11,7 @@
     "test:regressions": "node scripts/auth-login-enumeration.test.mjs && node scripts/audit-issues-344-352.test.mjs && vite-node scripts/audit-issues-344-352.behavior.test.ts && node scripts/pages-build-gate.test.mjs && node scripts/deploy-workflow.test.mjs && node scripts/bottom-navigation-contract.test.mjs && node scripts/bottom-navigation-contract-attribute-recovery.test.mjs && node scripts/mobile-touch-target-contract.test.mjs && node scripts/ui-visual-accessibility.test.mjs && node scripts/materials-shelf-ux.test.mjs && node scripts/segmented-accessibility-contract.test.mjs && node scripts/stepper-accessibility-contract.test.mjs && node scripts/task-row-accessibility-contract.test.mjs && node scripts/sync-status-banner-accessibility.test.mjs && node scripts/install-banner-accessibility.test.mjs && node scripts/toast-accessibility-contract.test.mjs && node scripts/month-calendar-accessibility.test.mjs && node scripts/skip-link-contract.test.mjs && node scripts/navigation-announcement-contract.test.mjs && node scripts/main-landmark-guard.test.mjs && node scripts/accessibility-cascade-contract.test.mjs && node scripts/stacked-sheet-accessibility.test.mjs && node scripts/record-future-start-contract.test.mjs && node scripts/record-input-limit-sync.test.mjs && node scripts/share-card-download-lifecycle.test.mjs && vite-node scripts/toast-model.test.ts && vite-node scripts/preserve-unreadable-state.test.ts && vite-node scripts/local-date-validation.test.ts && vite-node scripts/local-settings-recovery.test.ts && vite-node scripts/emergency-cache-overflow.test.ts && vite-node scripts/day-rollover.test.ts && vite-node scripts/material-progress-integrity.test.ts && vite-node scripts/material-domain-integrity.test.ts && vite-node scripts/deep-ux-audit-367-369.test.ts && vite-node scripts/completed-task-history-repair.test.ts && vite-node scripts/progress-chart-target.test.ts && vite-node scripts/analytics-streak-zero-minute.test.ts && vite-node scripts/regressions.test.ts && vite-node scripts/data-api.test.ts && vite-node scripts/session-started-at-validation.test.ts && vite-node scripts/session-task-reference-recovery.test.ts && vite-node scripts/fixed-event-target-validation.test.ts && vite-node scripts/material-progress-api-integrity.test.ts && vite-node scripts/auth-api.test.ts && vite-node scripts/main-sync.test.ts && vite-node scripts/api-client.test.ts && vite-node scripts/main-state-persistence.test.ts && vite-node scripts/app-state-chunks.test.ts && vite-node scripts/main-state-performance.test.ts && vite-node scripts/main-owner-identity.test.ts && vite-node scripts/user-request-regressions.test.ts && vite-node scripts/doing-task-mutation-guard.test.ts && vite-node scripts/timer-persistence-validation.test.ts && vite-node scripts/memory-client-id-retry.test.ts && vite-node scripts/memory-mutation-cycle.test.ts && vite-node scripts/memory-sync-error-classification.test.ts && node scripts/active-timer-ui-guard-contract.test.mjs && vite-node scripts/plan-history-retention.test.ts && vite-node scripts/backup-export.test.ts && vite-node scripts/main-state-entity-merge.test.ts && vite-node scripts/main-state-entity-digest.test.ts && vite-node scripts/main-state-subject-integrity.test.ts && vite-node scripts/main-state-manual-progress-integrity.test.ts && vite-node scripts/main-state-session-task-integrity.test.ts && vite-node scripts/main-state-writer-lease.test.ts && vite-node scripts/schema-compatibility.test.ts && vite-node scripts/shell-navigation.test.ts && vite-node scripts/auth-loading-state.test.ts && vite-node scripts/auth-connectivity-state.test.ts && vite-node scripts/auth-registration-confirmation.test.ts && vite-node scripts/sheet-ime-escape.test.ts && vite-node scripts/memory-stats-response-context.test.ts && vite-node scripts/record-subject-display.test.ts && vite-node scripts/record-reference-options.test.ts && vite-node scripts/record-sheet-state-reset.test.ts && vite-node scripts/record-edit-capacity.test.ts && vite-node scripts/record-overrun-transaction.test.ts && node scripts/daily-flow-ux.test.mjs && node scripts/memory-sync-touch-target.test.mjs && node scripts/memory-simple-ux.test.mjs && node scripts/memory-home-card-add-target.test.mjs && node scripts/memory-home-single-flight.test.mjs && node scripts/memory-home-starting-state.test.mjs && node scripts/memory-home-start-navigation-race.test.mjs && node scripts/memory-create-set-unmount-race.test.mjs && node scripts/memory-editor-save-resilience.test.mjs && node scripts/memory-editor-unsaved-navigation.test.mjs && node scripts/memory-editor-input-order.test.mjs && node scripts/memory-bulk-editor-save-resilience.test.mjs && node scripts/memory-bulk-editor-layout.test.mjs && node scripts/memory-import-save-resilience.test.mjs && node scripts/memory-backup-restore-race.test.mjs && node scripts/memory-export-owner-race.test.mjs && node scripts/memory-today-summary-owner-reset.test.mjs && node scripts/memory-owner-context-reset.test.mjs && node scripts/memory-setup-load-error.test.mjs && node scripts/memory-setup-stale-eligibility.test.mjs && node scripts/memory-study-setup-start-race.test.mjs && node scripts/memory-resilience-contract.test.mjs && node scripts/memory-study-retry.test.mjs && node scripts/memory-result-accessibility.test.mjs && node scripts/memory-result-undo-race.test.mjs && node scripts/memory-force-sync-escalation.test.mjs && node scripts/memory-set-detail-post-save-resilience.test.mjs",
     "test:scheduler": "vite-node scripts/schedulerV2.test.ts && vite-node scripts/fixed-event-range.test.ts && vite-node scripts/scheduler-recovery.test.ts && vite-node scripts/material-schedule-smoothing.test.ts && vite-node scripts/strict-plan-quality-real-data.test.ts",
     "test:shadow": "vite-node scripts/shadow-allocation.fixture.ts",
-    "test:unit": "vite-node scripts/memory-domain.test.ts && vite-node scripts/memory-session.test.ts && vite-node scripts/memory-import.test.ts && vite-node scripts/memory-application.test.ts && vite-node scripts/memory-editor-separate-cards.test.ts && vite-node scripts/memory-card-data-contract.test.ts && vite-node scripts/memory-selected-set.test.ts && vite-node scripts/memory-selectors.test.ts && vite-node scripts/memory-answer-display.test.ts",
+    "test:unit": "vite-node scripts/memory-domain.test.ts && vite-node scripts/memory-session.test.ts && vite-node scripts/memory-import.test.ts && vite-node scripts/memory-application.test.ts && vite-node scripts/memory-editor-separate-cards.test.ts && vite-node scripts/memory-card-data-contract.test.ts && vite-node scripts/memory-selected-set.test.ts && vite-node scripts/memory-selectors.test.ts && vite-node scripts/memory-eligibility-diagnostic.test.ts && vite-node scripts/memory-answer-display.test.ts",
     "test:integration:browser": "node scripts/bottom-navigation-browser.mjs && node scripts/record-tabpanel-browser.mjs && node scripts/memory-import-tabpanel-browser.mjs && node scripts/memory-browser.mjs && node scripts/app-state-browser.mjs && node scripts/memory-card-android-browser.mjs",
     "test:integration:api": "node scripts/memory-api.mjs && node scripts/main-state-api.mjs && node scripts/session-task-reference-api.mjs && node scripts/auth-rate-limit-api.mjs",
     "test:integration": "npm run test:integration:browser && npm run test:integration:api",
@@ -33,23 +33,18 @@
     "lucide-react": "^1.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^3.9.2"
+    "react-router-dom": "^7.6.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260708.1",
-    "@types/node": "^26.1.1",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^5.2.0",
-    "playwright": "^1.61.1",
-    "sharp": "^0.33.5",
-    "typescript": "^5.6.3",
-    "vite": "^7.3.6",
-    "vite-node": "^5.3.0",
-    "vite-plugin-pwa": "^1.3.0",
-    "wrangler": "^4.108.0"
-  },
-  "engines": {
-    "node": ">=22.12.0"
+    "@cloudflare/workers-types": "^4.20250705.0",
+    "@types/node": "^22.15.32",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.5.2",
+    "playwright": "^1.53.1",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "vite-node": "^3.2.4",
+    "wrangler": "^4.21.2"
   }
 }
