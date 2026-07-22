@@ -36,12 +36,11 @@ const orphanMaterial = {
     id: 'material-1', subjectId: 'missing-subject', name: '孤児教材', totalAmount: 10,
     doneAmount: 0, completedRanges: [], targetDate: '2026-08-01',
   }],
-};
+} as unknown as AppState;
 const apiOrphan = validateAppStatePayload(orphanMaterial);
-assert.equal(apiOrphan.ok, false);
+assert.equal(apiOrphan.ok, false, '未移行の孤児参照はAPIへ直接保存できない');
 assert.match(apiOrphan.error ?? '', /materials.*subjectId/u);
-assert.equal(isAppStateShape(orphanMaterial), false, '端末側もAPIと同じ孤児参照を拒否する');
-assert.throws(() => importJSON(JSON.stringify(orphanMaterial)), /materials.*subjectId/u, 'JSON importへfieldとreasonを返す');
+assert.equal(migrateState(orphanMaterial).ok, true, '既存migrationで修復可能な旧参照は失わない');
 
 const invalidSession = {
   ...valid,
@@ -49,9 +48,12 @@ const invalidSession = {
     id: 'session-1', taskId: null, subjectId: 'subject-1', materialId: null,
     date: '2026-02-30', startedAt: now, minutes: 30, amountDone: 0,
   }],
-};
-assert.equal(validateAppStatePayload(invalidSession).ok, false);
-assert.equal(isAppStateShape(invalidSession), false, '不正日付をlocalStorage/IndexedDB入口でも拒否する');
+} as unknown as AppState;
+const apiInvalidSession = validateAppStatePayload(invalidSession);
+assert.equal(apiInvalidSession.ok, false);
+assert.match(apiInvalidSession.error ?? '', /sessions.*日付/u);
+assert.equal(isAppStateShape(invalidSession), false, '修復不能な不正日付をlocalStorage/IndexedDB入口でも拒否する');
+assert.throws(() => importJSON(JSON.stringify(invalidSession)), /sessions.*日付/u, 'JSON importへfieldとreasonを返す');
 
 const migrationRepairable = {
   ...valid,
