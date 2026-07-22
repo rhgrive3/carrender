@@ -14,16 +14,13 @@ const source = await readFile(new URL('../src/state/AppContext.tsx', import.meta
 assert.doesNotMatch(source, /queueMicrotask|Object\.defineProperty\(result, ['"]message['"]/, 'message getterやmicrotaskの読取依存を残さない');
 assert.match(source, /resolved\.status === 'rejected'[\s\S]*emitAppCommandMessage/, 'dispatch拒否は共通規則で即時通知する');
 assert.match(source, /suppressNotification/, '呼出側の独自表示は明示optionで共通通知を抑止できる');
+const deleteGuard = /if \(action\.type === 'DELETE_TASK'\) \{([\s\S]*?)\n  \}/u.exec(source)?.[1] ?? '';
 assert.match(
-  source,
-  /action\.type === 'DELETE_TASK'[\s\S]*status: 'rejected'[\s\S]*errorCode: 'activeTaskMutation'/,
+  deleteGuard,
+  /status: 'rejected'[\s\S]*errorCode: 'activeTaskMutation'/,
   'doingタスク削除を通知されないnoChangeではなく明示的な拒否として扱う',
 );
-assert.doesNotMatch(
-  source,
-  /action\.type === 'DELETE_TASK'[\s\S]*status: 'noChange'[\s\S]*ACTIVE_TASK_MESSAGE/,
-  'doingタスク削除を理由付きnoChangeへ戻さない',
-);
+assert.doesNotMatch(deleteGuard, /status: 'noChange'/, 'doingタスク削除を理由付きnoChangeへ戻さない');
 
 const rejected = createRejectedAppCommandResult('変更できません', 'blocked');
 assert.deepEqual(
