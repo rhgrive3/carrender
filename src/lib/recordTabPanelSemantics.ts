@@ -48,6 +48,18 @@ function connectRecordTabsToPanels(): void {
     logTab.id = 'records-log-tab';
     logTab.setAttribute('aria-controls', 'records-log-panel');
   }
+  // 既存の静的契約と実panelの即時関連付けを維持する。
+  if (overviewPanel && overviewTab) {
+    overviewPanel.id = 'records-overview-panel';
+    overviewPanel.setAttribute('role', 'tabpanel');
+    overviewPanel.setAttribute('aria-labelledby', overviewTab.id);
+  }
+  if (logPanel && logTab) {
+    logPanel.id = 'records-log-panel';
+    logPanel.setAttribute('role', 'tabpanel');
+    logPanel.setAttribute('aria-labelledby', logTab.id);
+  }
+  // 非選択側が条件描画で外れていてもaria-controls先を失わせない。
   if (recordContainer) {
     connectPanel(recordContainer, overviewPanel, 'records-overview-panel', overviewTab);
     connectPanel(recordContainer, logPanel, 'records-log-panel', logTab);
@@ -67,6 +79,16 @@ function connectRecordTabsToPanels(): void {
   if (monthTab) {
     monthTab.id = 'records-month-tab';
     monthTab.setAttribute('aria-controls', 'records-month-panel');
+  }
+  if (weekPanel && weekTab) {
+    weekPanel.id = 'records-week-panel';
+    weekPanel.setAttribute('role', 'tabpanel');
+    weekPanel.setAttribute('aria-labelledby', weekTab.id);
+  }
+  if (monthPanel && monthTab) {
+    monthPanel.id = 'records-month-panel';
+    monthPanel.setAttribute('role', 'tabpanel');
+    monthPanel.setAttribute('aria-labelledby', monthTab.id);
   }
   if (overviewPanel && selectedPeriodTab) {
     connectPanel(overviewPanel, weekPanel, 'records-week-panel', weekTab);
