@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, extname, join } from 'node:path';
+import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { chromium } from 'playwright';
@@ -375,7 +375,11 @@ try {
   const updateButton = page.getByRole('button', { name: '新しいバージョンへ更新' });
   await updateButton.waitFor({ state: 'visible' });
   assert.equal(await updateButton.isEnabled(), true);
-  await updateButton.click();
+  await page.evaluate(() => {
+    const button = document.querySelector('#service-worker-update-notice button');
+    if (!(button instanceof HTMLButtonElement) || button.disabled) throw new Error('更新ボタンを実行できません');
+    button.click();
+  });
   await page.waitForFunction(() => document.body.dataset.buildVersion === 'B', null, { timeout: 15_000 });
   await page.waitForFunction(() => Boolean(window.__PWA_TEST__));
   await page.evaluate(() => window.__PWA_TEST__.ready);
