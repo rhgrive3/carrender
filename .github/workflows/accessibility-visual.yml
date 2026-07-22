@@ -1,0 +1,55 @@
+name: Accessibility visual audit
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/accessibility-visual-browser.mjs'
+      - '.github/workflows/accessibility-visual.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'wrangler.toml'
+      - 'schema/**'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/accessibility-visual-browser.mjs'
+      - '.github/workflows/accessibility-visual.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'wrangler.toml'
+      - 'schema/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual-a11y:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Production build
+        run: npm run build
+      - name: Run actual DOM and visual accessibility audit
+        shell: bash
+        run: |
+          mkdir -p artifacts/accessibility-visual
+          set -o pipefail
+          node scripts/accessibility-visual-browser.mjs 2>&1 | tee artifacts/accessibility-visual/run.log
+      - name: Upload reviewable screenshots and audit log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-visual-screenshots
+          path: artifacts/accessibility-visual
+          if-no-files-found: error
+          retention-days: 14
