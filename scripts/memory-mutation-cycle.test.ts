@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './memory-conflict-reference-revalidation.test';
 import {
   MemoryMutationDependencyCycleError,
   analyzeMemoryMutationDependencies,
@@ -6,6 +7,7 @@ import {
 import {
   MemoryRepository,
   type MemoryEntityType,
+  type MemoryLocalSnapshot,
   type MemoryMutationOperation,
   type MemoryPendingMutation,
 } from '../src/features/memory/infrastructure/repositories';
@@ -114,14 +116,22 @@ function cycleAndDescendantsAreIsolated(): void {
   assert.deepEqual(error.cycleEntityKeys, ['item:item_1', 'sense:sense_1']);
 }
 
+const emptySnapshot: MemoryLocalSnapshot = {
+  items: [], senses: [], answers: [], examples: [], exercises: [],
+  sets: [], setMembers: [], stats: [],
+};
+
 async function validatedRepositoryDrainsSafeRowsBeforeFailing(): Promise<void> {
   const prototype = MemoryRepository.prototype as {
     syncablePendingMutations(limit?: number): Promise<MemoryPendingMutation[]>;
+    loadSnapshot(): Promise<MemoryLocalSnapshot>;
   };
   const original = prototype.syncablePendingMutations;
+  const originalLoadSnapshot = prototype.loadSnapshot;
   const repository = new ValidatedMemoryRepository('mutation-cycle-regression');
 
   try {
+    prototype.loadSnapshot = async () => emptySnapshot;
     prototype.syncablePendingMutations = async () => cycleFixture();
     assert.deepEqual(
       (await repository.syncablePendingMutations(100)).map((value) => value.mutationId),
@@ -148,6 +158,7 @@ async function validatedRepositoryDrainsSafeRowsBeforeFailing(): Promise<void> {
     );
   } finally {
     prototype.syncablePendingMutations = original;
+    prototype.loadSnapshot = originalLoadSnapshot;
   }
 }
 
