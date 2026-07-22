@@ -56,6 +56,8 @@ function navigatorOnline(): boolean | undefined {
 }
 
 function failedRound(error: unknown): MemorySyncRoundResult {
+  // navigator.onLine is only a presentation hint after an actual request failed.
+  // It is not reliable enough to decide whether a request may start.
   const failure = classifyMemorySyncError(error, { navigatorOnline: navigatorOnline() });
   logUnexpectedMemorySyncError(failure, error);
   return {
@@ -75,15 +77,6 @@ function failedRound(error: unknown): MemorySyncRoundResult {
 }
 
 async function performSyncRound(repository: MemoryRepository): Promise<MemorySyncRoundResult> {
-  if (navigatorOnline() === false) {
-    return {
-      status: 'offline', uploadedMutations: 0, uploadedAttempts: 0, conflicts: 0,
-      hasMore: false, remoteHasMore: false, localBatchFull: false,
-      errorKind: 'network', retryable: true, retryPolicy: 'when-online',
-      errorMessage: 'オフラインのため同期を保留しています。暗記データは端末へ保存されています',
-    };
-  }
-
   try {
     const [deviceClientId, cursor, mutationCandidates, attemptCandidates] = await Promise.all([
       repository.clientId(),
