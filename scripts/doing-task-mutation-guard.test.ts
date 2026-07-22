@@ -69,4 +69,44 @@ const rejected = resolveAppAction(state, postponeAction, { activeTimerTarget });
 assert.equal(rejected.status, 'rejected', '実際のactive timer対象はstale doing復旧せず拒否する');
 assert.equal(rejected.status === 'rejected' ? rejected.errorCode : undefined, 'activeTaskMutation');
 
-console.log('✅ unified app command semantics passed');
+const dueTodayTask: StudyTask = {
+  ...doingTask,
+  id: 'due-today',
+  sourceId: 'due-today',
+  status: 'planned',
+  dueDate: date,
+};
+const dueTodayState: AppState = { ...state, tasks: [dueTodayTask], planHistory: [{ id: 'history', createdAt: now, reason: 'fixture', tasks: [] }] };
+const dueTodayAction = { type: 'POSTPONE_TASK' as const, taskId: dueTodayTask.id };
+const dueTodayResolved = resolveAppAction(dueTodayState, dueTodayAction, { nowIso: now, todayDate: date });
+assert.equal(dueTodayResolved.status, 'rejected', '今日期限のタスクを期限翌日へ延期しない');
+assert.equal(dueTodayResolved.status === 'rejected' ? dueTodayResolved.errorCode : undefined, 'pastDueDate');
+assert.equal(dueTodayResolved.status === 'rejected' ? dueTodayResolved.message : undefined, '期限を過ぎる日には移動できません');
+assert.strictEqual(appReducer(dueTodayState, dueTodayAction), dueTodayState, '拒否時はtask・履歴・updatedAtを一切変更しない');
+
+const staleDoingDueTodayState: AppState = { ...state, tasks: [{ ...doingTask, dueDate: date }] };
+const staleDoingDueToday = resolveAppAction(staleDoingDueTodayState, postponeAction, { nowIso: now, todayDate: date });
+assert.equal(staleDoingDueToday.status, 'rejected', 'stale doing復旧でも期限翌日へ固定しない');
+assert.equal(staleDoingDueToday.status === 'rejected' ? staleDoingDueToday.errorCode : undefined, 'pastDueDate');
+
+const dueTomorrowTask: StudyTask = { ...dueTodayTask, id: 'due-tomorrow', sourceId: 'due-tomorrow', dueDate: addDays(date, 1) };
+const dueTomorrowState: AppState = { ...state, tasks: [dueTomorrowTask] };
+const dueTomorrowResult = resolveAppAction(
+  dueTomorrowState,
+  { type: 'POSTPONE_TASK', taskId: dueTomorrowTask.id },
+  { nowIso: now, todayDate: date },
+);
+assert.equal(dueTomorrowResult.status, 'ready', '期限当日への延期は許可する');
+const dueTomorrowPostponed = appReducer(dueTomorrowState, { type: 'POSTPONE_TASK', taskId: dueTomorrowTask.id });
+assert.equal(dueTomorrowPostponed.tasks[0]?.scheduledDate, addDays(date, 1));
+
+const overdueTask: StudyTask = { ...dueTodayTask, id: 'overdue', sourceId: 'overdue', dueDate: addDays(date, -1) };
+const overdueState: AppState = { ...state, tasks: [overdueTask] };
+const overdueResult = resolveAppAction(
+  overdueState,
+  { type: 'POSTPONE_TASK', taskId: overdueTask.id },
+  { nowIso: now, todayDate: date },
+);
+assert.equal(overdueResult.status, 'ready', '既に期限切れのタスクは復旧目的で延期できる');
+
+console.log('✅ unified app command semantics and postpone deadline guards passed');
