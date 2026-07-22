@@ -3,7 +3,6 @@ import {
   addDays,
   formatDateShort,
   formatMinutes,
-  monthKeyOf,
   startOfWeek,
   today,
   WEEKDAY_LABELS,
@@ -84,7 +83,10 @@ function displayedWeekStart(): ISODate | null {
   if (title === '先週') return addDays(startOfWeek(reference), -7);
   const match = title.match(/^(\d{1,2})\/(\d{1,2})〜(\d{1,2})\/(\d{1,2})$/);
   if (!match) return null;
-  const [, startMonth, startDay, endMonth, endDay] = match.map(Number);
+  const startMonth = Number(match[1]!);
+  const startDay = Number(match[2]!);
+  const endMonth = Number(match[3]!);
+  const endDay = Number(match[4]!);
   const currentYear = Number(reference.slice(0, 4));
   const candidates: ISODate[] = [];
   for (const year of [currentYear - 1, currentYear, currentYear + 1]) {
