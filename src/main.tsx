@@ -31,6 +31,7 @@ import { installFixedBottomNavigationGuard } from './lib/fixedBottomNavigationGu
 import { installRadiogroupKeyboardGuard } from './lib/radiogroupKeyboardGuard';
 import { installRecordTabPanelSemanticsGuard } from './lib/recordTabPanelSemantics';
 import { installMemoryImportTabPanelSemantics } from './lib/memoryImportTabPanelSemantics';
+import { installDisclosurePanelSemantics } from './lib/disclosurePanelSemantics';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
 
@@ -177,6 +178,7 @@ installFixedBottomNavigationGuard();
 installRadiogroupKeyboardGuard();
 installRecordTabPanelSemanticsGuard();
 installMemoryImportTabPanelSemantics();
+installDisclosurePanelSemantics();
 preserveUnreadableState();
 registerSW({ immediate: true });
 
