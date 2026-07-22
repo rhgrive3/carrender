@@ -96,7 +96,7 @@ assert.match(editorSource, /content\.examples[\s\S]*?\.filter\(\(example\) => ex
 const studySource = await readFile(new URL('../src/features/memory/ui/MemoryStudy.tsx', import.meta.url), 'utf8');
 assert.match(studySource, /primaryEnglishForSense\(bundle, sense\.id, \{ verifiedOnly: true \}\)/u, '英語側はSenseに属するAnswerから作る');
 assert.match(studySource, /examplesForSense\(bundle, sense\.id, \{ verifiedOnly: true \}\)/u, '確認済み例文を全件取得する');
-assert.match(studySource, /memory-example-list[\s\S]*examples\.map/u, '答え面に複数例文を表示する');
+assert.match(studySource, /memory-study-examples[\s\S]*examples\.map/u, '答え後の独立確認欄に複数例文を表示する');
 assert.match(studySource, /memory-question-example/u, '問題面でも方向に合う例文を使う');
 
 console.log('✅ memory cards keep language direction, one Sense per row, persistent verification, stable editing order and multiple examples');
