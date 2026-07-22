@@ -47,7 +47,7 @@ async function discoverTestFiles(directory = path.join(root, 'scripts')) {
     for (const entry of await readdir(current, { withFileTypes: true })) {
       const absolute = path.join(current, entry.name);
       if (entry.isDirectory()) await walk(absolute);
-      else if (/\.(?:test|fixture)\.(?:ts|mjs|js)$/.test(entry.name)) found.push(path.relative(root, absolute).replaceAll(path.sep, '/'));
+      else if (/\.test\.(?:ts|mjs|js)$/.test(entry.name)) found.push(path.relative(root, absolute).replaceAll(path.sep, '/'));
     }
   }
   await walk(directory);
@@ -65,9 +65,8 @@ export async function auditManifest(scriptMap = scripts, discovered) {
   for (const entry of manifest) byFile.set(entry.file, [...(byFile.get(entry.file) ?? []), entry.suite]);
   const duplicates = [...byFile.entries()].filter(([, suites]) => suites.length > 1);
   const registered = new Set(byFile.keys());
-  const intentionallyStandalone = new Set(['scripts/test-suite-audit.mjs']);
-  const unregistered = discoveredFiles.filter((file) => !registered.has(file) && !intentionallyStandalone.has(file));
-  const missing = manifest.filter(({ file }) => !discoveredFiles.includes(file) && /\.(?:test|fixture)\./.test(file));
+  const unregistered = discoveredFiles.filter((file) => !registered.has(file));
+  const missing = manifest.filter(({ file }) => /\.test\./.test(file) && !discoveredFiles.includes(file));
   const domains = new Map();
   for (const entry of manifest) domains.set(entry.domain, (domains.get(entry.domain) ?? 0) + 1);
   return { manifest, duplicates, unregistered, missing, domains };
