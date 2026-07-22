@@ -3,9 +3,16 @@ import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import ts from 'typescript';
 
-const source = await readFile(new URL('../src/lib/recordTabPanelSemantics.ts', import.meta.url), 'utf8');
-const executableGuard = ts.transpileModule(
-  `${source.replace(/export function installRecordTabPanelSemanticsGuard/u, 'function installRecordTabPanelSemanticsGuard')}\ninstallRecordTabPanelSemanticsGuard();`,
+const tabSource = await readFile(new URL('../src/lib/recordTabPanelSemantics.ts', import.meta.url), 'utf8');
+const logSource = await readFile(new URL('../src/lib/recordLogAccessibilityGuard.ts', import.meta.url), 'utf8');
+const executableTabGuard = ts.transpileModule(
+  `${tabSource.replace(/export function installRecordTabPanelSemanticsGuard/u, 'function installRecordTabPanelSemanticsGuard')}\ninstallRecordTabPanelSemanticsGuard();`,
+  { compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2020 } },
+).outputText;
+const executableLogGuard = ts.transpileModule(
+  `${logSource
+    .replace(/export function normalizeRecordLogAccessibility/u, 'function normalizeRecordLogAccessibility')
+    .replace(/export function installRecordLogAccessibilityGuard/u, 'function installRecordLogAccessibilityGuard')}\ninstallRecordLogAccessibilityGuard();`,
   { compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2020 } },
 ).outputText;
 
@@ -19,9 +26,28 @@ try {
         <button role="tab" aria-selected="true">学習ログ</button>
       </div>
       <section class="record-log-view"><h2>学習ログ</h2></section>
+      <div class="record-log-list">
+        <div class="row spread"><span>7/22 (水)</span><span>1時間45分</span></div>
+        <button class="task-card session-log-button" aria-label="英単語帳の記録を編集">
+          <div class="task-main">
+            <div class="task-meta-row"><span class="subject-chip">英語</span><span class="task-type-chip">タイマー</span></div>
+            <div class="task-title">英単語帳</div>
+            <div class="task-range">1時間 ・ 3ページ ・ 🔥4</div>
+            <div class="faint mt-8">長いメモ本文は名称へ含めない</div>
+          </div>
+        </button>
+        <button class="task-card session-log-button" aria-label="英単語帳の記録を編集">
+          <div class="task-main">
+            <div class="task-meta-row"><span class="subject-chip">英語</span><span class="task-type-chip">手入力</span></div>
+            <div class="task-title">英単語帳</div>
+            <div class="task-range">45分 ・ 2ページ</div>
+          </div>
+        </button>
+      </div>
     </body></html>`);
-  await page.addScriptTag({ content: executableGuard });
-  await page.waitForTimeout(50);
+  await page.addScriptTag({ content: executableTabGuard });
+  await page.addScriptTag({ content: executableLogGuard });
+  await page.waitForTimeout(80);
 
   const readTab = async (label) => page.getByRole('tab', { name: label }).evaluate((element) => ({
     id: element.id,
@@ -44,6 +70,36 @@ try {
     role: 'tabpanel',
     labelledBy: 'records-log-tab',
   });
+
+  const logButtons = page.locator('.session-log-button');
+  assert.equal(await logButtons.nth(0).getAttribute('aria-label'), null, '可視内容を上書きするaria-labelを除去する');
+  assert.ok(await logButtons.nth(0).getAttribute('aria-labelledby'), '教材名と編集操作をaria-labelledbyへ接続する');
+  assert.ok(await logButtons.nth(0).getAttribute('aria-describedby'), '記録詳細をaria-describedbyへ接続する');
+  const timerSnapshot = await logButtons.nth(0).ariaSnapshot();
+  assert.match(timerSnapshot, /英単語帳/);
+  assert.match(timerSnapshot, /記録を編集/);
+  assert.match(timerSnapshot, /7\/22 \(水\)/);
+  assert.match(timerSnapshot, /英語/);
+  assert.match(timerSnapshot, /タイマー/);
+  assert.match(timerSnapshot, /1時間、3ページ、集中度 4/);
+  assert.match(timerSnapshot, /メモあり/);
+  assert.doesNotMatch(timerSnapshot, /長いメモ本文は名称へ含めない/, '長文メモ本文は読み上げ説明へ含めない');
+
+  const manualSnapshot = await logButtons.nth(1).ariaSnapshot();
+  assert.match(manualSnapshot, /英単語帳/);
+  assert.match(manualSnapshot, /手入力/);
+  assert.match(manualSnapshot, /45分、2ページ/);
+  assert.notEqual(timerSnapshot, manualSnapshot, '同名教材でも時間・量・入力方法で区別できる');
+
+  await logButtons.nth(0).evaluate((element) => {
+    element.setAttribute('aria-label', '英単語帳の記録を編集');
+    const range = element.querySelector('.task-range');
+    if (range) range.textContent = '1時間15分 ・ 4ページ ・ 🔥5';
+  });
+  await page.waitForTimeout(80);
+  const updatedSnapshot = await logButtons.nth(0).ariaSnapshot();
+  assert.equal(await logButtons.nth(0).getAttribute('aria-label'), null, 'React相当の再描画でaria-labelが戻っても除去する');
+  assert.match(updatedSnapshot, /1時間15分、4ページ、集中度 5/, '表示更新後の記録内容へ説明を追従する');
 
   await page.evaluate(() => {
     document.querySelector('[role="tab"][aria-selected="true"]')?.setAttribute('aria-selected', 'false');
@@ -108,7 +164,7 @@ try {
 
   assert.equal(await page.locator('#records-overview-tab').count(), 1, 'overview tab id stays unique');
   assert.equal(await page.locator('#records-month-panel').count(), 1, 'active month panel id stays unique');
-  console.log('✅ record tabs remain connected to log, overview, week and month panels after DOM switches');
+  console.log('✅ record tabs and same-title learning logs remain distinguishable after DOM switches');
 } finally {
   await browser.close();
 }
