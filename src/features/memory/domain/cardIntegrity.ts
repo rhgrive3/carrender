@@ -30,6 +30,15 @@ export function isUsableEnglishMemoryText(value: string | null | undefined): boo
   return Boolean((value ?? '').trim()) && hasLatinLetter(value);
 }
 
+export function normalizeEnglishCitationForm(
+  displayForm: string | null | undefined,
+  citationForm: string | null | undefined,
+): string {
+  const display = (displayForm ?? '').trim();
+  const citation = (citationForm ?? '').trim();
+  return isUsableEnglishMemoryText(citation) ? citation : display;
+}
+
 function uniqueTexts(values: readonly string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
