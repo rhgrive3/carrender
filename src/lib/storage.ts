@@ -4,15 +4,43 @@ import {
   type AppStateValidationResult,
 } from '../../functions/_shared/appState';
 import {
+  clearOwnedState as clearOwnedStateLegacy,
   isAppStateShape as isLegacyAppStateShape,
   migrateState as migrateLegacyState,
   type MigrationResult,
 } from './storageLegacy';
+import { persistEmergencyStateCache } from './emergencyStateCache';
 
 export * from './storageLegacy';
 
 const KEY = 'studycommander_state_v1';
 const BACKUP_KEY = 'studycommander_state_migration_backup';
+let emergencySaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Current callers use the generation-aware emergency cache writer. Keeping the
+ * compatibility exports here prevents the legacy two-key writer from leaving a
+ * new state paired with an old timestamp when the second setItem fails.
+ */
+export function saveState(state: AppState): void {
+  if (emergencySaveTimer) clearTimeout(emergencySaveTimer);
+  emergencySaveTimer = setTimeout(() => {
+    emergencySaveTimer = null;
+    persistEmergencyStateCache(state);
+  }, 250);
+}
+
+export function saveStateNow(state: AppState): void {
+  if (emergencySaveTimer) clearTimeout(emergencySaveTimer);
+  emergencySaveTimer = null;
+  persistEmergencyStateCache(state);
+}
+
+export function clearOwnedState(): void {
+  if (emergencySaveTimer) clearTimeout(emergencySaveTimer);
+  emergencySaveTimer = null;
+  clearOwnedStateLegacy();
+}
 
 function validationIssue(result: AppStateValidationResult): ValidationIssue {
   const reason = result.error ?? '学習データの形式が正しくありません';
