@@ -1,9 +1,10 @@
 name: Apply memory client ID retry fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/fix-memory-client-id-retry
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -85,7 +86,7 @@ async function transientFailureCanRetry(): Promise<void> {
 
   store.getMeta = async <T>() => {
     reads += 1;
-    if (reads == 1) throw new Error('temporary IndexedDB failure');
+    if (reads === 1) throw new Error('temporary IndexedDB failure');
     return undefined as T | undefined;
   };
   store.setMeta = async () => {
