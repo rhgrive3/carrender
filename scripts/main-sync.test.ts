@@ -7,6 +7,7 @@ import {
   getCurrentMainSyncMetadata,
   getMainSyncConflictBackup,
   getMainSyncMetadata,
+  MainSyncMetadataPersistenceError,
   markMainSyncClean,
   markMainSyncDirty,
   saveMainSyncConflictBackup,
@@ -23,16 +24,21 @@ function check(name: string, condition: boolean, detail?: unknown): void {
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
+  failWrites = false;
   get length(): number { return this.values.size; }
   clear(): void { this.values.clear(); }
   getItem(key: string): string | null { return this.values.get(key) ?? null; }
   key(index: number): string | null { return [...this.values.keys()][index] ?? null; }
   removeItem(key: string): void { this.values.delete(key); }
-  setItem(key: string, value: string): void { this.values.set(key, value); }
+  setItem(key: string, value: string): void {
+    if (this.failWrites) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    this.values.set(key, value);
+  }
 }
 
+const memoryStorage = new MemoryStorage();
 Object.defineProperty(globalThis, 'localStorage', {
-  value: new MemoryStorage(),
+  value: memoryStorage,
   configurable: true,
 });
 
@@ -70,6 +76,7 @@ check('端末にもクラウドにもデータがなければ何もしない', d
 console.log('--- Main sync: durable dirty base ---');
 const firstDirty = markMainSyncDirty(owner, v1, '2026-07-14T00:00:10.000Z');
 const secondDirty = markMainSyncDirty(owner, v2, '2026-07-14T00:00:20.000Z');
+check('dirty metadataの保存成功を呼出側へ返す', firstDirty.persisted && secondDirty.persisted, { firstDirty, secondDirty });
 check('複数回編集しても最初に編集したクラウド世代を保持', firstDirty.baseUpdatedAt === v1 && secondDirty.baseUpdatedAt === v1, secondDirty);
 check('同じクラウド世代上の未同期編集は再起動後に送信対象', decideInitialSync({
   metadata: getMainSyncMetadata(owner),
@@ -85,6 +92,7 @@ check('クラウド世代が進んでいれば端末版を上書きせず競合'
 }) === 'conflict');
 
 const clean = markMainSyncClean(owner, v2, '2026-07-14T00:02:00.000Z');
+check('clean metadataの保存成功を呼出側へ返す', clean.persisted, clean);
 check('同期成功後はdirtyを解除し最新クラウド世代を保存', !clean.dirty && clean.baseUpdatedAt === v2, clean);
 check('cleanな端末は次回起動時にクラウド版を採用', decideInitialSync({
   metadata: getMainSyncMetadata(owner),
@@ -92,6 +100,25 @@ check('cleanな端末は次回起動時にクラウド版を採用', decideIniti
   hasRemoteState: true,
   hasLocalState: true,
 }) === 'useRemote');
+
+console.log('--- Main sync: metadata persistence failures ---');
+memoryStorage.failWrites = true;
+const failedDirty = markMainSyncDirty(owner, v2, '2026-07-14T00:02:10.000Z');
+check('dirty metadata書込み失敗をfalseで返す', failedDirty.persisted === false, failedDirty);
+check('dirty書込み失敗時に保存済みmetadataを上書きしない', getMainSyncMetadata(owner)?.dirty === false);
+let cleanFailure: unknown = null;
+try {
+  markMainSyncClean(owner, v2, '2026-07-14T00:02:20.000Z');
+} catch (caught) {
+  cleanFailure = caught;
+}
+check('clean metadata書込み失敗は同期成功扱いを止める例外になる', cleanFailure instanceof MainSyncMetadataPersistenceError, cleanFailure);
+const nonThrowingClean = markMainSyncClean(owner, v2, '2026-07-14T00:02:30.000Z', undefined, false);
+check('bootstrap復元では失敗を結果として扱える', nonThrowingClean.persisted === false, nonThrowingClean);
+memoryStorage.failWrites = false;
+const recoveredDirty = markMainSyncDirty(owner, v2, '2026-07-14T00:02:40.000Z');
+check('保存環境の回復後は再試行でmetadataを永続化できる', recoveredDirty.persisted && getMainSyncMetadata(owner)?.dirty === true, recoveredDirty);
+markMainSyncClean(owner, v2, '2026-07-14T00:02:50.000Z');
 
 console.log('--- Main sync: malformed metadata ---');
 localStorage.setItem('studycommander_main_sync_meta_v1', JSON.stringify({
