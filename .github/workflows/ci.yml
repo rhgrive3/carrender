@@ -81,6 +81,10 @@ jobs:
         shell: bash
         run: set -o pipefail; npm run test:e2e 2>&1 | tee browser-e2e.log
 
+      - name: PWA update and storage compatibility
+        shell: bash
+        run: set -o pipefail; npm run test:pwa:update 2>&1 | tee -a browser-e2e.log
+
       - name: Upload browser failure log
         if: failure()
         uses: actions/upload-artifact@v4
