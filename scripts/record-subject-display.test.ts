@@ -96,4 +96,15 @@ assert.match(mainSource, /record-chart-fixes\.css/, '記録チャートの補正
 assert.match(chartFixCss, /\.studyplus-actual-bar\s+\.studyplus-stack\s*\{[\s\S]*?flex-shrink:\s*1;/, '科目数が多い日も積み上げ棒を100%内へ縮小する');
 assert.match(chartFixCss, /min-height:\s*0;/, '固定最小高で積み上げ棒が枠外へ溢れない');
 
+const sessionLogGuard = readFileSync(new URL('../src/lib/sessionLogAccessibilityGuard.ts', import.meta.url), 'utf8');
+assert.match(mainSource, /installSessionLogAccessibilityGuard\(\);/, '学習ログのアクセシブル名称補修を起動する');
+assert.match(sessionLogGuard, /querySelector\('\.task-title'\)/, '教材または範囲を名称へ含める');
+assert.match(sessionLogGuard, /querySelector\('\.subject-chip'\)/, '科目を名称へ含める');
+assert.match(sessionLogGuard, /querySelector\('\.task-range'\)/, '時間・実施量・集中度を名称へ含める');
+assert.match(sessionLogGuard, /querySelector\('\.task-type-chip'\)/, 'タイマーまたは手入力を名称へ含める');
+assert.match(sessionLogGuard, /hasMemo \? 'メモあり' : ''/, '長いメモ本文ではなくメモ有無だけを補助説明へ含める');
+assert.match(sessionLogGuard, /'記録を編集'/, '操作目的を名称末尾へ残す');
+assert.match(sessionLogGuard, /getAttribute\('aria-label'\) !== label/, '同じ名称を再設定してMutationObserverを自己循環させない');
+assert.match(sessionLogGuard, /attributeFilter: \['aria-label'\]/, 'React再描画で旧名称へ戻った場合も再補修する');
+
 console.log('✅ deleted subject record display regressions passed');
