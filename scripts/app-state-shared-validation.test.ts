@@ -28,7 +28,7 @@ const valid = {
 
 assert.equal(validateAppStatePayload(valid).ok, true, 'API側の共有validatorが正常stateを受理する');
 assert.equal(isAppStateShape(valid), true, '端末側も同じ正常stateを受理する');
-assert.equal(migrateState(valid).ok, true, '共有検証後にmigrationを実行できる');
+assert.equal(migrateState(valid).ok, true, 'migration後に共有validatorを実行できる');
 
 const orphanMaterial = {
   ...valid,
@@ -53,12 +53,22 @@ const invalidSession = {
 assert.equal(validateAppStatePayload(invalidSession).ok, false);
 assert.equal(isAppStateShape(invalidSession), false, '不正日付をlocalStorage/IndexedDB入口でも拒否する');
 
+const migrationRepairable = {
+  ...valid,
+  goal: { id: 'goal-1', name: '医学部合格', examDate: '2026-07-31', createdAt: now },
+  materials: [{
+    id: 'material-1', subjectId: 'subject-1', name: '数学', totalAmount: 10,
+    doneAmount: 0, completedRanges: [{ start: 1, end: 2 }], targetDate: '2026-08-31',
+  }],
+} as unknown as AppState;
+assert.equal(validateAppStatePayload(migrationRepairable).ok, false, '未移行stateは現行validatorでは不正になり得る');
+assert.equal(migrateState(migrationRepairable).ok, true, '既存migrationで修復可能な旧stateは失わない');
+
 const storageSource = readFileSync('src/lib/storage.ts', 'utf8');
 const apiSource = readFileSync('functions/api/data/v2.ts', 'utf8');
 const bootstrapSource = readFileSync('src/state/MainStatePersistence.tsx', 'utf8');
 assert.match(storageSource, /from '\.\.\/\.\.\/functions\/_shared\/appState'/u, '端末とAPIで同じvalidator moduleを参照する');
-assert.match(storageSource, /validateAppStatePayload\(parsed, \{ allowLegacyGoalDateOverflow: true \}\)/u, 'localStorageとJSON importをmigration前に共有検証する');
-assert.match(storageSource, /validateAppStatePayload\(migrated\.state\)/u, 'migration後も現行schemaで再検証する');
+assert.match(storageSource, /const migrated = migrateLegacyState\(input\)[\s\S]*validateAppStatePayload\(migrated\.state\)/u, '旧stateをmigration後に現行schemaで共有検証する');
 assert.match(apiSource, /validateAppStatePayload/u, 'chunk commit APIも共有validatorを維持する');
 assert.match(bootstrapSource, /migrateState\(storedState\)/u, 'IndexedDB復元も共有検証を含むmigration境界を通る');
 
