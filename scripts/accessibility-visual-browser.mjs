@@ -64,9 +64,7 @@ async function auditDom(page, label) {
         const raw = element.getAttribute(attribute);
         if (!raw) continue;
         for (const id of raw.trim().split(/\s+/)) {
-          if (id && !document.getElementById(id)) {
-            invalidReferences.push({ tag: element.tagName, attribute, id });
-          }
+          if (id && !document.getElementById(id)) invalidReferences.push({ tag: element.tagName, attribute, id });
         }
       }
     }
@@ -138,6 +136,10 @@ async function registerAndOnboard(page) {
 }
 
 async function screenshotAndAudit(page, name) {
+  const nav = page.locator('.bottom-nav');
+  if (await nav.count()) {
+    await page.waitForFunction(() => document.querySelector('.bottom-nav')?.getAttribute('data-runtime-pinned') === 'true');
+  }
   await page.waitForTimeout(100);
   await auditDom(page, name);
   await page.screenshot({ path: join(artifacts, `${name}.png`), fullPage: true, animations: 'disabled' });
@@ -165,13 +167,7 @@ try {
 
   const browser = await chromium.launch();
   try {
-    const bootstrapContext = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      deviceScaleFactor: 2,
-      hasTouch: true,
-      isMobile: true,
-      reducedMotion: 'reduce',
-    });
+    const bootstrapContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, reducedMotion: 'reduce' });
     const bootstrapPage = await bootstrapContext.newPage();
     await registerAndOnboard(bootstrapPage);
     await screenshotAndAudit(bootstrapPage, 'iphone-portrait-home');
@@ -198,14 +194,7 @@ try {
       { name: 'ipad-landscape', viewport: { width: 1180, height: 820 } },
     ];
     for (const variant of variants) {
-      const context = await browser.newContext({
-        storageState,
-        viewport: variant.viewport,
-        deviceScaleFactor: 2,
-        hasTouch: true,
-        isMobile: true,
-        reducedMotion: 'reduce',
-      });
+      const context = await browser.newContext({ storageState, viewport: variant.viewport, deviceScaleFactor: 2, hasTouch: true, isMobile: true, reducedMotion: 'reduce' });
       const page = await context.newPage();
       await page.goto(`${base}?pwa-gate=off`, { waitUntil: 'domcontentloaded' });
       await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
@@ -220,12 +209,7 @@ try {
     await screenshotAndAudit(zoomPage, 'iphone-text-zoom-200');
     await zoomContext.close();
 
-    const forcedContext = await browser.newContext({
-      storageState,
-      viewport: { width: 820, height: 1180 },
-      reducedMotion: 'reduce',
-      forcedColors: 'active',
-    });
+    const forcedContext = await browser.newContext({ storageState, viewport: { width: 820, height: 1180 }, reducedMotion: 'reduce', forcedColors: 'active' });
     const forcedPage = await forcedContext.newPage();
     await forcedPage.goto(`${base}?pwa-gate=off`, { waitUntil: 'domcontentloaded' });
     await screenshotAndAudit(forcedPage, 'ipad-forced-colors');
