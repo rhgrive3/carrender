@@ -24,24 +24,32 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   private downloadLocalBackup = () => {
+    let url: string | null = null;
+    let link: HTMLAnchorElement | null = null;
     try {
       const state = loadState();
       if (!state) throw new Error('端末内データが見つかりません');
       const blob = new Blob([exportJSON(state)], { type: 'application/json;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
+      url = URL.createObjectURL(blob);
+      link = document.createElement('a');
       link.href = url;
       link.download = `studycommander-recovery-${today()}.json`;
       link.hidden = true;
       document.body.appendChild(link);
       link.click();
       this.setState({ backupStatus: 'started', backupMessage: '復旧用JSONの保存を開始しました。保存先を確認してから再読み込みしてください。' });
+      const cleanupUrl = url;
+      const cleanupLink = link;
+      url = null;
+      link = null;
       // iOS Safari/PWAではclick直後にURLを解放すると、ダウンロード開始前に参照が失われる場合がある。
       window.setTimeout(() => {
-        link.remove();
-        URL.revokeObjectURL(url);
+        cleanupLink.remove();
+        URL.revokeObjectURL(cleanupUrl);
       }, DOWNLOAD_CLEANUP_DELAY_MS);
     } catch (caught) {
+      link?.remove();
+      if (url) URL.revokeObjectURL(url);
       this.setState({
         backupStatus: 'failed',
         backupMessage: caught instanceof Error ? `復旧用JSONを保存できませんでした: ${caught.message}` : '復旧用JSONを保存できませんでした',
