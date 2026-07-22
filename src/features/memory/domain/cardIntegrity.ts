@@ -30,6 +30,21 @@ export function isUsableEnglishMemoryText(value: string | null | undefined): boo
   return Boolean((value ?? '').trim()) && hasLatinLetter(value);
 }
 
+/**
+ * The simplified card editor exposes displayForm but intentionally hides
+ * citationForm. Legacy/imported data can therefore contain an unusable hidden
+ * citationForm that the user has no way to repair. Treat displayForm as the
+ * effective base form whenever the hidden value is not usable English.
+ */
+export function effectiveMemoryCitationForm(
+  displayForm: string | null | undefined,
+  citationForm: string | null | undefined,
+): string {
+  const display = (displayForm ?? '').trim();
+  const citation = (citationForm ?? '').trim();
+  return isUsableEnglishMemoryText(citation) ? citation : display;
+}
+
 function uniqueTexts(values: readonly string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -167,11 +182,20 @@ export function languageIssuesForMemoryEntity(
         ...checkEnglishField(record, 'label', '英語表現'),
         ...checkEnglishField(record, 'lemma', '英語の見出し', true),
       ];
-    case 'answer':
-      return [
-        ...checkEnglishField(record, 'displayForm', '英語表現'),
-        ...checkEnglishField(record, 'citationForm', '英語の基本形'),
-      ];
+    case 'answer': {
+      const displayIssues = checkEnglishField(record, 'displayForm', '英語表現');
+      if (displayIssues.length > 0) return displayIssues;
+      const effectiveCitation = effectiveMemoryCitationForm(
+        typeof record.displayForm === 'string' ? record.displayForm : undefined,
+        typeof record.citationForm === 'string' ? record.citationForm : undefined,
+      );
+      return isUsableEnglishMemoryText(effectiveCitation)
+        ? []
+        : [{
+          field: 'citationForm',
+          message: '英語の基本形には英字を含む英語を入力してください。日本語だけの内容は保存できません',
+        }];
+    }
     case 'example':
       return checkEnglishField(record, 'english', '例文');
     default:
@@ -194,6 +218,13 @@ export function sameEnglishBearingFields(
   const leftRecord = objectRecord(left);
   const rightRecord = objectRecord(right);
   if (!fields || !leftRecord || !rightRecord) return false;
+  if (entityType === 'answer') {
+    const leftDisplay = String(leftRecord.displayForm ?? '');
+    const rightDisplay = String(rightRecord.displayForm ?? '');
+    return normalizeMemoryCardText(leftDisplay) === normalizeMemoryCardText(rightDisplay)
+      && normalizeMemoryCardText(effectiveMemoryCitationForm(leftDisplay, String(leftRecord.citationForm ?? '')))
+        === normalizeMemoryCardText(effectiveMemoryCitationForm(rightDisplay, String(rightRecord.citationForm ?? '')));
+  }
   return fields.every((field) => normalizeMemoryCardText(String(leftRecord[field] ?? ''))
     === normalizeMemoryCardText(String(rightRecord[field] ?? '')));
 }
