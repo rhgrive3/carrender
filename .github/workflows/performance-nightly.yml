@@ -1,0 +1,25 @@
+name: Performance budgets
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 18 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  nightly-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PERF_SCALE: nightly
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run deterministic large-data budgets
+        run: npm run test:performance
