@@ -6,7 +6,7 @@ import {
   resetEmergencyStateCacheStatus,
   subscribeEmergencyStateCacheStatus,
 } from '../src/lib/emergencyStateCache';
-import { EMERGENCY_CACHE_MAX_CHARS } from '../src/lib/storage';
+import { EMERGENCY_CACHE_MAX_CHARS, saveStateNow } from '../src/lib/storage';
 
 const STATE_KEY = 'studycommander_state_v1';
 const UPDATED_KEY = 'studycommander_state_updated_at_v1';
@@ -14,12 +14,17 @@ const UPDATED_KEY = 'studycommander_state_updated_at_v1';
 class ControlledStorage {
   readonly values = new Map<string, string>();
   failure: Error | DOMException | null = null;
+  failSetKey: string | null = null;
+  failRemove = false;
   setItem(key: string, value: string): void {
-    if (this.failure) throw this.failure;
+    if (this.failure || this.failSetKey === key) throw this.failure ?? new Error(`blocked: ${key}`);
     this.values.set(key, value);
   }
   getItem(key: string): string | null { return this.values.get(key) ?? null; }
-  removeItem(key: string): void { this.values.delete(key); }
+  removeItem(key: string): void {
+    if (this.failRemove) throw new Error(`remove blocked: ${key}`);
+    this.values.delete(key);
+  }
 }
 
 const storage = new ControlledStorage();
@@ -56,6 +61,35 @@ storage.failure = new Error('blocked');
 const unavailable = persistEmergencyStateCache(small);
 assert.deepEqual([unavailable.phase, unavailable.reason], ['suppressed', 'unavailable']);
 assert.match(getEmergencyStateCacheStatus().message ?? '', /緊急保存用キャッシュ/);
+storage.failure = null;
+
+const generationOne = { payload: 'generation-one' } as unknown as AppState;
+saveStateNow(generationOne);
+assert.equal(storage.getItem(STATE_KEY), JSON.stringify(generationOne));
+const generationOneTimestamp = storage.getItem(UPDATED_KEY);
+assert.ok(generationOneTimestamp);
+
+storage.failSetKey = UPDATED_KEY;
+const generationTwo = { payload: 'generation-two' } as unknown as AppState;
+saveStateNow(generationTwo);
+assert.equal(storage.getItem(STATE_KEY), null, 'timestamp保存失敗時は新stateだけを残さない');
+assert.equal(storage.getItem(UPDATED_KEY), null, 'timestamp保存失敗時は古い世代情報も残さない');
+assert.deepEqual(
+  [getEmergencyStateCacheStatus().phase, getEmergencyStateCacheStatus().reason],
+  ['suppressed', 'unavailable'],
+  '二つのkeyを一世代として保存できない場合は緊急cacheを無効扱いにする',
+);
+
+storage.failRemove = true;
+saveStateNow(generationTwo);
+assert.equal(getEmergencyStateCacheStatus().phase, 'suppressed', 'cleanup拒否でも保存失敗状態を維持する');
+storage.failRemove = false;
+storage.values.clear();
+storage.failSetKey = null;
+saveStateNow(generationTwo);
+assert.equal(storage.getItem(STATE_KEY), JSON.stringify(generationTwo), '後続の正常保存でstateを再作成する');
+assert.ok(storage.getItem(UPDATED_KEY), '後続の正常保存でtimestampも再作成する');
+assert.equal(getEmergencyStateCacheStatus().phase, 'active');
 
 unsubscribe();
 console.log('✅ emergency cache recovery regressions passed');
