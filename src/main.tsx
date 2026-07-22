@@ -32,6 +32,7 @@ import { installRadiogroupKeyboardGuard } from './lib/radiogroupKeyboardGuard';
 import { installRecordTabPanelSemanticsGuard } from './lib/recordTabPanelSemantics';
 import { installMemoryImportTabPanelSemantics } from './lib/memoryImportTabPanelSemantics';
 import { installDisclosurePanelSemantics } from './lib/disclosurePanelSemantics';
+import { installCompletedTaskAccessibility } from './lib/completedTaskAccessibility';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
 
@@ -179,6 +180,7 @@ installRadiogroupKeyboardGuard();
 installRecordTabPanelSemanticsGuard();
 installMemoryImportTabPanelSemantics();
 installDisclosurePanelSemantics();
+installCompletedTaskAccessibility();
 preserveUnreadableState();
 registerSW({ immediate: true });
 
