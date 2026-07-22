@@ -1,0 +1,152 @@
+name: Apply memory client ID retry fix
+
+on:
+  push:
+    branches:
+      - agent/fix-memory-client-id-retry
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-memory-client-id-retry
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply product and regression changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          path = Path('src/features/memory/infrastructure/repositories.ts')
+          text = path.read_text()
+          old = """  async clientId(): Promise<string> {
+    this.clientIdPromise ??= (async () => {
+      const existing = await this.store.getMeta<string>('clientId');
+      if (existing) return existing;
+      const created = createMemoryId('client');
+      await this.store.setMeta('clientId', created);
+      return created;
+    })();
+    return this.clientIdPromise;
+  }
+"""
+          new = """  async clientId(): Promise<string> {
+    if (this.clientIdPromise) return this.clientIdPromise;
+
+    const initialization = (async () => {
+      const existing = await this.store.getMeta<string>('clientId');
+      if (existing) return existing;
+      const created = createMemoryId('client');
+      await this.store.setMeta('clientId', created);
+      return created;
+    })();
+    this.clientIdPromise = initialization;
+
+    try {
+      return await initialization;
+    } catch (error) {
+      // A transient IndexedDB failure must not poison this repository instance
+      // until the next app restart. Keep concurrent callers single-flight, then
+      // allow the next explicit sync attempt to initialize the client ID again.
+      if (this.clientIdPromise === initialization) this.clientIdPromise = null;
+      throw error;
+    }
+  }
+"""
+          if old not in text:
+              raise SystemExit('clientId implementation did not match expected main state')
+          path.write_text(text.replace(old, new, 1))
+
+          test = Path('scripts/memory-client-id-retry.test.ts')
+          test.write_text("""import assert from 'node:assert/strict';
+import { MemoryRepository } from '../src/features/memory/infrastructure/repositories';
+
+type TestStore = {
+  getMeta<T>(key: string): Promise<T | undefined>;
+  setMeta<T>(key: string, value: T): Promise<void>;
+};
+
+async function transientFailureCanRetry(): Promise<void> {
+  const repository = new MemoryRepository('client-id-retry');
+  const store = repository.store as unknown as TestStore;
+  let reads = 0;
+  let writes = 0;
+
+  store.getMeta = async <T>() => {
+    reads += 1;
+    if (reads == 1) throw new Error('temporary IndexedDB failure');
+    return undefined as T | undefined;
+  };
+  store.setMeta = async () => {
+    writes += 1;
+  };
+
+  await assert.rejects(repository.clientId(), /temporary IndexedDB failure/);
+  const [firstRetry, secondRetry] = await Promise.all([
+    repository.clientId(),
+    repository.clientId(),
+  ]);
+
+  assert.equal(firstRetry, secondRetry, 'concurrent retry callers must share one generated ID');
+  assert.equal(reads, 2, 'the failed initialization should be retried exactly once');
+  assert.equal(writes, 1, 'concurrent retries must persist only one client ID');
+}
+
+async function successfulInitializationStaysCached(): Promise<void> {
+  const repository = new MemoryRepository('client-id-cache');
+  const store = repository.store as unknown as TestStore;
+  let reads = 0;
+
+  store.getMeta = async <T>() => {
+    reads += 1;
+    return 'client_existing' as T;
+  };
+  store.setMeta = async () => {
+    throw new Error('existing client ID must not be rewritten');
+  };
+
+  assert.equal(await repository.clientId(), 'client_existing');
+  assert.equal(await repository.clientId(), 'client_existing');
+  assert.equal(reads, 1, 'a successful initialization must remain cached');
+}
+
+await transientFailureCanRetry();
+await successfulInitializationStaysCached();
+console.log('memory client ID retry tests passed');
+""")
+
+          package_path = Path('package.json')
+          package = json.loads(package_path.read_text())
+          command = 'vite-node scripts/memory-client-id-retry.test.ts'
+          regressions = package['scripts']['test:regressions']
+          if command not in regressions:
+              anchor = 'vite-node scripts/timer-persistence-validation.test.ts'
+              if anchor not in regressions:
+                  raise SystemExit('regression script anchor missing')
+              regressions = regressions.replace(anchor, f'{anchor} && {command}', 1)
+              package['scripts']['test:regressions'] = regressions
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n')
+          PY
+          rm .github/workflows/agent-fix-memory-client-id-retry.yml
+      - name: Run focused tests
+        run: |
+          npm run typecheck
+          npx vite-node scripts/memory-client-id-retry.test.ts
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/features/memory/infrastructure/repositories.ts scripts/memory-client-id-retry.test.ts package.json .github/workflows/agent-fix-memory-client-id-retry.yml
+          git commit -m "fix: retry memory client ID initialization"
+          git push origin HEAD:agent/fix-memory-client-id-retry
