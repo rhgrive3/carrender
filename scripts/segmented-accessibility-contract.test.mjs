@@ -31,7 +31,11 @@ assert.match(guard, /if \(event\.defaultPrevented\) return/, '既存コンポー
 assert.match(guard, /event\.preventDefault\(\)[\s\S]*next\.click\(\)[\s\S]*next\.focus\(\)/, 'キーボード移動でReactの選択処理とフォーカスを同期する');
 assert.match(guard, /document\.querySelectorAll\(RADIOGROUP_SELECTOR\)[\s\S]*document\.querySelectorAll\(TABLIST_SELECTOR\)/, 'radiogroupとtablistを独立して正規化する');
 assert.match(guard, /role !== 'radio' && role !== 'tab'/, 'radioとtabの両方をキーボード補修対象にする');
-assert.match(guard, /attributeFilter: \['aria-checked', 'aria-selected', 'aria-disabled', 'aria-orientation', 'disabled', 'role'\]/, '選択・無効・orientation変更後もroving tabindexを再正規化する');
+assert.match(guard, /repairPlanViewGroup\(\)[\s\S]*setAttributeIfChanged\(group, 'role', 'radiogroup'\)[\s\S]*aria-checked/, '計画の週月切替を完全なradiogroupへ補修する');
+assert.match(guard, /repairRecordLogButtons\(\)[\s\S]*dateContext[\s\S]*task-title[\s\S]*task-range[\s\S]*記録を編集/, '学習ログの可視情報を編集ボタンの名称へ含める');
+assert.match(guard, /repairAchievementBadges\(\)[\s\S]*role', 'progressbar'[\s\S]*aria-valuenow[\s\S]*aria-valuetext/, '実績バッジの説明と進捗を支援技術へ公開する');
+assert.match(guard, /MEMORY_CARD_FACE_SELECTOR[\s\S]*event\.key === 'Enter'[\s\S]*aria-hidden[\s\S]*focus\(\{ preventScroll: true \}\)/, 'キーボード反転後に表示面へフォーカスを移す');
+assert.match(guard, /attributeFilter: \['aria-checked', 'aria-selected', 'aria-disabled', 'aria-orientation', 'aria-hidden', 'disabled', 'role', 'class'\]/, '選択・表示面・class変更後も補修を再実行する');
 assert.match(records, /role="tablist" aria-label="記録画面の切替"[\s\S]*role="tab"[\s\S]*role="tab"/, '記録画面切替をtablistとして公開する');
 assert.match(records, /role="tablist" aria-label="集計期間"[\s\S]*role="tab"[\s\S]*role="tab"/, '週月切替をtablistとして公開する');
 assert.match(monthCalendar, /data-month-calendar/, '月表示の実DOMへ安定した識別子を持つ');
@@ -48,4 +52,4 @@ assert.match(recordTabs, /attributeFilter: \['aria-selected'\]/, 'Reactのtab選
 assert.match(main, /installRadiogroupKeyboardGuard\(\);/, 'アプリ起動時に共有選択グループガードを有効化する');
 assert.match(main, /installRecordTabPanelSemanticsGuard\(\);/, 'アプリ起動時に記録tabpanelガードを有効化する');
 
-console.log('✅ Segmented, repaired radiogroup, tabpanel relationships, disabled-choice, and orientation-aware tablist accessibility contracts passed');
+console.log('✅ selection groups and main feature accessibility repairs passed');
