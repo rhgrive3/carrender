@@ -96,7 +96,7 @@ function watchSafeUpdateTiming(): void {
   observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-busy', 'class'] });
   window.addEventListener('storage', schedule);
   document.addEventListener('visibilitychange', schedule);
-  refreshTimer = setInterval(schedule, 2_000);
+  if (refreshTimer === null) refreshTimer = setInterval(schedule, 2_000);
 }
 
 /**
