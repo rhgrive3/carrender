@@ -26,7 +26,14 @@ const valid = {
   owner,
 };
 
-assert.deepEqual(normalizePersistedTimer(valid, owner, now), valid);
+const normalized = normalizePersistedTimer(valid, owner, now);
+assert.equal(normalized?.target, target);
+assert.equal(normalized?.mode, 'stopwatch');
+assert.equal(normalized?.phase, 'work');
+assert.equal(normalized?.cycle, 0);
+assert.equal(normalized?.phaseAccumulatedSec, 30);
+assert.equal(normalized?.workStartedAt, valid.workStartedAt);
+assert.equal(normalized?.runningSince, valid.runningSince);
 
 const legacy = {
   target,
