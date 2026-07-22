@@ -3,7 +3,15 @@ import {
   languageIssuesForMemoryEntity,
   sameEnglishBearingFields,
 } from '../domain/cardIntegrity';
-import { MemoryRepository, createMemoryId } from './repositories';
+import {
+  analyzeMemoryMutationDependencies,
+  MemoryMutationDependencyCycleError,
+} from './mutationDependencyGuard';
+import {
+  MemoryRepository,
+  createMemoryId,
+  type MemoryPendingMutation,
+} from './repositories';
 
 function existingRecord(
   content: Awaited<ReturnType<MemoryRepository['loadContent']>>,
@@ -50,6 +58,18 @@ export class ValidatedMemoryRepository extends MemoryRepository {
       }
       throw error;
     }
+  }
+
+  override async syncablePendingMutations(limit = 100): Promise<MemoryPendingMutation[]> {
+    const pending = await super.syncablePendingMutations(Number.MAX_SAFE_INTEGER);
+    const analysis = analyzeMemoryMutationDependencies(pending);
+
+    // Drain every independent DAG component first. Once only the cycle and its
+    // descendants remain, surface a concrete error without deleting or sending
+    // any of those rows.
+    if (analysis.sendable.length > 0) return analysis.sendable.slice(0, limit);
+    if (analysis.blocked.length > 0) throw new MemoryMutationDependencyCycleError(analysis);
+    return [];
   }
 
   override async saveEntities(
