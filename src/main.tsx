@@ -54,46 +54,95 @@ function NavigationAnnouncement() {
 
   React.useEffect(() => {
     let scheduledFrame = 0;
+
     const announceCurrentScreen = () => {
       scheduledFrame = 0;
       const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];
       const activeDialog = dialogs.reverse().find((element) => !element.closest('[hidden], [inert], [aria-hidden="true"]'));
-      const dialogLabel = (activeDialog?.getAttribute('aria-label') || textFromIdRefs(activeDialog?.getAttribute('aria-labelledby') ?? null))?.trim();
+      const dialogLabel = (
+        activeDialog?.getAttribute('aria-label')
+        || textFromIdRefs(activeDialog?.getAttribute('aria-labelledby') ?? null)
+      )?.trim();
       const contextualLabels = [...document.querySelectorAll<HTMLElement>('[data-app-screen-label]')];
-      const contextualLabel = contextualLabels.find((element) => !element.parentElement?.closest('[hidden], [inert], [aria-hidden="true"]'))?.dataset.appScreenLabel?.trim();
+      const contextualLabel = contextualLabels.find((element) => {
+        return !element.parentElement?.closest('[hidden], [inert], [aria-hidden="true"]');
+      })?.dataset.appScreenLabel?.trim();
       const current = document.querySelector('.bottom-nav [aria-current="page"]');
       const label = dialogLabel || contextualLabel || current?.getAttribute('aria-label')?.trim() || current?.textContent?.trim();
       if (!label || label === lastLabelRef.current) return;
+
       document.title = `${label} | ${APP_TITLE}`;
-      if (lastLabelRef.current === null) { lastLabelRef.current = label; return; }
+
+      if (lastLabelRef.current === null) {
+        lastLabelRef.current = label;
+        return;
+      }
+
       lastLabelRef.current = label;
       setMessage(`${label}画面を表示しました`);
     };
-    const scheduleAnnouncement = () => { if (!scheduledFrame) scheduledFrame = requestAnimationFrame(announceCurrentScreen); };
+
+    const scheduleAnnouncement = () => {
+      if (scheduledFrame) return;
+      scheduledFrame = requestAnimationFrame(announceCurrentScreen);
+    };
+
     announceCurrentScreen();
+
     const observer = new MutationObserver(scheduleAnnouncement);
-    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-current', 'aria-hidden', 'aria-label', 'aria-labelledby', 'aria-modal', 'data-app-screen-label', 'hidden', 'inert'] });
-    return () => { observer.disconnect(); if (scheduledFrame) cancelAnimationFrame(scheduledFrame); };
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['aria-current', 'aria-hidden', 'aria-label', 'aria-labelledby', 'aria-modal', 'data-app-screen-label', 'hidden', 'inert'],
+    });
+
+    return () => {
+      observer.disconnect();
+      if (scheduledFrame) cancelAnimationFrame(scheduledFrame);
+    };
   }, []);
 
-  return <div role="status" aria-live="polite" aria-atomic="true" style={{ position: 'fixed', width: '1px', height: '1px', overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' }}>{message}</div>;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      style={{
+        position: 'fixed',
+        width: '1px',
+        height: '1px',
+        overflow: 'hidden',
+        clipPath: 'inset(50%)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {message}
+    </div>
+  );
 }
 
 function MainLandmarkGuard() {
   React.useEffect(() => {
     const rootMain = document.getElementById('app-main-content');
     if (!rootMain) return undefined;
+
     const normalizeNestedMain = () => {
       rootMain.querySelectorAll<HTMLElement>('main').forEach((nestedMain) => {
         if (!nestedMain.hasAttribute('role')) nestedMain.setAttribute('role', 'region');
-        if (!nestedMain.hasAttribute('aria-label') && !nestedMain.hasAttribute('aria-labelledby')) nestedMain.setAttribute('aria-label', '画面の主要コンテンツ');
+        if (!nestedMain.hasAttribute('aria-label') && !nestedMain.hasAttribute('aria-labelledby')) {
+          nestedMain.setAttribute('aria-label', '画面の主要コンテンツ');
+        }
       });
     };
+
     normalizeNestedMain();
     const observer = new MutationObserver(normalizeNestedMain);
     observer.observe(rootMain, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
+
   return null;
 }
 
@@ -102,20 +151,29 @@ function ShellNavigationSemanticsGuard() {
     const connectNavigationToPanels = () => {
       const buttons = [...document.querySelectorAll<HTMLButtonElement>('.bottom-nav > button')];
       const panels = [...document.querySelectorAll<HTMLElement>('.shell-tab-panel')];
+
       buttons.forEach((button, index) => {
         const panel = panels[index];
         if (!panel) return;
         const controlId = `shell-nav-${index}`;
         const panelId = `shell-panel-${index}`;
-        button.type = 'button'; button.id = controlId; button.setAttribute('aria-controls', panelId);
-        panel.id = panelId; panel.setAttribute('role', 'region'); panel.setAttribute('aria-labelledby', controlId);
+
+        button.type = 'button';
+        button.id = controlId;
+        button.setAttribute('aria-controls', panelId);
+
+        panel.id = panelId;
+        panel.setAttribute('role', 'region');
+        panel.setAttribute('aria-labelledby', controlId);
       });
     };
+
     connectNavigationToPanels();
     const observer = new MutationObserver(connectNavigationToPanels);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
+
   return null;
 }
 
@@ -131,12 +189,36 @@ preserveUnreadableState();
 registerSW({ immediate: true });
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode><AppErrorBoundary><DayRolloverBoundary>{(dayKey) => <><NavigationAnnouncement /><MainLandmarkGuard /><ShellNavigationSemanticsGuard /><a className="skip-link" href="#app-main-content">本文へ移動</a><main id="app-main-content" tabIndex={-1}><App key={dayKey} /></main></>}</DayRolloverBoundary></AppErrorBoundary></React.StrictMode>,
+  <React.StrictMode>
+    <AppErrorBoundary>
+      <DayRolloverBoundary>
+        {(dayKey) => (
+          <>
+            <NavigationAnnouncement />
+            <MainLandmarkGuard />
+            <ShellNavigationSemanticsGuard />
+            <a className="skip-link" href="#app-main-content">本文へ移動</a>
+            <main id="app-main-content" tabIndex={-1}>
+              <App key={dayKey} />
+            </main>
+          </>
+        )}
+      </DayRolloverBoundary>
+    </AppErrorBoundary>
+  </React.StrictMode>,
 );
 
 requestAnimationFrame(() => {
   const boot = document.getElementById('boot');
   if (!boot) return;
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { boot.remove(); return; }
-  setTimeout(() => { boot.style.opacity = '0'; setTimeout(() => boot.remove(), 450); }, 250);
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    boot.remove();
+    return;
+  }
+
+  setTimeout(() => {
+    boot.style.opacity = '0';
+    setTimeout(() => boot.remove(), 450);
+  }, 250);
 });
