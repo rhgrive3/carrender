@@ -26,7 +26,11 @@ assert.match(studySource, /window\.addEventListener\('pagehide', pauseTimer\)/u,
 assert.match(studySource, /window\.addEventListener\('pageshow', resumeTimer\)/u, 'pageshowで計測を再開する');
 assert.match(studySource, /document\.removeEventListener\('visibilitychange', onVisibilityChange\)/u, 'visibility listenerをcleanupする');
 assert.match(studySource, /responseTimer\.current\.reset\(performance\.now\(\), document\.visibilityState !== 'hidden'\)/u, 'カード・session切替で計測値を破棄する');
-assert.match(studySource, /responseMs: responseTimer\.current\.read\(performance\.now\(\)\)/u, '回答保存へ表示中の累積時間だけを渡す');
+assert.match(studySource, /const responseMsAtReveal = useRef<number>\(\)/u, '各問題の最初の答え表示時点を保持する');
+assert.match(studySource, /if \(next && responseMsAtReveal\.current === undefined\) \{\s*responseMsAtReveal\.current = responseTimer\.current\.read\(performance\.now\(\)\);\s*\}/u, '初めて答えを表示した時点で想起時間を固定する');
+assert.match(studySource, /responseMs: responseMsAtReveal\.current \?\? responseTimer\.current\.read\(performance\.now\(\)\)/u, '自己評価までの確認時間を加算せず、未取得時だけ現在値へfallbackする');
+assert.equal((studySource.match(/responseMsAtReveal\.current = undefined;/gu) ?? []).length >= 4, true, 'session・次カード・回答完了・Undoで固定値を破棄する');
+assert.doesNotMatch(studySource, /responseMs: responseTimer\.current\.read\(performance\.now\(\)\)/u, '自己評価時点までの全時間を直接保存しない');
 assert.doesNotMatch(studySource, /performance\.now\(\) - questionStarted\.current/u, '非表示時間を含む単純差分へ戻さない');
 
 console.log('memory active response time contracts passed');

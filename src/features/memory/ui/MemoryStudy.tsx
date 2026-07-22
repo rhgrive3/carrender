@@ -62,6 +62,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const [loadError, setLoadError] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
   const responseTimer = useRef(new ActiveElapsedTimer(performance.now(), document.visibilityState !== 'hidden'));
+  const responseMsAtReveal = useRef<number>();
   const pointerStart = useRef<PointerStart | null>(null);
   const ignoreNextClick = useRef(false);
   const mounted = useRef(true);
@@ -105,6 +106,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     pointerStart.current = null;
     ignoreNextClick.current = false;
     responseTimer.current.reset(performance.now(), document.visibilityState !== 'hidden');
+    responseMsAtReveal.current = undefined;
     setSession(undefined);
     setBundle(undefined);
     setLoadError(undefined);
@@ -190,6 +192,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     setRevealed(false);
     setFlipDirection(undefined);
     responseTimer.current.reset(performance.now(), document.visibilityState !== 'hidden');
+    responseMsAtReveal.current = undefined;
   }, [session?.answerCount, target?.id]);
 
   const refreshAfterPersist = async (operation: '回答保存' | '回答取り消し') => {
@@ -225,7 +228,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         clientId: await repository.clientId(),
         errorTypes: assessment === 'correct' ? [] : ['recall'],
         hintUsed: false,
-        responseMs: responseTimer.current.read(performance.now()),
+        responseMs: responseMsAtReveal.current ?? responseTimer.current.read(performance.now()),
         presentedExerciseType: 'flashcard',
       });
       await refreshAfterPersist('回答保存');
@@ -234,6 +237,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       setRevealed(false);
       setFlipDirection(undefined);
       responseTimer.current.reset(performance.now(), document.visibilityState !== 'hidden');
+      responseMsAtReveal.current = undefined;
       setSession(result.session);
       if (result.session.status === 'completed') navigate({ name: 'result', sessionId: result.session.id });
     } catch (caught) {
@@ -259,6 +263,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       if (!mounted.current || activeSessionId.current !== actionSessionId || actionToken.current !== token) return;
       setRevealed(false);
       setFlipDirection(undefined);
+      responseMsAtReveal.current = undefined;
       setSession(restored.session);
       toast('最後の回答を取り消しました');
     } catch (caught) {
@@ -270,6 +275,9 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
 
   const setCardSide = (next: boolean) => {
     if (busy || next === revealed) return;
+    if (next && responseMsAtReveal.current === undefined) {
+      responseMsAtReveal.current = responseTimer.current.read(performance.now());
+    }
     setFlipDirection(next ? 'to-answer' : 'to-question');
     setRevealed(next);
   };
