@@ -5,6 +5,7 @@ import { MemoryRepository } from '../infrastructure/repositories';
 import { ValidatedMemoryRepository } from '../infrastructure/validatedRepository';
 import { flushMemorySync, type MemorySyncStatus } from '../infrastructure/syncEngine';
 import { classifyMemorySyncError, logUnexpectedMemorySyncError } from '../infrastructure/syncError';
+import { canScheduleMemorySyncRetry, MemorySyncRetryController } from '../infrastructure/syncRetry';
 
 export type MemoryView =
   | { name: 'home' }
@@ -29,7 +30,10 @@ interface MemoryContextValue {
   immersive: boolean;
   navigate: (view: MemoryView) => void;
   refresh: () => Promise<void>;
+  /** Automatic sync request. Respects an active retry backoff. */
   requestSync: (force?: boolean) => Promise<void>;
+  /** Explicit user/recovery request. Cancels retry backoff and runs immediately. */
+  retrySyncNow: () => Promise<void>;
 }
 
 const MemoryContext = createContext<MemoryContextValue | null>(null);
@@ -82,12 +86,16 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
   const activeRepository = useRef<MemoryRepository | null>(null);
   const syncInFlight = useRef<Promise<void> | null>(null);
   const syncForceQueued = useRef(false);
+  const syncBypassQueued = useRef(false);
+  const retryController = useRef(new MemorySyncRetryController());
   const lastEditorPointerDownAt = useRef(0);
 
   useLayoutEffect(() => {
+    retryController.current.dispose();
     activeRepository.current = null;
     syncInFlight.current = null;
     syncForceQueued.current = false;
+    syncBypassQueued.current = false;
     lastEditorPointerDownAt.current = 0;
     setRepository(null);
     setReady(false);
@@ -115,12 +123,104 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     setConflictCount(conflicts.length);
   }, []);
 
+  const runSyncFor = useCallback((
+    target: MemoryRepository,
+    force = false,
+    bypassBackoff = false,
+  ): Promise<void> => {
+    if (!mounted.current || activeRepository.current !== target) return Promise.resolve();
+    if (bypassBackoff) retryController.current.bypass();
+    else if (retryController.current.isWaiting()) return Promise.resolve();
+
+    if (syncInFlight.current) {
+      if (force) syncForceQueued.current = true;
+      if (bypassBackoff) syncBypassQueued.current = true;
+      return syncInFlight.current;
+    }
+
+    const scheduleRetry = (retryable: boolean | undefined, retryPolicy: Parameters<MemorySyncRetryController['schedule']>[0]) => {
+      if (!retryable || !canScheduleMemorySyncRetry(retryPolicy)) {
+        retryController.current.markStable();
+        return false;
+      }
+      retryController.current.schedule(retryPolicy, () => {
+        if (!mounted.current || activeRepository.current !== target) return;
+        void runSyncFor(target, true, false);
+      });
+      return true;
+    };
+
+    const run = (async () => {
+      let runForced = force;
+      let runBypass = bypassBackoff;
+      do {
+        if (runBypass) retryController.current.bypass();
+        else if (retryController.current.isWaiting()) break;
+        syncForceQueued.current = false;
+        syncBypassQueued.current = false;
+        let retryScheduled = false;
+
+        try {
+          const [unsynced, hasPendingContentMutations] = await Promise.all([
+            target.unsyncedAttempts(runForced ? 20 : 21),
+            target.hasPendingContentMutations(),
+          ]);
+          if (!runForced && !hasPendingContentMutations && unsynced.length < 20) {
+            retryController.current.markStable();
+            await refreshRepository(target);
+          } else {
+            if (mounted.current && activeRepository.current === target) {
+              setSyncStatus('syncing');
+              setSyncError(null);
+            }
+            const result = await flushMemorySync(target);
+            if (mounted.current && activeRepository.current === target) {
+              setSyncStatus(result.status);
+              setSyncError(result.errorMessage ?? null);
+            }
+            retryScheduled = scheduleRetry(result.retryable, result.retryPolicy);
+            await refreshRepository(target);
+          }
+        } catch (caught) {
+          const failure = classifiedSyncFailure(caught);
+          if (mounted.current && activeRepository.current === target) {
+            setSyncStatus(failure.syncStatus);
+            setSyncError(failure.syncStatus === 'offline' ? null : failure.userMessage);
+          }
+          retryScheduled = scheduleRetry(failure.retryable, failure.retryPolicy);
+        }
+
+        const queuedBypass = syncBypassQueued.current;
+        const queuedForce = syncForceQueued.current;
+        syncBypassQueued.current = false;
+        syncForceQueued.current = false;
+        // Ordinary visibility/save/pagehide triggers never defeat a newly-created
+        // backoff. A user action or concrete online event may explicitly bypass it.
+        if (retryScheduled && !queuedBypass) break;
+        runBypass = queuedBypass;
+        runForced = queuedForce || queuedBypass;
+      } while ((runForced || runBypass) && mounted.current && activeRepository.current === target);
+    })();
+
+    syncInFlight.current = run;
+    void run.finally(() => {
+      if (syncInFlight.current === run) {
+        syncInFlight.current = null;
+        syncForceQueued.current = false;
+        syncBypassQueued.current = false;
+      }
+    });
+    return run;
+  }, [refreshRepository]);
+
   useEffect(() => {
     mounted.current = true;
     const next = new ValidatedMemoryRepository(owner);
     activeRepository.current = next;
     syncInFlight.current = null;
     syncForceQueued.current = false;
+    syncBypassQueued.current = false;
+    retryController.current.markStable();
     setRepository(next);
     setReady(false);
     setError(null);
@@ -138,41 +238,22 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
         }
         return;
       }
-
-      if (navigatorOnline() === false) {
-        if (mounted.current && activeRepository.current === next) setSyncStatus('offline');
-        return;
-      }
-
-      if (mounted.current && activeRepository.current === next) {
-        setSyncStatus('syncing');
-        setSyncError(null);
-      }
-      try {
-        const result = await flushMemorySync(next, 100);
-        if (mounted.current && activeRepository.current === next) {
-          setSyncStatus(result.status);
-          setSyncError(result.errorMessage ?? null);
-        }
-        await refreshRepository(next);
-      } catch (caught) {
-        if (mounted.current && activeRepository.current === next) {
-          const failure = classifiedSyncFailure(caught);
-          setSyncStatus(failure.syncStatus);
-          setSyncError(failure.syncStatus === 'offline' ? null : failure.userMessage);
-        }
-      }
+      // navigator.onLine may be stale or wrong. Always let the real request
+      // determine reachability, then classify the outcome for display/retry.
+      await runSyncFor(next, true, false);
     })();
     return () => {
       if (activeRepository.current === next) {
+        retryController.current.dispose();
         activeRepository.current = null;
         syncInFlight.current = null;
         syncForceQueued.current = false;
+        syncBypassQueued.current = false;
         mounted.current = false;
       }
       next.close();
     };
-  }, [owner, refreshRepository]);
+  }, [owner, refreshRepository, runSyncFor]);
 
   const refresh = useCallback(async () => {
     if (!repository) return;
@@ -181,58 +262,17 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
 
   const requestSync = useCallback((force = false): Promise<void> => {
     if (!repository) return Promise.resolve();
-    if (syncInFlight.current) {
-      if (force) syncForceQueued.current = true;
-      return syncInFlight.current;
-    }
+    return runSyncFor(repository, force, false);
+  }, [repository, runSyncFor]);
 
-    const target = repository;
-    const run = (async () => {
-      let runForced = force;
-      do {
-        syncForceQueued.current = false;
-        try {
-          const [unsynced, hasPendingContentMutations] = await Promise.all([
-            target.unsyncedAttempts(runForced ? 20 : 21),
-            target.hasPendingContentMutations(),
-          ]);
-          if (!runForced && !hasPendingContentMutations && unsynced.length < 20) {
-            await refreshRepository(target);
-          } else {
-            if (mounted.current && activeRepository.current === target) {
-              setSyncStatus('syncing');
-              setSyncError(null);
-            }
-            const result = await flushMemorySync(target);
-            if (mounted.current && activeRepository.current === target) {
-              setSyncStatus(result.status);
-              setSyncError(result.errorMessage ?? null);
-            }
-            await refreshRepository(target);
-          }
-        } catch (caught) {
-          if (mounted.current && activeRepository.current === target) {
-            const failure = classifiedSyncFailure(caught);
-            setSyncStatus(failure.syncStatus);
-            setSyncError(failure.syncStatus === 'offline' ? null : failure.userMessage);
-          }
-        }
-        runForced = syncForceQueued.current;
-      } while (runForced && mounted.current && activeRepository.current === target);
-    })();
-    syncInFlight.current = run;
-    void run.finally(() => {
-      if (syncInFlight.current === run) {
-        syncInFlight.current = null;
-        syncForceQueued.current = false;
-      }
-    });
-    return run;
-  }, [refreshRepository, repository]);
+  const retrySyncNow = useCallback((): Promise<void> => {
+    if (!repository) return Promise.resolve();
+    return runSyncFor(repository, true, true);
+  }, [repository, runSyncFor]);
 
   useEffect(() => {
     if (!repository) return;
-    const onOnline = () => void requestSync(true);
+    const onOnline = () => void retrySyncNow();
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void requestSync(true);
     };
@@ -245,7 +285,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onPageHide);
     };
-  }, [repository, requestSync]);
+  }, [repository, requestSync, retrySyncNow]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -280,6 +320,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     navigate,
     refresh,
     requestSync,
+    retrySyncNow,
   }), [
     repository,
     ready,
@@ -294,6 +335,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     navigate,
     refresh,
     requestSync,
+    retrySyncNow,
   ]);
 
   return <MemoryContext.Provider value={value}>{children}</MemoryContext.Provider>;
