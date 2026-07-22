@@ -1,5 +1,10 @@
 import type { AppState } from '../types';
-import { snapshotMainStateEntityHashes, type MainStateEntityHashSnapshot } from './mainStateMerge';
+import {
+  MAIN_STATE_ENTITY_HASH_VERSION,
+  snapshotMainStateEntityHashes,
+  type MainStateEntityHashSnapshot,
+  type MainStateEntityHashVersion,
+} from './mainStateMerge';
 
 const LEGACY_META_KEY = 'studycommander_main_sync_meta_v1';
 const LEGACY_CONFLICT_BACKUP_KEY = 'studycommander_main_sync_conflict_backup_v1';
@@ -13,6 +18,8 @@ export interface MainSyncMetadata {
   /** Remote version the current local edits were based on. */
   baseUpdatedAt: string | null;
   localChangedAt: string;
+  /** Digest algorithm used by baseEntityHashes. */
+  baseEntityHashVersion?: MainStateEntityHashVersion;
   /** Hashes of the last clean generation, used as an entity-level merge base. */
   baseEntityHashes?: MainStateEntityHashSnapshot;
 }
@@ -98,20 +105,41 @@ function isIsoTimestamp(value: unknown): value is string {
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
 }
 
-function isEntityHashSnapshot(value: unknown): value is MainStateEntityHashSnapshot {
+function isEntityHashSnapshot(value: unknown, hashPattern: RegExp): value is MainStateEntityHashSnapshot {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   return Object.values(value).every((section) => {
     if (!section || typeof section !== 'object' || Array.isArray(section)) return false;
-    return Object.values(section).every((hash) => typeof hash === 'string' && /^[0-9a-f]{8}$/.test(hash));
+    return Object.values(section).every((hash) => typeof hash === 'string' && hashPattern.test(hash));
   });
+}
+
+function withoutEntityMergeBase(value: Partial<MainSyncMetadata>): MainSyncMetadata {
+  const {
+    baseEntityHashes: _baseEntityHashes,
+    baseEntityHashVersion: _baseEntityHashVersion,
+    ...metadata
+  } = value;
+  return metadata as MainSyncMetadata;
 }
 
 function validatedMetadata(value: Partial<MainSyncMetadata> | null): MainSyncMetadata | null {
   if (!value || typeof value.owner !== 'string' || !value.owner || typeof value.dirty !== 'boolean') return null;
   if (value.baseUpdatedAt !== null && !isIsoTimestamp(value.baseUpdatedAt)) return null;
   if (!isIsoTimestamp(value.localChangedAt)) return null;
-  if (value.baseEntityHashes !== undefined && !isEntityHashSnapshot(value.baseEntityHashes)) return null;
-  return value as MainSyncMetadata;
+  if (value.baseEntityHashes === undefined) {
+    return value.baseEntityHashVersion === undefined ? value as MainSyncMetadata : null;
+  }
+  if (value.baseEntityHashVersion === MAIN_STATE_ENTITY_HASH_VERSION) {
+    return isEntityHashSnapshot(value.baseEntityHashes, /^[0-9a-f]{64}$/) ? value as MainSyncMetadata : null;
+  }
+  // Old clients stored unversioned 32-bit FNV hashes. Keep their dirty/base
+  // generation metadata, but discard the collision-prone merge base so the
+  // next divergence is handled as an explicit conflict and then re-baselined.
+  if (value.baseEntityHashVersion === undefined
+    && isEntityHashSnapshot(value.baseEntityHashes, /^[0-9a-f]{8}$/)) {
+    return withoutEntityMergeBase(value);
+  }
+  return null;
 }
 
 function legacyMetadata(): MainSyncMetadata | null {
@@ -157,6 +185,7 @@ export function markMainSyncDirty(
     owner,
     dirty: true,
     baseUpdatedAt: current?.dirty ? current.baseUpdatedAt : baseUpdatedAt,
+    baseEntityHashVersion: current?.baseEntityHashVersion,
     baseEntityHashes: current?.baseEntityHashes,
     localChangedAt: now,
   };
@@ -177,11 +206,14 @@ export function markMainSyncClean(
   cleanState?: AppState,
   throwOnFailure = true,
 ): MainSyncMetadataWriteResult {
+  const current = getMainSyncMetadata(owner);
+  const baseEntityHashes = cleanState ? snapshotMainStateEntityHashes(cleanState) : current?.baseEntityHashes;
   const next: MainSyncMetadata = {
     owner,
     dirty: false,
     baseUpdatedAt: remoteUpdatedAt,
-    baseEntityHashes: cleanState ? snapshotMainStateEntityHashes(cleanState) : getMainSyncMetadata(owner)?.baseEntityHashes,
+    baseEntityHashVersion: cleanState ? MAIN_STATE_ENTITY_HASH_VERSION : current?.baseEntityHashVersion,
+    baseEntityHashes,
     localChangedAt: now,
   };
   const persisted = writeJSON(metadataKey(owner), next);
