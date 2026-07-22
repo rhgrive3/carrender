@@ -12,6 +12,7 @@ export type {
 } from './targets';
 
 import {
+  englishAnswersForSense,
   isUsableEnglishMemoryText,
   memoryTargetHasUsableLanguagePair,
   normalizeMemoryCardText,
@@ -80,6 +81,7 @@ export function diagnoseLearningTargetEligibility(
     unsupportedDirection: 0,
     brokenReference: 0,
   };
+  const includeUnverified = input.includeUnverifiedAi ?? false;
   const selectedSets = new Set(input.selectedSetIds);
   const selectedItemIds = [...new Set(input.setMembers
     .filter((member) => !member.deletedAt && selectedSets.has(member.setId))
@@ -114,22 +116,43 @@ export function diagnoseLearningTargetEligibility(
         counts.missingJapanese += 1;
         continue;
       }
-      if (!(input.includeUnverifiedAi ?? false)
+      if (!includeUnverified
         && (item.verificationStatus !== 'verified' || sense.verificationStatus !== 'verified')) {
         counts.unverifiedAi += 1;
         continue;
       }
-      const anyEnglish = primaryEnglishForSense(input.content, sense.id);
-      const verifiedEnglish = primaryEnglishForSense(input.content, sense.id, { verifiedOnly: true });
-      if (!anyEnglish || !isUsableEnglishMemoryText(anyEnglish)
-        || normalizeMemoryCardText(anyEnglish) === normalizeMemoryCardText(sense.promptJa)) {
-        counts.missingEnglish += 1;
+
+      if (input.direction === 'output') {
+        const allAnswers = englishAnswersForSense(input.content, sense.id);
+        const verifiedAnswers = englishAnswersForSense(input.content, sense.id, { verifiedOnly: true });
+        if (allAnswers.length === 0) {
+          counts.missingEnglish += 1;
+          continue;
+        }
+        if (!includeUnverified && verifiedAnswers.length === 0) {
+          counts.unverifiedAi += 1;
+          continue;
+        }
+        counts.unsupportedDirection += 1;
         continue;
       }
-      if (!(input.includeUnverifiedAi ?? false) && !verifiedEnglish) {
-        counts.unverifiedAi += 1;
+
+      if (input.direction === 'input') {
+        const anyEnglish = primaryEnglishForSense(input.content, sense.id);
+        const verifiedEnglish = primaryEnglishForSense(input.content, sense.id, { verifiedOnly: true });
+        if (!anyEnglish || !isUsableEnglishMemoryText(anyEnglish)
+          || normalizeMemoryCardText(anyEnglish) === normalizeMemoryCardText(sense.promptJa)) {
+          counts.missingEnglish += 1;
+          continue;
+        }
+        if (!includeUnverified && !verifiedEnglish) {
+          counts.unverifiedAi += 1;
+          continue;
+        }
+        counts.unsupportedDirection += 1;
         continue;
       }
+
       counts.unsupportedDirection += 1;
     }
   }
