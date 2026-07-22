@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const source = await readFile(new URL('../src/components/cards/TaskRow.tsx', import.meta.url), 'utf8');
 const completedTaskGuard = await readFile(new URL('../src/lib/completedTaskAccessibility.ts', import.meta.url), 'utf8');
+const completedTaskModalGuard = await readFile(new URL('../src/lib/completedTaskModalIsolationGuard.ts', import.meta.url), 'utf8');
 const main = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
 
 test('task card exposes a named article and heading', () => {
@@ -48,7 +49,22 @@ test('completed task dialog exposes navigation, close, Escape, and focus restora
   assert.match(completedTaskGuard, /returnFocus\.focus\(\)/);
 });
 
-test('completed task accessibility guard is installed at application startup', () => {
+test('completed task dialog uses the shared modal isolation and focus trap', () => {
+  assert.match(completedTaskModalGuard, /acquireModalIsolation\(backdrop\)/);
+  assert.match(completedTaskModalGuard, /trapModalTabKey\(event, current\.dialog\)/);
+  assert.match(completedTaskModalGuard, /current\.backdrop\.hasAttribute\('inert'\)/);
+  assert.match(completedTaskModalGuard, /current\.restoreIsolation\(\)/);
+  assert.match(completedTaskModalGuard, /dialog\.tabIndex = -1/);
+});
+
+test('completed task modal isolation is released on removal and guard cleanup', () => {
+  assert.match(completedTaskModalGuard, /if \(!\(backdrop instanceof HTMLElement\)\) \{[\s\S]*releaseActive\(\)/);
+  assert.match(completedTaskModalGuard, /const cleanup = \(\) => \{[\s\S]*observer\.disconnect\(\)[\s\S]*releaseActive\(\)/);
+  assert.match(completedTaskModalGuard, /if \(!active\) return;[\s\S]*active = null;[\s\S]*current\.restoreIsolation\(\)/);
+});
+
+test('completed task accessibility guards are installed at application startup', () => {
   assert.match(main, /import \{ installCompletedTaskAccessibility \} from '\.\/lib\/completedTaskAccessibility'/);
-  assert.match(main, /installCompletedTaskAccessibility\(\);/);
+  assert.match(main, /import \{ installCompletedTaskModalIsolationGuard \} from '\.\/lib\/completedTaskModalIsolationGuard'/);
+  assert.match(main, /installCompletedTaskAccessibility\(\);[\s\S]*installCompletedTaskModalIsolationGuard\(\);/);
 });

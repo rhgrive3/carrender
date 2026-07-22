@@ -32,6 +32,7 @@ import { installRecordTabPanelSemanticsGuard } from './lib/recordTabPanelSemanti
 import { installMemoryImportTabPanelSemantics } from './lib/memoryImportTabPanelSemantics';
 import { installDisclosurePanelSemantics } from './lib/disclosurePanelSemantics';
 import { installCompletedTaskAccessibility } from './lib/completedTaskAccessibility';
+import { installCompletedTaskModalIsolationGuard } from './lib/completedTaskModalIsolationGuard';
 import { installChartAccessibleDataGuard } from './lib/chartAccessibleDataGuard';
 import { installDeadlineMoveAccessibilityGuard } from './lib/deadlineMoveAccessibilityGuard';
 import { registerSafeServiceWorkerUpdate } from './lib/serviceWorkerUpdate';
@@ -183,6 +184,7 @@ installRecordTabPanelSemanticsGuard();
 installMemoryImportTabPanelSemantics();
 installDisclosurePanelSemantics();
 installCompletedTaskAccessibility();
+installCompletedTaskModalIsolationGuard();
 installChartAccessibleDataGuard();
 installDeadlineMoveAccessibilityGuard();
 preserveUnreadableState();
