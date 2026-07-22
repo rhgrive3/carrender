@@ -4,6 +4,12 @@ import type { AppState } from '../types';
 import { AppStateIndexedDbRepository } from '../lib/appStateIndexedDb';
 import { canonicalizeCloudSettings, canonicalizeSettingsWithHistory } from '../lib/appStateChunks';
 import {
+  getEmergencyStateCacheStatus,
+  persistEmergencyStateCache,
+  subscribeEmergencyStateCacheStatus,
+  type EmergencyStateCacheStatus,
+} from '../lib/emergencyStateCache';
+import {
   getMainSyncMetadata,
   MAIN_SYNC_METADATA_WRITE_FAILURE_EVENT,
   markMainSyncClean,
@@ -119,8 +125,6 @@ export function MainStateBootstrap({ owner, children }: { owner: string; childre
         if (cacheBelongsToOwner && !useEmergencyCache) clearEmergencyStateCache();
         const localState = useEmergencyCache ? loadState() : null;
         if (localState) {
-          // 旧版・破損データ由来の未知設定はlocalStorageの小さい上限を圧迫する。
-          // AppProviderを起動する前に未知設定だけを縮小し、計画履歴を含む現行データは保持する。
           const canonicalSettings = canonicalizeLocalSettings(localState.settings);
           const canonicalLocalState = { ...localState, settings: canonicalSettings };
           if (JSON.stringify(canonicalSettings) !== JSON.stringify(localState.settings)) {
@@ -176,6 +180,9 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
   const [readyOwner, setReadyOwner] = useState<string | null>(null);
   const [stateError, setStateError] = useState<string | null>(null);
   const [metadataError, setMetadataError] = useState<string | null>(null);
+  const [emergencyCacheStatus, setEmergencyCacheStatus] = useState<EmergencyStateCacheStatus>(getEmergencyStateCacheStatus);
+
+  useEffect(() => subscribeEmergencyStateCacheStatus(setEmergencyCacheStatus), []);
 
   useEffect(() => {
     const onMetadataWriteFailure = () => setMetadataError(SYNC_METADATA_SAVE_ERROR);
@@ -217,6 +224,9 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
   }, [owner]);
 
   useEffect(() => {
+    // Keep the existing synchronous pagehide safety net observable. A suppressed
+    // cache is retried on every later, smaller snapshot without reloading the app.
+    persistEmergencyStateCache(state);
     const repository = repositoryRef.current;
     const baseline = persistenceBaselineRef.current;
     if (!repository || readyOwner !== owner) return;
@@ -245,6 +255,9 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
 
   useEffect(() => {
     const persist = () => {
+      // localStorage is synchronous, so perform it before starting async IndexedDB
+      // work that iOS may suspend immediately after pagehide.
+      persistEmergencyStateCache(stateRef.current);
       const repository = repositoryRef.current;
       const baseline = persistenceBaselineRef.current;
       if (!repository || readyOwner !== owner) return;
@@ -259,13 +272,23 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
         });
       }
     };
+    const retryWhenVisible = () => {
+      if (document.visibilityState === 'visible') persistEmergencyStateCache(stateRef.current);
+    };
     window.addEventListener('pagehide', persist);
-    return () => window.removeEventListener('pagehide', persist);
+    document.addEventListener('visibilitychange', retryWhenVisible);
+    return () => {
+      window.removeEventListener('pagehide', persist);
+      document.removeEventListener('visibilitychange', retryWhenVisible);
+    };
   }, [owner, readyOwner]);
 
   const error = metadataError ?? stateError;
   return <>
     {children}
     {error && <div className="toast undo-notice" role="alert">{error}</div>}
+    {emergencyCacheStatus.phase !== 'active' && emergencyCacheStatus.message && (
+      <div className="toast undo-notice" role="status">{emergencyCacheStatus.message}</div>
+    )}
   </>;
 }
