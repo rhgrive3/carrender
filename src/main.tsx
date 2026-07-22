@@ -23,7 +23,6 @@ import './styles/ios-form-controls.css';
 // 永続UX契約: 主要5タブは常にviewport下端へ固定する。
 // 新しい画面CSSを追加する場合も、layoutContracts.cssより後ろへ置いてはならない。
 import './styles/layoutContracts.css';
-import { registerSW } from 'virtual:pwa-register';
 import { AppErrorBoundary } from './components/ui/AppErrorBoundary';
 import { DayRolloverBoundary } from './components/DayRolloverBoundary';
 import { preserveUnreadableState } from './lib/preserveUnreadableState';
@@ -35,6 +34,7 @@ import { installDisclosurePanelSemantics } from './lib/disclosurePanelSemantics'
 import { installCompletedTaskAccessibility } from './lib/completedTaskAccessibility';
 import { installChartAccessibleDataGuard } from './lib/chartAccessibleDataGuard';
 import { installDeadlineMoveAccessibilityGuard } from './lib/deadlineMoveAccessibilityGuard';
+import { registerSafeServiceWorkerUpdate } from './lib/serviceWorkerUpdate';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
 
@@ -186,7 +186,7 @@ installCompletedTaskAccessibility();
 installChartAccessibleDataGuard();
 installDeadlineMoveAccessibilityGuard();
 preserveUnreadableState();
-registerSW({ immediate: true });
+registerSafeServiceWorkerUpdate();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
