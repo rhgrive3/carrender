@@ -1,4 +1,5 @@
 import { computeAnalytics } from './analytics';
+import { getAppStateSnapshot, subscribeAppStateSnapshot } from './appStateSnapshot';
 import {
   addDays,
   formatDateShort,
@@ -10,7 +11,6 @@ import {
 } from './date';
 import { stablePlanTasks } from './progressChart';
 import { resolveRecordSubject } from './recordSubjects';
-import { loadState } from './storage';
 import {
   actualMaterialAmountThrough,
   isPlacedPlanTask,
@@ -21,6 +21,11 @@ import type { AppState, ISODate } from '../types';
 
 const INSTALL_KEY = '__studyCommanderChartAccessibleDataGuard';
 const GENERATED_SELECTOR = '[data-chart-accessible-data]';
+const DESCRIPTION_IDS = [
+  'records-week-chart-summary',
+  'analytics-heatmap-summary',
+  'goal-progress-chart-summary',
+] as const;
 
 type GuardWindow = Window & { [INSTALL_KEY]?: () => void };
 
@@ -33,15 +38,6 @@ type DaySummary = {
 
 function text(element: Element | null): string {
   return element?.textContent?.trim() ?? '';
-}
-
-function safeState(): AppState | null {
-  try {
-    return loadState();
-  } catch (error) {
-    console.warn('グラフの代替データを読み込めませんでした', error);
-    return null;
-  }
 }
 
 function makeElement<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
@@ -246,17 +242,30 @@ function installGoalProgressAlternative(state: AppState): void {
   chart.setAttribute('aria-describedby', ensureDescription(chart, 'goal-progress-chart-summary', `${rows.length}教材中、目標以上が${rows.length - behind}件、目標未満が${behind}件です。`));
 }
 
+function clearChartAlternatives(): void {
+  document.querySelectorAll(GENERATED_SELECTOR).forEach((node) => node.remove());
+  for (const id of DESCRIPTION_IDS) {
+    const node = document.getElementById(id);
+    if (!node) continue;
+    document.querySelectorAll(`[aria-describedby="${id}"]`).forEach((anchor) => anchor.removeAttribute('aria-describedby'));
+    node.remove();
+  }
+}
+
 function normalizeChartAlternatives(): void {
-  const state = safeState();
-  if (!state) return;
+  const state = getAppStateSnapshot();
+  if (!state) {
+    clearChartAlternatives();
+    return;
+  }
   installWeekAlternative(state);
   installAnalyticsHeatmapAlternative(state);
   installGoalProgressAlternative(state);
 }
 
 /**
- * 視覚グラフのhover・色・高さへ閉じ込められた数値を、同じ端末stateから
- * 折りたたみ可能な表・一覧として再構成する。React画面の期間切替やlazy描画後も追従する。
+ * 視覚グラフのhover・色・高さへ閉じ込められた数値を、Reactでcommit済みの
+ * 最新AppStateから折りたたみ可能な表・一覧として再構成する。
  */
 export function installChartAccessibleDataGuard(): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => undefined;
@@ -271,12 +280,14 @@ export function installChartAccessibleDataGuard(): () => void {
     });
   };
   schedule();
+  const unsubscribeSnapshot = subscribeAppStateSnapshot(schedule);
   const observer = new MutationObserver((records) => {
     if (records.every((record) => record.target instanceof Element && record.target.closest(GENERATED_SELECTOR))) return;
     schedule();
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   const cleanup = () => {
+    unsubscribeSnapshot();
     observer.disconnect();
     if (frame) cancelAnimationFrame(frame);
     delete guardWindow[INSTALL_KEY];
