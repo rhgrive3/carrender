@@ -34,6 +34,7 @@ import { installMemoryImportTabPanelSemantics } from './lib/memoryImportTabPanel
 import { installDisclosurePanelSemantics } from './lib/disclosurePanelSemantics';
 import { installCompletedTaskAccessibility } from './lib/completedTaskAccessibility';
 import { installChartAccessibleDataGuard } from './lib/chartAccessibleDataGuard';
+import { installDeadlineMoveAccessibilityGuard } from './lib/deadlineMoveAccessibilityGuard';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
 
@@ -183,6 +184,7 @@ installMemoryImportTabPanelSemantics();
 installDisclosurePanelSemantics();
 installCompletedTaskAccessibility();
 installChartAccessibleDataGuard();
+installDeadlineMoveAccessibilityGuard();
 preserveUnreadableState();
 registerSW({ immediate: true });
 
