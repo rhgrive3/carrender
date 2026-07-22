@@ -66,28 +66,76 @@ export interface StoredStateBaseline {
   current: AppState | null;
 }
 
-const persistenceQueues = new WeakMap<StoredStateBaseline, Promise<void>>();
+interface PersistenceWaiter {
+  resolve: () => void;
+  reject: (reason: unknown) => void;
+}
+
+interface PendingPersistenceWrite {
+  repository: Pick<AppStateIndexedDbRepository, 'saveState'>;
+  snapshot: AppState;
+  waiters: PersistenceWaiter[];
+}
+
+interface PersistenceQueue {
+  running: boolean;
+  pending: PendingPersistenceWrite | null;
+}
+
+const persistenceQueues = new WeakMap<StoredStateBaseline, PersistenceQueue>();
+
+async function drainPersistenceQueue(
+  baseline: StoredStateBaseline,
+  queue: PersistenceQueue,
+): Promise<void> {
+  if (queue.running) return;
+  const write = queue.pending;
+  if (!write) return;
+
+  queue.pending = null;
+  queue.running = true;
+  try {
+    const previous = baseline.current;
+    await write.repository.saveState(write.snapshot, previous);
+    baseline.current = write.snapshot;
+    for (const waiter of write.waiters) waiter.resolve();
+  } catch (caught) {
+    for (const waiter of write.waiters) waiter.reject(caught);
+  } finally {
+    queue.running = false;
+    if (queue.pending) void drainPersistenceQueue(baseline, queue);
+  }
+}
 
 /**
- * Serialize IndexedDB writes that share a differential baseline. React can
- * publish several state snapshots before the previous write commits; without
- * this queue, an older write may finish last and overwrite a newer snapshot.
+ * Serializes IndexedDB writes that share a differential baseline. One write may
+ * be in flight; every not-yet-started snapshot is coalesced into the newest
+ * snapshot so rapid reducer updates cannot leave the durable state far behind.
  */
 export function persistMainStateSnapshot(
   repository: Pick<AppStateIndexedDbRepository, 'saveState'>,
   snapshot: AppState,
   baseline: StoredStateBaseline,
 ): Promise<void> {
-  const previousWrite = persistenceQueues.get(baseline) ?? Promise.resolve();
-  const nextWrite = previousWrite
-    .catch(() => undefined)
-    .then(async () => {
-      const previous = baseline.current;
-      await repository.saveState(snapshot, previous);
-      baseline.current = snapshot;
-    });
-  persistenceQueues.set(baseline, nextWrite);
-  return nextWrite;
+  let queue = persistenceQueues.get(baseline);
+  if (!queue) {
+    queue = { running: false, pending: null };
+    persistenceQueues.set(baseline, queue);
+  }
+  const activeQueue = queue;
+
+  const promise = new Promise<void>((resolve, reject) => {
+    const waiter = { resolve, reject };
+    if (activeQueue.pending) {
+      activeQueue.pending.repository = repository;
+      activeQueue.pending.snapshot = snapshot;
+      activeQueue.pending.waiters.push(waiter);
+    } else {
+      activeQueue.pending = { repository, snapshot, waiters: [waiter] };
+    }
+  });
+  void drainPersistenceQueue(baseline, activeQueue);
+  return promise;
 }
 
 /**
