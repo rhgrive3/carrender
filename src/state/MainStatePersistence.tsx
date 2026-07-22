@@ -3,7 +3,12 @@ import type { ReactNode } from 'react';
 import type { AppState } from '../types';
 import { AppStateIndexedDbRepository } from '../lib/appStateIndexedDb';
 import { canonicalizeCloudSettings, canonicalizeSettingsWithHistory } from '../lib/appStateChunks';
-import { getMainSyncMetadata, markMainSyncClean, markMainSyncDirty } from '../lib/mainSync';
+import {
+  getMainSyncMetadata,
+  MAIN_SYNC_METADATA_WRITE_FAILURE_EVENT,
+  markMainSyncClean,
+  markMainSyncDirty,
+} from '../lib/mainSync';
 import {
   clearEmergencyStateCache,
   getStateOwner,
@@ -15,13 +20,20 @@ import {
 } from '../lib/storage';
 import { useApp } from './AppContext';
 
-function restoreSyncMetadata(owner: string, repositoryMetadata: Awaited<ReturnType<AppStateIndexedDbRepository['loadSyncMetadata']>>): void {
-  if (!repositoryMetadata || repositoryMetadata.owner !== owner || getMainSyncMetadata(owner)) return;
+const SYNC_METADATA_SAVE_ERROR = '同期状態の端末保存に失敗しました。次回起動時に競合確認が必要になる場合があります';
+
+function restoreSyncMetadata(owner: string, repositoryMetadata: Awaited<ReturnType<AppStateIndexedDbRepository['loadSyncMetadata']>>): boolean {
+  if (!repositoryMetadata || repositoryMetadata.owner !== owner || getMainSyncMetadata(owner)) return true;
   if (repositoryMetadata.dirty) {
-    markMainSyncDirty(owner, repositoryMetadata.baseUpdatedAt, repositoryMetadata.localChangedAt);
-  } else {
-    markMainSyncClean(owner, repositoryMetadata.baseUpdatedAt, repositoryMetadata.localChangedAt);
+    return markMainSyncDirty(owner, repositoryMetadata.baseUpdatedAt, repositoryMetadata.localChangedAt).persisted;
   }
+  return markMainSyncClean(
+    owner,
+    repositoryMetadata.baseUpdatedAt,
+    repositoryMetadata.localChangedAt,
+    undefined,
+    false,
+  ).persisted;
 }
 
 /** 未知設定だけを除去し、計画履歴など現行の端末データは保持する。 */
@@ -95,7 +107,7 @@ export function MainStateBootstrap({ owner, children }: { owner: string; childre
           repository.loadStateSavedAt(),
         ]);
         if (cancelled) return;
-        restoreSyncMetadata(owner, storedSyncMetadata);
+        if (!restoreSyncMetadata(owner, storedSyncMetadata)) setError(SYNC_METADATA_SAVE_ERROR);
 
         const cachedOwner = getStateOwner();
         const cacheBelongsToOwner = cachedOwner === null || cachedOwner === owner;
@@ -162,7 +174,14 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
   const repositoryRef = useRef<AppStateIndexedDbRepository | null>(null);
   const persistenceBaselineRef = useRef<StoredStateBaseline>({ current: null });
   const [readyOwner, setReadyOwner] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [stateError, setStateError] = useState<string | null>(null);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onMetadataWriteFailure = () => setMetadataError(SYNC_METADATA_SAVE_ERROR);
+    window.addEventListener(MAIN_SYNC_METADATA_WRITE_FAILURE_EVENT, onMetadataWriteFailure);
+    return () => window.removeEventListener(MAIN_SYNC_METADATA_WRITE_FAILURE_EVENT, onMetadataWriteFailure);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,7 +190,8 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
     repositoryRef.current = repository;
     persistenceBaselineRef.current = ownerBaseline;
     setReadyOwner(null);
-    setError(null);
+    setStateError(null);
+    setMetadataError(null);
 
     void repository.loadState().then(async (stored) => {
       if (cancelled) return;
@@ -186,7 +206,7 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
     }).catch((caught) => {
       if (cancelled) return;
       console.error('予定データのIndexedDB保存開始に失敗しました', caught);
-      setError('IndexedDBへの保存を開始できませんでした。端末内バックアップとクラウド同期は継続します');
+      setStateError('IndexedDBへの保存を開始できませんでした。端末内バックアップとクラウド同期は継続します');
       setReadyOwner(owner);
     });
 
@@ -201,10 +221,10 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
     const baseline = persistenceBaselineRef.current;
     if (!repository || readyOwner !== owner) return;
     void persistMainStateSnapshot(repository, state, baseline).then(
-      () => setError(null),
+      () => setStateError(null),
       (caught) => {
         console.error('予定データのIndexedDB保存に失敗しました', caught);
-        setError('IndexedDBへの保存に失敗しました。端末内バックアップとクラウド同期を確認してください');
+        setStateError('IndexedDBへの保存に失敗しました。端末内バックアップとクラウド同期を確認してください');
       },
     );
   }, [owner, readyOwner, state]);
@@ -214,10 +234,13 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
     if (!repository || readyOwner !== owner) return;
     const metadata = getMainSyncMetadata(owner);
     if (!metadata) return;
-    void repository.saveSyncMetadata(metadata).catch((caught) => {
-      console.error('同期世代のIndexedDB保存に失敗しました', caught);
-      setError('同期状態の端末保存に失敗しました。次回起動時に競合確認が必要になる場合があります');
-    });
+    void repository.saveSyncMetadata(metadata).then(
+      () => setMetadataError(null),
+      (caught) => {
+        console.error('同期世代のIndexedDB保存に失敗しました', caught);
+        setMetadataError(SYNC_METADATA_SAVE_ERROR);
+      },
+    );
   }, [hasUnsyncedChanges, owner, readyOwner, syncStatus]);
 
   useEffect(() => {
@@ -232,6 +255,7 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
       if (metadata) {
         void repository.saveSyncMetadata(metadata).catch((caught) => {
           console.error('pagehide時の同期世代保存に失敗しました', caught);
+          setMetadataError(SYNC_METADATA_SAVE_ERROR);
         });
       }
     };
@@ -239,6 +263,7 @@ export function MainStatePersistence({ owner, children }: { owner: string; child
     return () => window.removeEventListener('pagehide', persist);
   }, [owner, readyOwner]);
 
+  const error = metadataError ?? stateError;
   return <>
     {children}
     {error && <div className="toast undo-notice" role="alert">{error}</div>}
