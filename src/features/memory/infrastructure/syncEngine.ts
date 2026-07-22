@@ -9,6 +9,12 @@ import {
 } from './syncError';
 
 export type MemorySyncStatus = 'idle' | 'syncing' | 'synced' | 'offline' | 'conflict' | 'error';
+export type MemorySyncTerminationReason =
+  | 'queue-drained'
+  | 'local-batch-pending'
+  | 'remote-page-limit'
+  | 'flush-round-limit'
+  | 'failure';
 
 export interface MemorySyncResult {
   status: MemorySyncStatus;
@@ -16,6 +22,11 @@ export interface MemorySyncResult {
   uploadedAttempts: number;
   conflicts: number;
   hasMore: boolean;
+  rounds?: number;
+  terminationReason?: MemorySyncTerminationReason;
+  limitReached?: boolean;
+  remainingMutationsAtLeast?: number;
+  remainingAttemptsAtLeast?: number;
   errorMessage?: string;
   errorKind?: MemorySyncErrorKind;
   retryable?: boolean;
@@ -41,12 +52,13 @@ interface MemorySyncRetryState {
 const activeSyncs = new WeakMap<MemoryRepository, Promise<MemorySyncResult>>();
 const retryStates = new WeakMap<MemoryRepository, MemorySyncRetryState>();
 
-// A request can fan out into several D1 statements per mutation/attempt (including
-// stat recomputation). Keep the upload small and let flush iterate; the UI's
-// twenty-answer trigger remains unchanged.
-const MUTATION_UPLOAD_LIMIT = 5;
-const ATTEMPT_UPLOAD_LIMIT = 2;
-const INITIAL_PULL_ROUNDS = 10;
+// One mutation can fan out into several D1 statements, including stat
+// recomputation. Keep each request deliberately small and expose the remaining
+// queue state instead of pretending a capped batch is fully synchronized.
+export const MEMORY_MUTATION_UPLOAD_LIMIT = 5;
+export const MEMORY_ATTEMPT_UPLOAD_LIMIT = 2;
+export const MEMORY_INITIAL_PULL_ROUNDS = 10;
+export const MEMORY_FLUSH_MAXIMUM_ROUNDS = 100;
 const RETRY_BASE_MS = 2_000;
 const RETRY_MAX_MS = 60_000;
 const RETRY_JITTER_MIN = 0.75;
@@ -98,8 +110,12 @@ function failedRound(error: unknown): MemorySyncRoundResult {
     uploadedAttempts: 0,
     conflicts: 0,
     hasMore: false,
+    rounds: 1,
+    terminationReason: 'failure',
     remoteHasMore: false,
     localBatchFull: false,
+    remainingMutationsAtLeast: 0,
+    remainingAttemptsAtLeast: 0,
     errorMessage: failure.userMessage,
     errorKind: failure.kind,
     retryable: failure.retryable,
@@ -113,7 +129,7 @@ async function performSyncRound(repository: MemoryRepository): Promise<MemorySyn
     const [deviceClientId, cursor, mutationCandidates, attemptCandidates] = await Promise.all([
       repository.clientId(),
       repository.syncCursor(),
-      repository.syncablePendingMutations(MUTATION_UPLOAD_LIMIT + 1),
+      repository.syncablePendingMutations(MEMORY_MUTATION_UPLOAD_LIMIT + 1),
       repository.unsyncedAttempts(50),
     ]);
     let requestClientId = deviceClientId;
@@ -126,7 +142,7 @@ async function performSyncRound(repository: MemoryRepository): Promise<MemorySyn
       requestClientId = mutationCandidates[0].clientId;
       const voidOnly = mutationCandidates[0].entityType === 'attempt_void';
       for (const mutation of mutationCandidates) {
-        if (mutation.clientId !== requestClientId || mutations.length >= MUTATION_UPLOAD_LIMIT) break;
+        if (mutation.clientId !== requestClientId || mutations.length >= MEMORY_MUTATION_UPLOAD_LIMIT) break;
         if (voidOnly && mutations.length >= 1) break;
         if (!voidOnly && mutation.entityType === 'attempt_void') break;
         mutations.push(mutation);
@@ -137,7 +153,7 @@ async function performSyncRound(repository: MemoryRepository): Promise<MemorySyn
         requestClientId = attemptCandidates[0].clientId;
         sameClient = attemptCandidates.filter((attempt) => attempt.clientId === requestClientId);
       }
-      attempts = sameClient.slice(0, ATTEMPT_UPLOAD_LIMIT);
+      attempts = sameClient.slice(0, MEMORY_ATTEMPT_UPLOAD_LIMIT);
     }
 
     // navigator.onLine is advisory only. Safari can report false while a request
@@ -155,18 +171,28 @@ async function performSyncRound(repository: MemoryRepository): Promise<MemorySyn
       sentAttemptIds: attempts.map((attempt) => attempt.attemptId),
     });
     const remoteHasMore = response.hasMore === true;
-    const localBatchFull = mutationCandidates.length > mutations.length
-      || attemptCandidates.length > attempts.length
-      || mutations.length === MUTATION_UPLOAD_LIMIT
-      || attempts.length === ATTEMPT_UPLOAD_LIMIT;
+    const remainingMutationsAtLeast = Math.max(0, mutationCandidates.length - mutations.length);
+    const remainingAttemptsAtLeast = Math.max(0, attemptCandidates.length - attempts.length);
+    const localBatchFull = remainingMutationsAtLeast > 0
+      || remainingAttemptsAtLeast > 0
+      || mutations.length === MEMORY_MUTATION_UPLOAD_LIMIT
+      || attempts.length === MEMORY_ATTEMPT_UPLOAD_LIMIT;
     return {
       status: response.conflicts.length > 0 ? 'conflict' : 'synced',
       uploadedMutations: response.acceptedMutationIds.length,
       uploadedAttempts: response.acceptedAttemptIds.length,
       conflicts: response.conflicts.length,
       hasMore: remoteHasMore || localBatchFull,
+      rounds: 1,
+      terminationReason: remoteHasMore
+        ? 'remote-page-limit'
+        : localBatchFull
+          ? 'local-batch-pending'
+          : 'queue-drained',
       remoteHasMore,
       localBatchFull,
+      remainingMutationsAtLeast,
+      remainingAttemptsAtLeast,
     };
   } catch (caught) {
     return failedRound(caught);
@@ -198,14 +224,29 @@ function mergeFailureDetails(current: MemorySyncResult, next: MemorySyncResult):
   };
 }
 
+function pendingMessage(result: Pick<MemorySyncResult, 'terminationReason' | 'remainingMutationsAtLeast' | 'remainingAttemptsAtLeast'>): string | undefined {
+  if (result.terminationReason === 'remote-page-limit') {
+    return 'クラウド側に続きのデータがあります。同期は次の処理で継続します';
+  }
+  if (result.terminationReason === 'local-batch-pending') {
+    const parts = [
+      (result.remainingMutationsAtLeast ?? 0) > 0 ? `編集データが少なくとも${result.remainingMutationsAtLeast}件` : '',
+      (result.remainingAttemptsAtLeast ?? 0) > 0 ? `回答履歴が少なくとも${result.remainingAttemptsAtLeast}件` : '',
+    ].filter(Boolean);
+    return `${parts.length > 0 ? parts.join('、') : '未送信データ'}残っています。同期は次の処理で継続します`;
+  }
+  return undefined;
+}
+
 async function performSync(repository: MemoryRepository): Promise<MemorySyncResult> {
   let aggregate: MemorySyncResult = {
     status: 'idle', uploadedMutations: 0, uploadedAttempts: 0, conflicts: 0, hasMore: false,
+    rounds: 0, remainingMutationsAtLeast: 0, remainingAttemptsAtLeast: 0,
   };
   let lastRound: MemorySyncRoundResult | undefined;
   // A normal first sync must drain server pagination; otherwise a fresh device
   // would stop after the first 500 change rows until another lifecycle event.
-  for (let round = 0; round < INITIAL_PULL_ROUNDS; round += 1) {
+  for (let round = 0; round < MEMORY_INITIAL_PULL_ROUNDS; round += 1) {
     lastRound = await performSyncRound(repository);
     aggregate = {
       status: mergeStatus(aggregate.status, lastRound.status),
@@ -213,11 +254,20 @@ async function performSync(repository: MemoryRepository): Promise<MemorySyncResu
       uploadedAttempts: aggregate.uploadedAttempts + lastRound.uploadedAttempts,
       conflicts: aggregate.conflicts + lastRound.conflicts,
       hasMore: lastRound.hasMore,
+      rounds: (aggregate.rounds ?? 0) + 1,
+      terminationReason: lastRound.terminationReason,
+      remainingMutationsAtLeast: lastRound.remainingMutationsAtLeast,
+      remainingAttemptsAtLeast: lastRound.remainingAttemptsAtLeast,
       ...mergeFailureDetails(aggregate, lastRound),
     };
     if (lastRound.status === 'offline' || lastRound.status === 'error' || !lastRound.remoteHasMore) break;
   }
-  if (lastRound?.remoteHasMore) aggregate.hasMore = true;
+  if (lastRound?.remoteHasMore) {
+    aggregate.hasMore = true;
+    aggregate.limitReached = true;
+    aggregate.terminationReason = 'remote-page-limit';
+  }
+  aggregate.errorMessage ??= pendingMessage(aggregate);
   return aggregate;
 }
 
@@ -265,7 +315,7 @@ export function syncMemory(
 
 export async function flushMemorySync(
   repository: MemoryRepository,
-  maximumRounds = 100,
+  maximumRounds = MEMORY_FLUSH_MAXIMUM_ROUNDS,
   options: MemorySyncOptions = {},
 ): Promise<MemorySyncResult> {
   let aggregate: MemorySyncResult = {
@@ -274,8 +324,12 @@ export async function flushMemorySync(
     uploadedAttempts: 0,
     conflicts: 0,
     hasMore: false,
+    rounds: 0,
+    remainingMutationsAtLeast: 0,
+    remainingAttemptsAtLeast: 0,
   };
-  for (let round = 0; round < maximumRounds; round += 1) {
+  let completedRounds = 0;
+  for (; completedRounds < maximumRounds; completedRounds += 1) {
     const result = await syncMemory(repository, options);
     aggregate = {
       status: mergeStatus(aggregate.status, result.status),
@@ -283,9 +337,20 @@ export async function flushMemorySync(
       uploadedAttempts: aggregate.uploadedAttempts + result.uploadedAttempts,
       conflicts: aggregate.conflicts + result.conflicts,
       hasMore: result.hasMore,
+      rounds: (aggregate.rounds ?? 0) + (result.rounds ?? 1),
+      terminationReason: result.terminationReason,
+      remainingMutationsAtLeast: result.remainingMutationsAtLeast,
+      remainingAttemptsAtLeast: result.remainingAttemptsAtLeast,
       ...mergeFailureDetails(aggregate, result),
     };
     if (result.status === 'offline' || result.status === 'error' || !result.hasMore) break;
+  }
+  if (aggregate.hasMore && completedRounds >= maximumRounds) {
+    aggregate.limitReached = true;
+    aggregate.terminationReason = 'flush-round-limit';
+    aggregate.errorMessage = `同期処理の上限（${maximumRounds}回）に達しました。未送信データは端末に残っており、次の同期で続きから処理します`;
+  } else {
+    aggregate.errorMessage ??= pendingMessage(aggregate);
   }
   return aggregate;
 }
