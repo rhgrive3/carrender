@@ -325,11 +325,17 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
                 <span className="memory-card-side-label">問題 <small>{promptLanguage}</small></span><h1>{prompt}</h1>{questionExample && <div className="memory-question-example">{questionExample}</div>}<span className="memory-card-toggle-hint"><Eye size={18} aria-hidden="true" />タップして答えを見る</span><span className="memory-card-swipe-hint">左へスワイプでもめくれます</span>
               </div>
               <div role="button" className="memory-study-card-face memory-study-card-back" aria-label="問題に戻る" aria-hidden={!revealed} aria-disabled={busy} tabIndex={revealed && !busy ? 0 : -1} onClick={() => handleFaceClick(false)} onKeyDown={(event) => activateFace(event, false)}>
-                <span className="memory-card-side-label">答え <small>{answerLanguage}</small></span><div className="memory-card-back-prompt">{prompt}</div><div className="memory-answer-reveal"><div className="memory-card-answer-list">{(displayedAnswers.length > 0 ? displayedAnswers : ['答えが登録されていません']).map((value, index) => <h2 key={`${value}-${index}`}>{value}</h2>)}</div>{examples.length > 0 && <div className="memory-example-list" aria-label="例文">{examples.map((example) => <div className="memory-example" key={example.id}><span>{example.english}</span>{example.japanese && <small>{example.japanese}</small>}</div>)}</div>}</div><span className="memory-card-toggle-hint"><EyeOff size={18} aria-hidden="true" />タップして問題に戻る</span><span className="memory-card-swipe-hint">右へスワイプでも戻せます</span>
+                <span className="memory-card-side-label">答え <small>{answerLanguage}</small></span><div className="memory-card-back-prompt">{prompt}</div><div className="memory-answer-reveal"><div className="memory-card-answer-list">{(displayedAnswers.length > 0 ? displayedAnswers : ['答えが登録されていません']).map((value, index) => <h2 key={`${value}-${index}`}>{value}</h2>)}</div></div><span className="memory-card-toggle-hint"><EyeOff size={18} aria-hidden="true" />タップして問題に戻る</span><span className="memory-card-swipe-hint">右へスワイプでも戻せます</span>
               </div>
             </div>
           </article>
         </div>
+        {revealed && examples.length > 0 && (
+          <section className="card memory-study-examples" role="region" aria-labelledby="memory-study-examples-title">
+            <div className="memory-study-examples-header"><h2 id="memory-study-examples-title">例文</h2><span>{examples.length}件</span></div>
+            <ul>{examples.map((example) => <li key={example.id}><span lang="en">{example.english}</span>{example.japanese && <small>{example.japanese}</small>}</li>)}</ul>
+          </section>
+        )}
         {revealed && <div className="memory-simple-assessment" aria-label="自己評価"><button type="button" className="memory-again" aria-label="まだ" disabled={busy} onClick={() => void commit('incorrect')}><span>まだ</span><small>もう一度</small></button><button type="button" className="memory-partial" aria-label="あやしい" disabled={busy} onClick={() => void commit('partial')}><span>あやしい</span><small>あとで確認</small></button><button type="button" className="memory-good" aria-label="覚えた" disabled={busy} onClick={() => void commit('correct')}><span>覚えた</span><small>次へ</small></button></div>}
       </div>
     </div>,

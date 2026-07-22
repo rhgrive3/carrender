@@ -18,8 +18,8 @@ assert.match(
 );
 assert.equal(
   source.match(/requestSyncSafely\(\);/gu)?.length,
-  4,
-  'カード除外・確認済み化・セット更新・セット削除の全経路で安全に同期する',
+  5,
+  'カード除外・分離・確認済み化・セット更新・セット削除の全経路で安全に同期する',
 );
 assert.doesNotMatch(
   source,

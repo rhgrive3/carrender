@@ -21,6 +21,60 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.memory-study-examples {
+  width: min(760px, 100%);
+  margin-top: 14px;
+  padding: clamp(16px, 3vw, 22px);
+  flex: 0 0 auto;
+}
+
+.memory-study-examples-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.memory-study-examples-header h2 {
+  font-size: 18px;
+  font-weight: 850;
+}
+
+.memory-study-examples-header span {
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.memory-study-examples ul {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+}
+
+.memory-study-examples li {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-elev2);
+  padding: 13px 15px;
+  display: grid;
+  gap: 4px;
+  line-height: 1.55;
+}
+
+.memory-study-examples li > span {
+  color: var(--text);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.memory-study-examples li > small {
+  color: var(--text-sub);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 /*
  * 不正解・部分正解は強い全面色を避け、覚えたボタンより一段控えめな
  * トーン面へする。意味の違いは色相と枠線で残す。

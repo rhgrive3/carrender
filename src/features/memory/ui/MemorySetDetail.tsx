@@ -5,6 +5,7 @@ import { normalizeSearchText } from '../domain/normalization';
 import { buildMemorySetCardRows } from '../domain/cardRows';
 import { generateLearningTargets, summarizeLearningTargetStats } from '../domain/selectors';
 import { deleteMemorySet, updateMemorySet } from '../application/content';
+import { splitMemoryItemIntoCards } from '../application/splitMemoryItemCards';
 import { verifyMemoryCard } from '../application/verification';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
@@ -134,6 +135,17 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     }, 'カードをセットから外せませんでした');
   };
 
+  const splitCards = async (itemId: string, cardCount: number) => {
+    if (!repository || cardCount <= 1) return;
+    if (!window.confirm(`同じ保存項目に入っている${cardCount}枚を、個別に編集・出題できる別カードへ分けますか？\n\n回答履歴と成績はそのまま維持されます。`)) return;
+    await runAction(async (isCurrent) => {
+      const result = await splitMemoryItemIntoCards(repository, itemId);
+      await refreshAfterMutation('カード分割', isCurrent);
+      requestSyncSafely();
+      if (isCurrent()) toast(`${result.cardCount}枚を別カードに分けました`);
+    }, 'カードを別々に分けられませんでした');
+  };
+
   const verifySense = async (itemId: string, senseId: string) => {
     if (!repository) return;
     await runAction(async (isCurrent) => {
@@ -229,6 +241,9 @@ export function MemorySetDetail({ setId }: { setId: string }) {
               {row.itemSenseCount > 1 && <small className="memory-card-group-note">同じ保存項目の {row.senseIndex + 1} / {row.itemSenseCount}</small>}
             </button>
             <div className="memory-card-row-actions">
+              {row.isFirstSense && row.itemSenseCount > 1 && (
+                <button type="button" className="memory-split-cards" aria-label={`${row.itemSenseCount}枚を別カードに分ける`} disabled={actionBusy} onClick={() => void splitCards(row.itemId, row.itemSenseCount)}>分ける</button>
+              )}
               {row.hasUnverified ? (
                 <button type="button" className="memory-card-pending" aria-label="このカードを確認済みにする" disabled={actionBusy} onClick={() => void verifySense(row.itemId, row.senseId)}><CheckCircle2 size={19} /></button>
               ) : (
