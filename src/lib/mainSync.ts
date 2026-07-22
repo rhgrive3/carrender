@@ -3,6 +3,7 @@ import { snapshotMainStateEntityHashes, type MainStateEntityHashSnapshot } from 
 
 const META_KEY = 'studycommander_main_sync_meta_v1';
 const CONFLICT_BACKUP_KEY = 'studycommander_main_sync_conflict_backup_v1';
+export const MAIN_SYNC_METADATA_WRITE_FAILURE_EVENT = 'studycommander-main-sync-metadata-write-failure';
 
 export interface MainSyncMetadata {
   owner: string;
@@ -24,6 +25,17 @@ export interface MainSyncConflictBackup {
 }
 
 export type InitialSyncDecision = 'none' | 'useRemote' | 'pushLocal' | 'conflict';
+
+export interface MainSyncMetadataWriteResult extends MainSyncMetadata {
+  persisted: boolean;
+}
+
+export class MainSyncMetadataPersistenceError extends Error {
+  constructor(public readonly metadata: MainSyncMetadata) {
+    super('同期状態を端末へ保存できませんでした');
+    this.name = 'MainSyncMetadataPersistenceError';
+  }
+}
 
 function storageAvailable(): boolean {
   return typeof localStorage !== 'undefined';
@@ -47,6 +59,14 @@ function writeJSON(key: string, value: unknown): boolean {
   } catch {
     return false;
   }
+}
+
+function notifyMetadataWriteFailure(metadata: MainSyncMetadata): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<MainSyncMetadata>(
+    MAIN_SYNC_METADATA_WRITE_FAILURE_EVENT,
+    { detail: metadata },
+  ));
 }
 
 function isIsoTimestamp(value: unknown): value is string {
@@ -89,7 +109,7 @@ export function markMainSyncDirty(
   owner: string,
   baseUpdatedAt: string | null,
   now = new Date().toISOString(),
-): MainSyncMetadata {
+): MainSyncMetadataWriteResult {
   const current = getMainSyncMetadata(owner);
   const next: MainSyncMetadata = {
     owner,
@@ -98,8 +118,9 @@ export function markMainSyncDirty(
     baseEntityHashes: current?.baseEntityHashes,
     localChangedAt: now,
   };
-  writeJSON(META_KEY, next);
-  return next;
+  const persisted = writeJSON(META_KEY, next);
+  if (!persisted) notifyMetadataWriteFailure(next);
+  return { ...next, persisted };
 }
 
 export function markMainSyncClean(
@@ -107,7 +128,8 @@ export function markMainSyncClean(
   remoteUpdatedAt: string | null,
   now = new Date().toISOString(),
   cleanState?: AppState,
-): MainSyncMetadata {
+  throwOnFailure = true,
+): MainSyncMetadataWriteResult {
   const next: MainSyncMetadata = {
     owner,
     dirty: false,
@@ -115,8 +137,12 @@ export function markMainSyncClean(
     baseEntityHashes: cleanState ? snapshotMainStateEntityHashes(cleanState) : getMainSyncMetadata(owner)?.baseEntityHashes,
     localChangedAt: now,
   };
-  writeJSON(META_KEY, next);
-  return next;
+  const persisted = writeJSON(META_KEY, next);
+  if (!persisted) {
+    notifyMetadataWriteFailure(next);
+    if (throwOnFailure) throw new MainSyncMetadataPersistenceError(next);
+  }
+  return { ...next, persisted };
 }
 
 export function clearMainSyncMetadata(): void {
