@@ -4,6 +4,7 @@ import { Eye, EyeOff, RotateCcw, X } from 'lucide-react';
 import type { MemorySession, MemorySetBundle } from '../domain/types';
 import { englishFormsForSense, examplesForSense, primaryEnglishForSense } from '../domain/cardIntegrity';
 import { currentLearningTarget, sessionQueueProgress } from '../domain/sessionQueue';
+import { ActiveElapsedTimer } from '../domain/activeElapsedTime';
 import { answerMemoryQuestion, queueFromSession, sessionContentIsRestorable, undoMemoryAnswer } from '../application/session';
 import { useToast } from '../../../components/ui/Toast';
 import { acquireModalIsolation, trapModalTabKey } from '../../../components/ui/Sheet';
@@ -60,7 +61,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
-  const questionStarted = useRef(performance.now());
+  const responseTimer = useRef(new ActiveElapsedTimer(performance.now(), document.visibilityState !== 'hidden'));
   const pointerStart = useRef<PointerStart | null>(null);
   const ignoreNextClick = useRef(false);
   const mounted = useRef(true);
@@ -79,11 +80,31 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     return () => { mounted.current = false; };
   }, []);
 
+  useEffect(() => {
+    const pauseTimer = () => responseTimer.current.pause(performance.now());
+    const resumeTimer = () => {
+      if (document.visibilityState !== 'hidden') responseTimer.current.start(performance.now());
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') pauseTimer();
+      else resumeTimer();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', pauseTimer);
+    window.addEventListener('pageshow', resumeTimer);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', pauseTimer);
+      window.removeEventListener('pageshow', resumeTimer);
+    };
+  }, []);
+
   useLayoutEffect(() => {
     actionToken.current += 1;
     actionInFlight.current = false;
     pointerStart.current = null;
     ignoreNextClick.current = false;
+    responseTimer.current.reset(performance.now(), document.visibilityState !== 'hidden');
     setSession(undefined);
     setBundle(undefined);
     setLoadError(undefined);
@@ -168,7 +189,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
     pointerStart.current = null;
     setRevealed(false);
     setFlipDirection(undefined);
-    questionStarted.current = performance.now();
+    responseTimer.current.reset(performance.now(), document.visibilityState !== 'hidden');
   }, [session?.answerCount, target?.id]);
 
   const refreshAfterPersist = async (operation: '回答保存' | '回答取り消し') => {
@@ -204,7 +225,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
         clientId: await repository.clientId(),
         errorTypes: assessment === 'correct' ? [] : ['recall'],
         hintUsed: false,
-        responseMs: performance.now() - questionStarted.current,
+        responseMs: responseTimer.current.read(performance.now()),
         presentedExerciseType: 'flashcard',
       });
       await refreshAfterPersist('回答保存');
@@ -212,7 +233,7 @@ export function MemoryStudy({ sessionId }: { sessionId: string }) {
       if (!mounted.current || activeSessionId.current !== actionSessionId || actionToken.current !== token) return;
       setRevealed(false);
       setFlipDirection(undefined);
-      questionStarted.current = performance.now();
+      responseTimer.current.reset(performance.now(), document.visibilityState !== 'hidden');
       setSession(result.session);
       if (result.session.status === 'completed') navigate({ name: 'result', sessionId: result.session.id });
     } catch (caught) {
