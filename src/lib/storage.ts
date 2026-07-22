@@ -36,6 +36,11 @@ function malformedShapeIssue(): ValidationIssue {
   };
 }
 
+function removeNonPositiveLegacySessions(state: AppState): AppState {
+  const sessions = state.sessions.filter((session) => Number.isFinite(session.minutes) && session.minutes > 0);
+  return sessions.length === state.sessions.length ? state : { ...state, sessions };
+}
+
 /**
  * API・localStorage・IndexedDB・JSON importで同じ純粋validatorを使う。
  * migrationで修復可能な旧versionは最低形状だけ確認して移行し、
@@ -49,11 +54,15 @@ export function migrateState(input: AppState): MigrationResult {
   const migrated = migrateLegacyState(input);
   if (!migrated.ok) return migrated;
 
-  const validation = validateAppStatePayload(migrated.state);
+  // 旧版・過去不具合で残った0分以下の記録は、分析・進捗へ寄与しない。
+  // 1件の無効ログで教材・計画・設定を含むstate全体を復元不能にせず、
+  // 現行APIでは引き続き新規の非正数minutesを厳密に拒否する。
+  const state = removeNonPositiveLegacySessions(migrated.state);
+  const validation = validateAppStatePayload(state);
   if (!validation.ok) {
-    return { ok: false, state: migrated.state, errors: [validationIssue(validation)] };
+    return { ok: false, state, errors: [validationIssue(validation)] };
   }
-  return migrated;
+  return { ok: true, state, errors: [] };
 }
 
 export function isAppStateShape(value: unknown): value is AppState {
