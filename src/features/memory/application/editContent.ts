@@ -8,6 +8,7 @@ import type {
   MemorySense,
   MemorySetMember,
 } from '../domain/types';
+import { normalizeEnglishCitationForm } from '../domain/cardIntegrity';
 import { createMemoryId, MemoryRepository, type MemoryMutationOperation } from '../infrastructure/repositories';
 
 export interface MemoryAnswerDraft {
@@ -100,11 +101,14 @@ export async function saveMemoryItemDraft(input: {
   const itemId = originalItem?.id ?? input.draft.id ?? createMemoryId('item');
   const isNewItem = !originalItem;
   const firstAnswer = validSenses[0].answers.find((answer) => answer.displayForm.trim());
+  const firstCitationForm = firstAnswer
+    ? normalizeEnglishCitationForm(firstAnswer.displayForm, firstAnswer.citationForm)
+    : '';
   const item: MemoryItem = {
     id: itemId,
     kind: input.draft.kind,
-    label: input.draft.label?.trim() || firstAnswer?.citationForm?.trim() || firstAnswer?.displayForm.trim() || '',
-    lemma: input.draft.lemma?.trim() || firstAnswer?.citationForm?.trim() || firstAnswer?.displayForm.trim(),
+    label: input.draft.label?.trim() || firstCitationForm || firstAnswer?.displayForm.trim() || '',
+    lemma: input.draft.lemma?.trim() || firstCitationForm || firstAnswer?.displayForm.trim(),
     tags: splitList(input.draft.tags),
     source: originalItem?.source ?? 'user',
     verificationStatus: originalItem?.verificationStatus ?? 'verified',
@@ -153,7 +157,7 @@ export async function saveMemoryItemDraft(input: {
         id: answerId,
         senseId,
         displayForm: answerDraft.displayForm.trim(),
-        citationForm: answerDraft.citationForm?.trim() || answerDraft.displayForm.trim(),
+        citationForm: normalizeEnglishCitationForm(answerDraft.displayForm, answerDraft.citationForm),
         pattern: answerDraft.pattern?.trim() || undefined,
         acceptedVariants: splitList(answerDraft.acceptedVariants),
         orthographicVariants: splitList(answerDraft.orthographicVariants),
