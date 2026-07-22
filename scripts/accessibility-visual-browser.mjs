@@ -75,9 +75,9 @@ async function auditDom(page, label) {
     const focusableSelector = 'a[href], button, input, select, textarea, [tabindex]';
     document.querySelectorAll(focusableSelector).forEach((element) => {
       if (!(element instanceof HTMLElement) || element.tabIndex < 0 || element.hasAttribute('disabled')) return;
-      if (element.closest('[inert]')) return;
-      const hiddenAncestor = element.closest('[hidden], [aria-hidden="true"]');
-      if (hiddenAncestor) hiddenFocusable.push({ tag: element.tagName, text: element.textContent?.trim().slice(0, 60) ?? '' });
+      if (element.closest('[inert], [hidden]')) return;
+      const ariaHiddenAncestor = element.closest('[aria-hidden="true"]');
+      if (ariaHiddenAncestor) hiddenFocusable.push({ tag: element.tagName, text: element.textContent?.trim().slice(0, 60) ?? '' });
     });
 
     const nav = document.querySelector('.bottom-nav');
@@ -101,7 +101,7 @@ async function auditDom(page, label) {
 
   assert.deepEqual(result.duplicateIds, [], `${label}: duplicate IDを作らない`);
   assert.deepEqual(result.invalidReferences, [], `${label}: ARIA参照先を失わない`);
-  assert.deepEqual(result.hiddenFocusable, [], `${label}: hidden領域へfocusable要素を残さない`);
+  assert.deepEqual(result.hiddenFocusable, [], `${label}: aria-hidden領域へfocusable要素を残さない`);
   assert.ok(result.horizontalOverflow <= 2, `${label}: viewport外への横溢れを作らない (${result.horizontalOverflow}px)`);
   if (result.navigation) {
     assert.equal(result.navigation.parent, 'BODY', `${label}: 下部ナビはbody直下`);
