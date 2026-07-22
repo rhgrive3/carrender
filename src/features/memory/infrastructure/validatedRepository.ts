@@ -3,7 +3,7 @@ import {
   languageIssuesForMemoryEntity,
   sameEnglishBearingFields,
 } from '../domain/cardIntegrity';
-import { MemoryRepository } from './repositories';
+import { MemoryRepository, createMemoryId } from './repositories';
 
 function existingRecord(
   content: Awaited<ReturnType<MemoryRepository['loadContent']>>,
@@ -26,6 +26,32 @@ function existingRecord(
  * language and parent-reference checks.
  */
 export class ValidatedMemoryRepository extends MemoryRepository {
+  private resilientClientIdPromise: Promise<string> | null = null;
+
+  override async clientId(): Promise<string> {
+    if (this.resilientClientIdPromise) return this.resilientClientIdPromise;
+
+    const initialization = (async () => {
+      const existing = await this.store.getMeta<string>('clientId');
+      if (existing) return existing;
+      const created = createMemoryId('client');
+      await this.store.setMeta('clientId', created);
+      return created;
+    })();
+    this.resilientClientIdPromise = initialization;
+
+    try {
+      return await initialization;
+    } catch (error) {
+      // Keep concurrent callers single-flight, but do not retain a rejected
+      // promise after a transient IndexedDB failure. A later sync can retry.
+      if (this.resilientClientIdPromise === initialization) {
+        this.resilientClientIdPromise = null;
+      }
+      throw error;
+    }
+  }
+
   override async saveEntities(
     entities: Parameters<MemoryRepository['saveEntities']>[0],
     preconditions: NonNullable<Parameters<MemoryRepository['saveEntities']>[1]> = [],
