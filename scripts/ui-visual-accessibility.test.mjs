@@ -142,8 +142,8 @@ assert.doesNotMatch(app, /scrollTo\(\{\s*top:\s*0,\s*behavior:\s*'smooth'\s*\}\)
 
 const records = read('src/screens/RecordsScreen.tsx');
 const periodTabs = records.match(/<div className="segmented" role="tablist" aria-label="集計期間">([\s\S]*?)<\/div>/)?.[1] ?? '';
-assert.match(periodTabs, /<button role="tab" aria-selected=\{period === 'week'\}/, '週タブが選択状態を支援技術へ公開する');
-assert.match(periodTabs, /<button role="tab" aria-selected=\{period === 'month'\}/, '月タブが選択状態を支援技術へ公開する');
+assert.match(periodTabs, /<button[^>]*role="tab"[^>]*aria-selected=\{period === 'week'\}/, '週タブが選択状態を支援技術へ公開する');
+assert.match(periodTabs, /<button[^>]*role="tab"[^>]*aria-selected=\{period === 'month'\}/, '月タブが選択状態を支援技術へ公開する');
 
 const toast = read('src/components/ui/Toast.css');
 const toastRegion = cssBlock(toast, '.app-toast-region');
