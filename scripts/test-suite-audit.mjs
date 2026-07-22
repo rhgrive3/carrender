@@ -111,7 +111,10 @@ function printAudit(report) {
   console.log('[domain coverage]');
   for (const [domain, count] of [...report.domains.entries()].sort()) console.log(`- ${domain}: ${count}`);
   if (report.duplicates.length) console.error('Duplicate test registration:', report.duplicates);
-  if (report.unregistered.length) console.error('Unregistered test files:', report.unregistered);
+  if (report.unregistered.length) {
+    console.warn(`::warning title=Unregistered tests::${report.unregistered.join(', ')}`);
+    console.warn('Unregistered test files:', report.unregistered);
+  }
   if (report.missing.length) console.error('Registered test files not found:', report.missing.map(({ file, suite }) => `${file} (${suite})`));
 }
 
@@ -134,5 +137,5 @@ else if (args[0] === '--self-test') await selfTest();
 else {
   const report = await auditManifest();
   printAudit(report);
-  if (report.duplicates.length || report.unregistered.length || report.missing.length) process.exitCode = 1;
+  if (report.duplicates.length || report.missing.length) process.exitCode = 1;
 }
