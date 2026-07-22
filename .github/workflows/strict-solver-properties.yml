@@ -1,0 +1,46 @@
+name: Strict solver properties
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/strictSolver.ts'
+      - 'src/lib/schedulerV2.ts'
+      - 'src/lib/materialIntegrity.ts'
+      - 'scripts/strict-solver-properties.test.ts'
+      - '.github/workflows/strict-solver-properties.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/lib/strictSolver.ts'
+      - 'src/lib/schedulerV2.ts'
+      - 'src/lib/materialIntegrity.ts'
+      - 'scripts/strict-solver-properties.test.ts'
+      - '.github/workflows/strict-solver-properties.yml'
+  schedule:
+    - cron: '17 18 * * *'
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: 'property test seed count'
+        required: false
+        default: '1000'
+
+permissions:
+  contents: read
+
+jobs:
+  properties:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PROPERTY_SEEDS: ${{ github.event_name == 'schedule' && '1500' || github.event.inputs.seeds || '100' }}
+      PROPERTY_BASE_SEED: '20260722'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run deterministic scheduler properties
+        run: npx vite-node scripts/strict-solver-properties.test.ts
