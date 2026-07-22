@@ -35,6 +35,7 @@ import { installCompletedTaskAccessibility } from './lib/completedTaskAccessibil
 import { installCompletedTaskModalIsolationGuard } from './lib/completedTaskModalIsolationGuard';
 import { installChartAccessibleDataGuard } from './lib/chartAccessibleDataGuard';
 import { installDeadlineMoveAccessibilityGuard } from './lib/deadlineMoveAccessibilityGuard';
+import { installSessionLogAccessibilityGuard } from './lib/sessionLogAccessibilityGuard';
 import { registerSafeServiceWorkerUpdate } from './lib/serviceWorkerUpdate';
 
 const APP_TITLE = 'StudyCommander 学習司令塔';
@@ -187,6 +188,7 @@ installCompletedTaskAccessibility();
 installCompletedTaskModalIsolationGuard();
 installChartAccessibleDataGuard();
 installDeadlineMoveAccessibilityGuard();
+installSessionLogAccessibilityGuard();
 preserveUnreadableState();
 registerSafeServiceWorkerUpdate();
 
