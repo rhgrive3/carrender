@@ -3,6 +3,7 @@ import {
   languageIssuesForMemoryEntity,
   sameEnglishBearingFields,
 } from '../domain/cardIntegrity';
+import { analyzeMutationDependencies } from './mutationDependency';
 import { MemoryRepository, createMemoryId } from './repositories';
 
 function existingRecord(
@@ -43,13 +44,22 @@ export class ValidatedMemoryRepository extends MemoryRepository {
     try {
       return await initialization;
     } catch (error) {
-      // Keep concurrent callers single-flight, but do not retain a rejected
-      // promise after a transient IndexedDB failure. A later sync can retry.
       if (this.resilientClientIdPromise === initialization) {
         this.resilientClientIdPromise = null;
       }
       throw error;
     }
+  }
+
+  override async syncablePendingMutations(limit = 100) {
+    const candidates = await super.syncablePendingMutations(10_000);
+    const analysis = analyzeMutationDependencies(candidates);
+    const safe = candidates.filter((mutation) => analysis.safeMutationIds.has(mutation.mutationId));
+    if (safe.length > 0) return safe.slice(0, limit);
+    if (analysis.blockedMutationIds.size > 0) {
+      throw new Error(`Dependency cycle detected in ${analysis.blockedMutationIds.size} memory mutations: ${analysis.blockedEntityKeys.slice(0, 4).join(', ')}`);
+    }
+    return [];
   }
 
   override async saveEntities(
@@ -72,9 +82,6 @@ export class ValidatedMemoryRepository extends MemoryRepository {
       const before = current
         ? existingRecord(current, failure.entity.entityType, failure.entity.entityId)
         : undefined;
-      // Old malformed records must still be verifiable, tombstonable and
-      // repairable. Only a create or a change to the malformed English-bearing
-      // fields is rejected.
       if (failure.entity.operation !== 'create'
         && before
         && sameEnglishBearingFields(failure.entity.entityType, before, failure.entity.value)) {
