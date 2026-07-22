@@ -1,5 +1,12 @@
-import { apiSyncMemory, type MemoryApiError } from './api';
+import { apiSyncMemory } from './api';
 import { MemoryRepository, type LocalMemoryAttempt, type MemoryPendingMutation } from './repositories';
+import {
+  classifyMemorySyncError,
+  logUnexpectedMemorySyncError,
+  type MemorySyncErrorDiagnostic,
+  type MemorySyncErrorKind,
+  type MemorySyncRetryPolicy,
+} from './syncError';
 
 export type MemorySyncStatus = 'idle' | 'syncing' | 'synced' | 'offline' | 'conflict' | 'error';
 
@@ -10,6 +17,10 @@ export interface MemorySyncResult {
   conflicts: number;
   hasMore: boolean;
   errorMessage?: string;
+  errorKind?: MemorySyncErrorKind;
+  retryable?: boolean;
+  retryPolicy?: MemorySyncRetryPolicy;
+  diagnostic?: MemorySyncErrorDiagnostic;
 }
 
 const activeSyncs = new WeakMap<MemoryRepository, Promise<MemorySyncResult>>();
@@ -40,45 +51,70 @@ function attemptForUpload(attempt: LocalMemoryAttempt): LocalMemoryAttempt {
   return copy;
 }
 
+function navigatorOnline(): boolean | undefined {
+  return typeof navigator === 'undefined' ? undefined : navigator.onLine;
+}
+
+function failedRound(error: unknown): MemorySyncRoundResult {
+  const failure = classifyMemorySyncError(error, { navigatorOnline: navigatorOnline() });
+  logUnexpectedMemorySyncError(failure, error);
+  return {
+    status: failure.syncStatus,
+    uploadedMutations: 0,
+    uploadedAttempts: 0,
+    conflicts: 0,
+    hasMore: false,
+    remoteHasMore: false,
+    localBatchFull: false,
+    errorMessage: failure.userMessage,
+    errorKind: failure.kind,
+    retryable: failure.retryable,
+    retryPolicy: failure.retryPolicy,
+    diagnostic: failure.diagnostic,
+  };
+}
+
 async function performSyncRound(repository: MemoryRepository): Promise<MemorySyncRoundResult> {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+  if (navigatorOnline() === false) {
     return {
       status: 'offline', uploadedMutations: 0, uploadedAttempts: 0, conflicts: 0,
       hasMore: false, remoteHasMore: false, localBatchFull: false,
+      errorKind: 'network', retryable: true, retryPolicy: 'when-online',
+      errorMessage: 'オフラインのため同期を保留しています。暗記データは端末へ保存されています',
     };
   }
 
-  const [deviceClientId, cursor, mutationCandidates, attemptCandidates] = await Promise.all([
-    repository.clientId(),
-    repository.syncCursor(),
-    repository.syncablePendingMutations(MUTATION_UPLOAD_LIMIT + 1),
-    repository.unsyncedAttempts(50),
-  ]);
-  let requestClientId = deviceClientId;
-  let mutations: MemoryPendingMutation[] = [];
-  let attempts: LocalMemoryAttempt[] = [];
-  if (mutationCandidates.length > 0) {
-    // A legacy username database can be merged into an already-used user-id
-    // database. Keep each request single-client (the API verifies this) and only
-    // take a contiguous prefix so dependency ordering is never skipped.
-    requestClientId = mutationCandidates[0].clientId;
-    const voidOnly = mutationCandidates[0].entityType === 'attempt_void';
-    for (const mutation of mutationCandidates) {
-      if (mutation.clientId !== requestClientId || mutations.length >= MUTATION_UPLOAD_LIMIT) break;
-      if (voidOnly && mutations.length >= 1) break;
-      if (!voidOnly && mutation.entityType === 'attempt_void') break;
-      mutations.push(mutation);
-    }
-  } else {
-    let sameClient = attemptCandidates.filter((attempt) => attempt.clientId === requestClientId);
-    if (sameClient.length === 0 && attemptCandidates.length > 0) {
-      requestClientId = attemptCandidates[0].clientId;
-      sameClient = attemptCandidates.filter((attempt) => attempt.clientId === requestClientId);
-    }
-    attempts = sameClient.slice(0, ATTEMPT_UPLOAD_LIMIT);
-  }
-
   try {
+    const [deviceClientId, cursor, mutationCandidates, attemptCandidates] = await Promise.all([
+      repository.clientId(),
+      repository.syncCursor(),
+      repository.syncablePendingMutations(MUTATION_UPLOAD_LIMIT + 1),
+      repository.unsyncedAttempts(50),
+    ]);
+    let requestClientId = deviceClientId;
+    let mutations: MemoryPendingMutation[] = [];
+    let attempts: LocalMemoryAttempt[] = [];
+    if (mutationCandidates.length > 0) {
+      // A legacy username database can be merged into an already-used user-id
+      // database. Keep each request single-client (the API verifies this) and only
+      // take a contiguous prefix so dependency ordering is never skipped.
+      requestClientId = mutationCandidates[0].clientId;
+      const voidOnly = mutationCandidates[0].entityType === 'attempt_void';
+      for (const mutation of mutationCandidates) {
+        if (mutation.clientId !== requestClientId || mutations.length >= MUTATION_UPLOAD_LIMIT) break;
+        if (voidOnly && mutations.length >= 1) break;
+        if (!voidOnly && mutation.entityType === 'attempt_void') break;
+        mutations.push(mutation);
+      }
+    } else {
+      let sameClient = attemptCandidates.filter((attempt) => attempt.clientId === requestClientId);
+      if (sameClient.length === 0 && attemptCandidates.length > 0) {
+        requestClientId = attemptCandidates[0].clientId;
+        sameClient = attemptCandidates.filter((attempt) => attempt.clientId === requestClientId);
+      }
+      attempts = sameClient.slice(0, ATTEMPT_UPLOAD_LIMIT);
+    }
+
     const response = await apiSyncMemory({
       schemaVersion: 1,
       clientId: requestClientId,
@@ -105,17 +141,7 @@ async function performSyncRound(repository: MemoryRepository): Promise<MemorySyn
       localBatchFull,
     };
   } catch (caught) {
-    const error = caught as MemoryApiError;
-    return {
-      status: error.isNetworkError ? 'offline' : error.status === 409 ? 'conflict' : 'error',
-      uploadedMutations: 0,
-      uploadedAttempts: 0,
-      conflicts: 0,
-      hasMore: false,
-      remoteHasMore: false,
-      localBatchFull: false,
-      errorMessage: error.message,
-    };
+    return failedRound(caught);
   }
 }
 
@@ -123,6 +149,23 @@ function mergeStatus(current: MemorySyncStatus, next: MemorySyncStatus): MemoryS
   if (next === 'offline' || next === 'error') return next;
   if (current === 'conflict' || next === 'conflict') return 'conflict';
   return next;
+}
+
+function mergeFailureDetails(current: MemorySyncResult, next: MemorySyncResult): Partial<MemorySyncResult> {
+  if (!next.errorKind) return current.errorKind ? {
+    errorMessage: current.errorMessage,
+    errorKind: current.errorKind,
+    retryable: current.retryable,
+    retryPolicy: current.retryPolicy,
+    diagnostic: current.diagnostic,
+  } : {};
+  return {
+    errorMessage: next.errorMessage,
+    errorKind: next.errorKind,
+    retryable: next.retryable,
+    retryPolicy: next.retryPolicy,
+    diagnostic: next.diagnostic,
+  };
 }
 
 async function performSync(repository: MemoryRepository): Promise<MemorySyncResult> {
@@ -140,7 +183,7 @@ async function performSync(repository: MemoryRepository): Promise<MemorySyncResu
       uploadedAttempts: aggregate.uploadedAttempts + lastRound.uploadedAttempts,
       conflicts: aggregate.conflicts + lastRound.conflicts,
       hasMore: lastRound.hasMore,
-      ...(lastRound.errorMessage ? { errorMessage: lastRound.errorMessage } : {}),
+      ...mergeFailureDetails(aggregate, lastRound),
     };
     if (lastRound.status === 'offline' || lastRound.status === 'error' || !lastRound.remoteHasMore) break;
   }
@@ -173,7 +216,7 @@ export async function flushMemorySync(repository: MemoryRepository, maximumRound
       uploadedAttempts: aggregate.uploadedAttempts + result.uploadedAttempts,
       conflicts: aggregate.conflicts + result.conflicts,
       hasMore: result.hasMore,
-      ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+      ...mergeFailureDetails(aggregate, result),
     };
     if (result.status === 'offline' || result.status === 'error' || !result.hasMore) break;
   }

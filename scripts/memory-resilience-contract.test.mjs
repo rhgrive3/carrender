@@ -44,8 +44,8 @@ assert.doesNotMatch(studySource, /void requestSync\((?:false|result\.session\.st
 assert.match(studySource, /mounted\.current && activeSessionId\.current === actionSessionId && actionToken\.current === token/, '別セッションへ切替後に古い操作のToastを出さない');
 
 assert.match(contextSource, /IndexedDBを開けない場合だけ暗記機能全体のエラーにする/, '端末データ初期化と同期失敗を別の状態として扱う');
-assert.match(contextSource, /const requestSync = useCallback\([\s\S]*?catch \(caught\)[\s\S]*?setSyncStatus\(offline \? 'offline' : 'error'\)/, '同期前のIndexedDB読込失敗も未処理Promiseにしない');
-assert.match(contextSource, /setSyncError\(caught instanceof Error \? caught\.message : '暗記データを同期できませんでした'\)/, '起動時の同期失敗を端末データの致命エラーと分離する');
+assert.match(contextSource, /const requestSync = useCallback\([\s\S]*?catch \(caught\)[\s\S]*?const failure = classifiedSyncFailure\(caught\);[\s\S]*?setSyncStatus\(failure\.syncStatus\)/, '同期前のIndexedDB読込失敗も共通分類して未処理Promiseにしない');
+assert.match(contextSource, /classifiedSyncFailure\(caught\)[\s\S]*?setSyncError\(failure\.syncStatus === 'offline' \? null : failure\.userMessage\)/, '起動時と手動同期の失敗を同じ分類器で端末データの致命エラーから分離する');
 assert.match(contextSource, /const syncInFlight = useRef<Promise<void> \| null>\(null\)/, '同期中Promiseを保持して多重実行を判定する');
 assert.match(contextSource, /if \(syncInFlight\.current\) \{[\s\S]*?return syncInFlight\.current;[\s\S]*?\}/, '回答保存・画面復帰・手動同期が重なった場合は実行中の同期へ合流する');
 assert.match(contextSource, /run\.finally\(\(\) => \{[\s\S]*?syncInFlight\.current === run[\s\S]*?syncInFlight\.current = null/, '同期完了後だけsingle-flightロックを解除する');
