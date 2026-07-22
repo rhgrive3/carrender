@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
+  DEFAULT_MEMORY_REQUEST_TIMEOUT_MS,
   MemoryApiRequestError,
+  apiSyncMemory,
   isMemoryApiError,
 } from '../src/features/memory/infrastructure/api';
 import { MemoryMutationDependencyCycleError } from '../src/features/memory/infrastructure/mutationDependencyGuard';
@@ -10,7 +12,7 @@ import {
   type MemoryPendingMutation,
   type MemorySyncCommit,
 } from '../src/features/memory/infrastructure/repositories';
-import { syncMemory } from '../src/features/memory/infrastructure/syncEngine';
+import { memorySyncBackoffDelay, syncMemory } from '../src/features/memory/infrastructure/syncEngine';
 import {
   classifyMemorySyncError,
   logUnexpectedMemorySyncError,
@@ -154,6 +156,7 @@ assert.match(idbResult.errorMessage ?? '', /端末内の暗記データ/);
 
 const originalFetch = globalThis.fetch;
 const originalConsole = console.error;
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
 try {
   globalThis.fetch = async () => new Response(JSON.stringify({ error: 'server conflict' }), {
     status: 409,
@@ -178,26 +181,77 @@ try {
   console.error = originalConsole;
 
   globalThis.fetch = async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); };
-  const timeoutResult = await syncMemory(new ReadyRepository());
+  const timeoutResult = await syncMemory(new ReadyRepository(), { random: () => 0.5 });
   assert.deepEqual(
     [timeoutResult.status, timeoutResult.errorKind, timeoutResult.retryPolicy],
     ['error', 'timeout', 'retry-soon'],
     'fetch abortをtimeoutとして返す',
   );
+  assert.ok((timeoutResult.retryAfterMs ?? 0) > 0, 'timeoutへ再試行待機時間を付ける');
 
   globalThis.fetch = async () => new Response(JSON.stringify({ error: 'temporary outage' }), {
     status: 503,
     headers: { 'Content-Type': 'application/json' },
   });
-  const unavailableResult = await syncMemory(new ReadyRepository());
+  const unavailableRepository = new ReadyRepository();
+  let now = 1_000;
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(JSON.stringify({ error: 'temporary outage' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const unavailableResult = await syncMemory(unavailableRepository, { now: () => now, random: () => 0.5 });
   assert.deepEqual(
     [unavailableResult.status, unavailableResult.errorKind, unavailableResult.retryable, unavailableResult.retryPolicy],
     ['error', 'http', true, 'backoff'],
     '実APIの5xxをbackoff対象として返す',
   );
+  assert.equal(fetchCount, 1);
+  const deferred = await syncMemory(unavailableRepository, { now: () => now, random: () => 0.5 });
+  assert.equal(fetchCount, 1, 'cooldown中の自動同期はrequestを重ねない');
+  assert.ok((deferred.retryAfterMs ?? 0) > 0);
+
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(JSON.stringify({
+      schemaVersion: 1,
+      serverTime: '2026-07-22T00:00:00.000Z',
+      cursor: 'cursor-1',
+      acceptedMutationIds: [],
+      acceptedAttemptIds: [],
+      conflicts: [],
+      changes: {},
+      hasMore: false,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  const forced = await syncMemory(unavailableRepository, { force: true, now: () => now, random: () => 0.5 });
+  assert.equal(forced.status, 'synced', '手動同期はcooldownを解除して即時requestする');
+  assert.equal(fetchCount, 2);
+
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: false } });
+  const offlineHintRepository = new ReadyRepository();
+  const advisoryResult = await syncMemory(offlineHintRepository, { force: true });
+  assert.equal(advisoryResult.status, 'synced', 'navigator.onLine=falseでも実request成功を優先する');
+
+  assert.equal(memorySyncBackoffDelay(1, 0.5), 2_000);
+  assert.equal(memorySyncBackoffDelay(2, 0.5), 4_000);
+  assert.equal(memorySyncBackoffDelay(20, 0.5), 60_000, 'backoffへ上限を設ける');
+  assert.equal(DEFAULT_MEMORY_REQUEST_TIMEOUT_MS, 20_000);
+
+  globalThis.fetch = () => new Promise<Response>(() => {});
+  await assert.rejects(
+    apiSyncMemory({ schemaVersion: 1, clientId: 'client-1', mutations: [], attempts: [] }, { timeoutMs: 5 }),
+    (error: unknown) => isMemoryApiError(error) && error.kind === 'timeout',
+    '応答しないrequestをAbortControllerでtimeoutにする',
+  );
 } finally {
   globalThis.fetch = originalFetch;
   console.error = originalConsole;
+  if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);
+  else delete (globalThis as { navigator?: unknown }).navigator;
 }
 
 console.log('✅ memory sync error classification regressions passed');

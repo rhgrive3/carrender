@@ -57,15 +57,24 @@ export interface MemorySyncResponse {
   hasMore?: boolean;
 }
 
+export interface MemoryRequestOptions {
+  timeoutMs?: number;
+}
+
+export const DEFAULT_MEMORY_REQUEST_TIMEOUT_MS = 20_000;
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-async function memoryRequest<T>(path: string, body: unknown): Promise<T> {
+async function memoryRequest<T>(path: string, body: unknown, options: MemoryRequestOptions = {}): Promise<T> {
   // Serialization failures are programming/validation errors, not network
   // failures. Keep them outside the fetch catch so the sync classifier can
   // retain the real cause.
   const serializedBody = JSON.stringify(body);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_MEMORY_REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetch(path, {
@@ -73,6 +82,7 @@ async function memoryRequest<T>(path: string, body: unknown): Promise<T> {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: serializedBody,
+      signal: controller.signal,
     });
   } catch (caught) {
     if (isAbortError(caught)) {
@@ -89,6 +99,8 @@ async function memoryRequest<T>(path: string, body: unknown): Promise<T> {
       undefined,
       caught,
     );
+  } finally {
+    clearTimeout(timeout);
   }
 
   let data: unknown;
@@ -106,6 +118,9 @@ async function memoryRequest<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-export function apiSyncMemory(request: MemorySyncRequest): Promise<MemorySyncResponse> {
-  return memoryRequest<MemorySyncResponse>('/api/memory/sync', request);
+export function apiSyncMemory(
+  request: MemorySyncRequest,
+  options: MemoryRequestOptions = {},
+): Promise<MemorySyncResponse> {
+  return memoryRequest<MemorySyncResponse>('/api/memory/sync', request, options);
 }
