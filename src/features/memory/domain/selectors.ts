@@ -11,7 +11,12 @@ export type {
   SelectLearningTargetsInput,
 } from './targets';
 
-import { memoryTargetHasUsableLanguagePair } from './cardIntegrity';
+import {
+  isUsableEnglishMemoryText,
+  memoryTargetHasUsableLanguagePair,
+  normalizeMemoryCardText,
+  primaryEnglishForSense,
+} from './cardIntegrity';
 import {
   generateLearningTargets as generateLearningTargetsBase,
   type GenerateLearningTargetsInput,
@@ -36,6 +41,110 @@ import {
 export function generateLearningTargets(input: GenerateLearningTargetsInput): LearningTarget[] {
   return generateLearningTargetsBase(input)
     .filter((target) => memoryTargetHasUsableLanguagePair(input.content, target));
+}
+
+export type LearningTargetExclusionReason =
+  | 'missingJapanese'
+  | 'missingEnglish'
+  | 'unverifiedAi'
+  | 'unsupportedDirection'
+  | 'brokenReference';
+
+export interface LearningTargetEligibilityDiagnostic {
+  eligibleCount: number;
+  excludedCount: number;
+  candidateCount: number;
+  counts: Record<LearningTargetExclusionReason, number>;
+  primaryReason?: LearningTargetExclusionReason;
+}
+
+export const LEARNING_TARGET_EXCLUSION_LABELS: Record<LearningTargetExclusionReason, string> = {
+  missingJapanese: '日本語が未設定',
+  missingEnglish: '英語が未設定',
+  unverifiedAi: '未確認AIカード',
+  unsupportedDirection: '選んだ出題方向に未対応',
+  brokenReference: '削除済み・破損した参照',
+};
+
+/**
+ * Uses the same target selector as session creation, then assigns one actionable
+ * reason to every selected flashcard Sense that did not become eligible.
+ */
+export function diagnoseLearningTargetEligibility(
+  input: GenerateLearningTargetsInput,
+): LearningTargetEligibilityDiagnostic {
+  const counts: Record<LearningTargetExclusionReason, number> = {
+    missingJapanese: 0,
+    missingEnglish: 0,
+    unverifiedAi: 0,
+    unsupportedDirection: 0,
+    brokenReference: 0,
+  };
+  const selectedSets = new Set(input.selectedSetIds);
+  const selectedItemIds = [...new Set(input.setMembers
+    .filter((member) => !member.deletedAt && selectedSets.has(member.setId))
+    .map((member) => member.itemId))];
+  const activeItems = new Map(input.content.items
+    .filter((item) => !item.deletedAt)
+    .map((item) => [item.id, item]));
+  const activeSensesByItem = new Map<string, typeof input.content.senses>();
+  for (const sense of input.content.senses) {
+    if (sense.deletedAt) continue;
+    const list = activeSensesByItem.get(sense.itemId) ?? [];
+    list.push(sense);
+    activeSensesByItem.set(sense.itemId, list);
+  }
+  const eligibleTargets = generateLearningTargets(input)
+    .filter((target) => !target.exerciseId && (target.mode === 'input' || target.mode === 'output'));
+  const eligibleSenseIds = new Set(eligibleTargets.map((target) => target.senseId));
+  let candidateCount = 0;
+
+  for (const itemId of selectedItemIds) {
+    const item = activeItems.get(itemId);
+    const senses = activeSensesByItem.get(itemId) ?? [];
+    if (!item || senses.length === 0) {
+      candidateCount += 1;
+      counts.brokenReference += 1;
+      continue;
+    }
+    for (const sense of senses) {
+      candidateCount += 1;
+      if (eligibleSenseIds.has(sense.id)) continue;
+      if (!sense.promptJa.trim()) {
+        counts.missingJapanese += 1;
+        continue;
+      }
+      if (!(input.includeUnverifiedAi ?? false)
+        && (item.verificationStatus !== 'verified' || sense.verificationStatus !== 'verified')) {
+        counts.unverifiedAi += 1;
+        continue;
+      }
+      const anyEnglish = primaryEnglishForSense(input.content, sense.id);
+      const verifiedEnglish = primaryEnglishForSense(input.content, sense.id, { verifiedOnly: true });
+      if (!anyEnglish || !isUsableEnglishMemoryText(anyEnglish)
+        || normalizeMemoryCardText(anyEnglish) === normalizeMemoryCardText(sense.promptJa)) {
+        counts.missingEnglish += 1;
+        continue;
+      }
+      if (!(input.includeUnverifiedAi ?? false) && !verifiedEnglish) {
+        counts.unverifiedAi += 1;
+        continue;
+      }
+      counts.unsupportedDirection += 1;
+    }
+  }
+
+  const excludedCount = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const primaryReason = (Object.entries(counts) as [LearningTargetExclusionReason, number][])
+    .filter(([, count]) => count > 0)
+    .sort((left, right) => right[1] - left[1])[0]?.[0];
+  return {
+    eligibleCount: eligibleTargets.length,
+    excludedCount,
+    candidateCount,
+    counts,
+    primaryReason,
+  };
 }
 
 export interface LearningTargetStatRef {
