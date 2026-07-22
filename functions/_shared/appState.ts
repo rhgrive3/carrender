@@ -189,11 +189,11 @@ export function validateAppStatePayload(value: unknown, options: AppStateValidat
 
   if (Array.isArray(value.planHistory)) {
     for (const entry of value.planHistory) {
+      if (!isRecord(entry)) return { ok: false, error: 'planHistory に不正な項目があります' };
       const capturedAt = typeof entry.capturedAt === 'string' ? Date.parse(entry.capturedAt) : Number.NaN;
       const hasRangeStart = entry.rangeStart !== null && entry.rangeStart !== undefined;
       const hasRangeEnd = entry.rangeEnd !== null && entry.rangeEnd !== undefined;
-      if (!isRecord(entry)
-        || !nonEmptyString(entry.taskId)
+      if (!nonEmptyString(entry.taskId)
         || !nonEmptyString(entry.title)
         || !subjectIds.has(String(entry.subjectId))
         || !validISODate(entry.scheduledDate)
