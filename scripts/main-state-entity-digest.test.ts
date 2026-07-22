@@ -9,6 +9,7 @@ import {
   sha256Hex,
 } from '../src/lib/mainStateEntityDigest';
 import {
+  getCurrentMainSyncMetadata,
   getMainSyncMetadata,
   markMainSyncClean,
   markMainSyncDirty,
@@ -50,6 +51,11 @@ assert.equal(
   '{"a":1,"b":2}',
   'canonical JSONはobject keyを再帰的に固定する',
 );
+assert.equal(
+  canonicalMainStateEntityJSON({ 'ä': 1, z: 2, a: 3 }),
+  '{"a":3,"z":2,"ä":1}',
+  'canonical key順は端末localeに依存しない',
+);
 assert.match(mainStateEntityHash({ a: 1 }), /^[0-9a-f]{64}$/, 'entity digestは64桁のlowercase hexになる');
 assert.notEqual(mainStateEntityHash({ a: 1 }), mainStateEntityHash({ a: 2 }), '主要fieldの変更を検出する');
 assert.notEqual(mainStateEntityHash([1, 2]), mainStateEntityHash([2, 1]), '意味のある配列順は保持する');
@@ -59,6 +65,8 @@ const cleanState = { ...emptyState(), onboarded: true };
 markMainSyncClean(owner, baseUpdatedAt, changedAt, cleanState);
 const strongMetadata = getMainSyncMetadata(owner);
 assert.equal(strongMetadata?.baseEntityHashVersion, MAIN_STATE_ENTITY_HASH_VERSION, '新規metadataへdigest versionを保存する');
+assert.equal(getCurrentMainSyncMetadata()?.owner, owner, 'owner scoped metadataを実同期経路から取得する');
+assert.equal(getCurrentMainSyncMetadata()?.baseEntityHashVersion, MAIN_STATE_ENTITY_HASH_VERSION);
 const strongHashes = Object.values(strongMetadata?.baseEntityHashes ?? {})
   .flatMap((section) => Object.values(section));
 assert.ok(strongHashes.length > 0, 'clean stateからentity merge baseを作る');
