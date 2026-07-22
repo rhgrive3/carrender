@@ -12,6 +12,8 @@ const META_KEY_PREFIX = 'studycommander_main_sync_meta_v2:';
 const CONFLICT_BACKUP_KEY_PREFIX = 'studycommander_main_sync_conflict_backup_v2:';
 export const MAIN_SYNC_METADATA_WRITE_FAILURE_EVENT = 'studycommander-main-sync-metadata-write-failure';
 
+let currentMetadataOwner: string | null = null;
+
 export interface MainSyncMetadata {
   owner: string;
   dirty: boolean;
@@ -77,6 +79,15 @@ function writeJSON(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
     return true;
+  } catch {
+    return false;
+  }
+}
+
+function keyExists(key: string): boolean {
+  if (!storageAvailable()) return false;
+  try {
+    return localStorage.getItem(key) !== null;
   } catch {
     return false;
   }
@@ -160,12 +171,17 @@ function migrateLegacyConflictBackup(owner: string): MainSyncConflictBackup | nu
   return legacy;
 }
 
-/** Returns only the legacy singleton entry. New metadata is account-scoped. */
+/** Returns the active account metadata, while preserving legacy validation semantics. */
 export function getCurrentMainSyncMetadata(): MainSyncMetadata | null {
-  return legacyMetadata();
+  const legacy = legacyMetadata();
+  if (legacy || keyExists(LEGACY_META_KEY)) return legacy;
+  if (!currentMetadataOwner) return null;
+  const scoped = validatedMetadata(readJSON<Partial<MainSyncMetadata>>(metadataKey(currentMetadataOwner)));
+  return scoped?.owner === currentMetadataOwner ? scoped : null;
 }
 
 export function getMainSyncMetadata(owner: string): MainSyncMetadata | null {
+  currentMetadataOwner = owner;
   const scoped = validatedMetadata(readJSON<Partial<MainSyncMetadata>>(metadataKey(owner)));
   return scoped?.owner === owner ? scoped : migrateLegacyMetadata(owner);
 }
