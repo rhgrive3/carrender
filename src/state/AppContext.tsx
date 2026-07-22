@@ -28,6 +28,7 @@ const GuardedAppContext = createContext<AppContextValue | null>(null);
 const TIMER_STORAGE_KEY = 'studycommander_timer_v1';
 const ACTIVE_TASK_MESSAGE = '進行中のタスクは変更できません。タイマーを終了してから操作してください';
 const ACTIVE_RECORD_MESSAGE = '計測中のタスクは、タイマーを終了してから記録してください';
+const PAST_DUE_DATE_MESSAGE = '期限を過ぎる日には移動できません';
 
 function taskIdOf(action: Action): string | null {
   if (action.type === 'UPDATE_TASK') return action.task.id;
@@ -71,6 +72,10 @@ function dateLockedManualScheduling(task: StudyTask, date: string) {
         fixedDate: date,
         fixedStartTime: undefined,
       };
+}
+
+function movesBeyondActiveDueDate(task: StudyTask, date: string, currentDate: string): boolean {
+  return Boolean(task.dueDate && task.dueDate >= currentDate && date > task.dueDate);
 }
 
 export type AppActionResolution =
@@ -118,6 +123,15 @@ export function resolveAppAction(
   if (activeTimerTarget && timerTargetMatchesTask(activeTimerTarget, current)) {
     return { status: 'rejected', message: ACTIVE_TASK_MESSAGE, errorCode: 'activeTaskMutation' };
   }
+
+  const currentDate = options.todayDate ?? today();
+  const postponeDate = action.type === 'POSTPONE_TASK' ? addDays(currentDate, 1) : undefined;
+  if (postponeDate && movesBeyondActiveDueDate(current, postponeDate, currentDate)) {
+    return { status: 'rejected', message: PAST_DUE_DATE_MESSAGE, errorCode: 'pastDueDate' };
+  }
+  if (action.type === 'MOVE_TASK' && movesBeyondActiveDueDate(current, action.date, currentDate)) {
+    return { status: 'rejected', message: PAST_DUE_DATE_MESSAGE, errorCode: 'pastDueDate' };
+  }
   if (current.status !== 'doing') return { status: 'ready', action };
 
   const updatedAt = options.nowIso ?? new Date().toISOString();
@@ -131,7 +145,7 @@ export function resolveAppAction(
     };
   }
   if (action.type === 'POSTPONE_TASK') {
-    const date = addDays(options.todayDate ?? today(), 1);
+    const date = postponeDate ?? addDays(currentDate, 1);
     return {
       status: 'ready',
       action: {
@@ -152,10 +166,6 @@ export function resolveAppAction(
     };
   }
   if (action.type === 'MOVE_TASK') {
-    const currentDate = options.todayDate ?? today();
-    if (current.dueDate && current.dueDate >= currentDate && action.date > current.dueDate) {
-      return { status: 'rejected', message: '期限を過ぎる日には移動できません', errorCode: 'pastDueDate' };
-    }
     return {
       status: 'ready',
       action: {
