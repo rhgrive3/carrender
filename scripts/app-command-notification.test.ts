@@ -14,6 +14,16 @@ const source = await readFile(new URL('../src/state/AppContext.tsx', import.meta
 assert.doesNotMatch(source, /queueMicrotask|Object\.defineProperty\(result, ['"]message['"]/, 'message getterやmicrotaskの読取依存を残さない');
 assert.match(source, /resolved\.status === 'rejected'[\s\S]*emitAppCommandMessage/, 'dispatch拒否は共通規則で即時通知する');
 assert.match(source, /suppressNotification/, '呼出側の独自表示は明示optionで共通通知を抑止できる');
+assert.match(
+  source,
+  /action\.type === 'DELETE_TASK'[\s\S]*status: 'rejected'[\s\S]*errorCode: 'activeTaskMutation'/,
+  'doingタスク削除を通知されないnoChangeではなく明示的な拒否として扱う',
+);
+assert.doesNotMatch(
+  source,
+  /action\.type === 'DELETE_TASK'[\s\S]*status: 'noChange'[\s\S]*ACTIVE_TASK_MESSAGE/,
+  'doingタスク削除を理由付きnoChangeへ戻さない',
+);
 
 const rejected = createRejectedAppCommandResult('変更できません', 'blocked');
 assert.deepEqual(
@@ -47,6 +57,13 @@ try {
   notifyAppCommandResult(noChange);
   assert.equal(noChange.status, 'noChange');
   assert.equal(messages.length, 1, '正常なnoChangeでは不要な警告を出さない');
+
+  notifyAppCommandResult(createRejectedAppCommandResult(
+    '進行中のタスクは変更できません。タイマーを終了してから操作してください',
+    'activeTaskMutation',
+  ));
+  assert.equal(messages.length, 2, 'doingタスク削除の拒否理由を1回通知する');
+  assert.equal(messages[1]?.tone, 'warning', '操作不能理由を既存の警告Toastへ送る');
 } finally {
   if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
   else delete (globalThis as { window?: unknown }).window;
