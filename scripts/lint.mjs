@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { extname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { analyzeSource } from './semantic-lint-core.mjs';
+import './semantic-lint.test.mjs';
 
 const execFileAsync = promisify(execFile);
 const root = new URL('..', import.meta.url).pathname;
