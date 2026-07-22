@@ -74,3 +74,4 @@ const pending = normalizePersistedTimer(
 assert.equal(pending?.pendingRecordMinutes, 10);
 
 console.log('timer persistence validation tests passed');
+await import('./timer-target-identity.test');

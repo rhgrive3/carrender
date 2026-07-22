@@ -4,6 +4,13 @@ import type { AppState, Material, StudySession, StudyTask } from '../types';
 import { addDays, today } from '../lib/date';
 import { emitAppCommandMessage } from '../lib/appCommandEvents';
 import { validateMaterialIntegrity } from '../lib/materialIntegrity';
+import {
+  parsePersistedTimerTarget,
+  timerTargetMatchesSession,
+  timerTargetMatchesSessionInput,
+  timerTargetMatchesTask,
+  type TimerTargetLocator,
+} from '../lib/timerTargetIdentity';
 import { useAuth } from './AuthContext';
 import {
   AppProvider as BaseAppProvider,
@@ -21,14 +28,6 @@ const TIMER_STORAGE_KEY = 'studycommander_timer_v1';
 const ACTIVE_TASK_MESSAGE = '進行中のタスクは変更できません。タイマーを終了してから操作してください';
 const ACTIVE_RECORD_MESSAGE = '計測中のタスクは、タイマーを終了してから記録してください';
 
-interface ActiveTimerTarget {
-  taskId: string | null;
-  materialId: string | null;
-  sourceId?: string;
-  range?: { start: number; end: number };
-  type?: StudyTask['type'];
-}
-
 function taskIdOf(action: Action): string | null {
   if (action.type === 'UPDATE_TASK') return action.task.id;
   if (action.type === 'POSTPONE_TASK'
@@ -38,71 +37,14 @@ function taskIdOf(action: Action): string | null {
   return null;
 }
 
-function persistedTimerTarget(owner: string | null): ActiveTimerTarget | null {
+function persistedTimerTarget(owner: string | null): TimerTargetLocator | null {
   if (typeof localStorage === 'undefined' || !owner) return null;
   try {
     const raw = localStorage.getItem(TIMER_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { owner?: unknown; target?: Partial<ActiveTimerTarget> };
-    if (parsed.owner !== owner || !parsed.target) return null;
-    const taskId = parsed.target.taskId;
-    const materialId = parsed.target.materialId;
-    if (taskId !== null && typeof taskId !== 'string') return null;
-    if (materialId !== null && typeof materialId !== 'string') return null;
-    return {
-      taskId: taskId ?? null,
-      materialId: materialId ?? null,
-      ...(typeof parsed.target.sourceId === 'string' ? { sourceId: parsed.target.sourceId } : {}),
-      ...(parsed.target.range
-        && Number.isFinite(parsed.target.range.start)
-        && Number.isFinite(parsed.target.range.end)
-        ? { range: { start: parsed.target.range.start, end: parsed.target.range.end } }
-        : {}),
-      ...(parsed.target.type ? { type: parsed.target.type } : {}),
-    };
+    return raw ? parsePersistedTimerTarget(JSON.parse(raw), owner) : null;
   } catch {
     return null;
   }
-}
-
-function rangeOfTask(task: StudyTask): { start: number; end: number } | undefined {
-  return task.materialRange
-    ?? (Number.isFinite(task.rangeStart) && Number.isFinite(task.rangeEnd)
-      ? { start: task.rangeStart!, end: task.rangeEnd! }
-      : undefined);
-}
-
-function locatorMatchesTarget(
-  target: ActiveTimerTarget,
-  locator: SessionInput['taskLocator'] | undefined,
-  materialId: string | null,
-): boolean {
-  if (!target.sourceId || !locator?.sourceId || target.sourceId !== locator.sourceId || target.materialId !== materialId) return false;
-  if (target.type && locator.type && target.type !== locator.type) return false;
-  if (!target.range || !locator.range) return !target.range && !locator.range;
-  return target.range.start === locator.range.start && target.range.end === locator.range.end;
-}
-
-function targetMatchesTask(target: ActiveTimerTarget, task: StudyTask): boolean {
-  if (target.taskId && target.taskId === task.id) return true;
-  if (!target.sourceId || target.sourceId !== task.sourceId || target.materialId !== task.materialId) return false;
-  if (target.type && target.type !== task.type) return false;
-  const range = rangeOfTask(task);
-  if (!target.range || !range) return !target.range && !range;
-  return target.range.start === range.start && target.range.end === range.end;
-}
-
-function targetMatchesSessionInput(target: ActiveTimerTarget, input: SessionInput): boolean {
-  return Boolean(
-    (target.taskId && input.taskId === target.taskId)
-    || locatorMatchesTarget(target, input.taskLocator, input.materialId),
-  );
-}
-
-function targetMatchesSession(target: ActiveTimerTarget, session: StudySession): boolean {
-  if (target.taskId && session.taskId === target.taskId) return true;
-  if (session.taskSnapshotBefore && targetMatchesTask(target, session.taskSnapshotBefore)) return true;
-  return false;
 }
 
 function flexibleManualScheduling(task: StudyTask) {
@@ -135,18 +77,19 @@ interface ResolvedAction {
   message?: string;
 }
 
-function mutatesActiveTimerRecord(state: AppState, action: Action, target: ActiveTimerTarget | null): boolean {
+function mutatesActiveTimerRecord(state: AppState, action: Action, target: TimerTargetLocator | null): boolean {
   if (!target) return false;
   if (action.type === 'RECORD_SESSION') {
-    return action.input.source !== 'timer' && targetMatchesSessionInput(target, action.input);
+    return action.input.source !== 'timer' && timerTargetMatchesSessionInput(target, action.input);
   }
   if (action.type === 'UPDATE_SESSION') {
     const previous = state.sessions.find((session) => session.id === action.sessionId);
-    return Boolean(previous && targetMatchesSession(target, previous)) || targetMatchesSessionInput(target, action.input);
+    return Boolean(previous && timerTargetMatchesSession(target, previous))
+      || timerTargetMatchesSessionInput(target, action.input);
   }
   if (action.type === 'DELETE_SESSION') {
     const previous = state.sessions.find((session) => session.id === action.sessionId);
-    return Boolean(previous && targetMatchesSession(target, previous));
+    return Boolean(previous && timerTargetMatchesSession(target, previous));
   }
   return false;
 }
@@ -159,7 +102,7 @@ function resolveUiAction(state: AppState, action: Action, owner: string | null):
   if (!taskId) return { action };
   const current = state.tasks.find((task) => task.id === taskId);
   if (!current) return { action };
-  if (activeTimerTarget && targetMatchesTask(activeTimerTarget, current)) return { message: ACTIVE_TASK_MESSAGE };
+  if (activeTimerTarget && timerTargetMatchesTask(activeTimerTarget, current)) return { message: ACTIVE_TASK_MESSAGE };
   if (current.status !== 'doing') return { action };
 
   const updatedAt = new Date().toISOString();
@@ -281,9 +224,6 @@ function deterministicReducer(state: AppState, action: Action): AppState {
     if (materialValidationError(action.material)) return state;
   }
   if (action.type === 'UPDATE_MATERIAL' && action.material.completedRanges) {
-    // Base reducer historically re-derived ranges from the old material and could
-    // replace clipped completed ranges with unrelated early units. Seed the reducer
-    // with the exact range decision confirmed by the form so planning uses it too.
     const prepared: AppState = {
       ...state,
       materials: state.materials.map((material) => material.id === action.material.id
@@ -304,7 +244,6 @@ function deterministicReducer(state: AppState, action: Action): AppState {
   return baseAppReducer(state, action);
 }
 
-/** Reducerを直接使うテスト・補助処理でもUIと同じ整合性境界を適用する。 */
 export function appReducer(state: AppState, action: Action): AppState {
   const taskId = taskIdOf(action);
   const current = taskId ? state.tasks.find((task) => task.id === taskId) : undefined;
