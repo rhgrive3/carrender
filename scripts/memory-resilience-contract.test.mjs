@@ -1,18 +1,21 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource] = await Promise.all([
+const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource, materialsSource] = await Promise.all([
   readFile(new URL('../src/features/memory/ui/MemoryResult.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemorySetDetail.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemoryHome.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemoryStudySetup.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemoryStudy.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemoryContext.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/screens/MaterialsScreen.tsx', import.meta.url), 'utf8'),
 ]);
 
 assert.match(resultSource, /if \(!loaded\) throw new Error\('学習結果が見つかりません'\)/, '削除済み・不明な結果を無限ローディングにしない');
 assert.match(resultSource, /\.catch\(\(caught\) => \{[\s\S]*?setLoadError/, '結果読込のPromise拒否を画面状態へ反映する');
 assert.match(resultSource, /role="alert"[\s\S]*?学習結果を開けませんでした[\s\S]*?再読み込み/, '結果読込失敗時に理由と再試行手段を表示する');
+assert.match(resultSource, /applyResult\(initial\)[\s\S]*await requestSync\(true\)/, '端末内結果を同期完了前に表示する');
+assert.match(resultSource, /syncWarning[\s\S]*端末の結果を表示しています。同期は暗記ホームから再試行できます。/, '同期失敗時もローカル結果と再試行案内を維持する');
 
 assert.match(detailSource, /if \(!next\.sets\[0\]\) throw new Error\('暗記セットが見つかりません'\)/, '削除済みセットを無限ローディングにしない');
 assert.match(detailSource, /setLoadError\(caught instanceof Error/, 'セット詳細の読込失敗を保持する');
@@ -50,4 +53,11 @@ assert.match(contextSource, /const syncInFlight = useRef<Promise<void> \| null>\
 assert.match(contextSource, /if \(syncInFlight\.current\) \{[\s\S]*?return syncInFlight\.current;[\s\S]*?\}/, '回答保存・画面復帰・手動同期が重なった場合は実行中の同期へ合流する');
 assert.match(contextSource, /run\.finally\(\(\) => \{[\s\S]*?syncInFlight\.current === run[\s\S]*?syncInFlight\.current = null/, '同期完了後だけsingle-flightロックを解除する');
 
-console.log('✅ memory resilience contracts passed');
+assert.match(materialsSource, /class MemoryFeatureBoundary extends Component/, '暗記機能だけを囲うErrorBoundaryを持つ');
+assert.match(materialsSource, /getDerivedStateFromError[\s\S]*componentDidCatch/, '暗記chunk・描画失敗を境界内で捕捉して診断する');
+assert.match(materialsSource, /useMemo\(createMemoryFeatureComponent, \[memoryFeatureVersion\]\)/, '再試行時にrejected lazy Promiseを再利用せずimporterを作り直す');
+assert.match(materialsSource, /暗記機能を再読み込み[\s\S]*教材へ戻る/, '暗記だけ再試行する操作と通常教材へ戻る操作を提供する');
+assert.match(materialsSource, /Failed to fetch dynamically imported module[\s\S]*アプリを更新/, 'chunk hash不一致が疑われる場合だけ全体更新導線を示す');
+assert.match(materialsSource, /<MemoryFeatureBoundary[\s\S]*<Suspense[\s\S]*<MemoryFeature \/>/, 'Suspenseとlazy失敗を暗記領域内へ閉じ込める');
+
+console.log('✅ memory resilience and feature-boundary contracts passed');
