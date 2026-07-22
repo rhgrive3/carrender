@@ -57,11 +57,18 @@ export interface MemorySyncResponse {
   hasMore?: boolean;
 }
 
+export interface MemoryAttemptReceiptResponse {
+  schemaVersion: 1;
+  serverTime: string;
+  existingAttemptIds: string[];
+}
+
 export interface MemoryRequestOptions {
   timeoutMs?: number;
 }
 
 export const DEFAULT_MEMORY_REQUEST_TIMEOUT_MS = 20_000;
+export const MEMORY_ATTEMPT_RECEIPT_BATCH_SIZE = 500;
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
@@ -123,4 +130,19 @@ export function apiSyncMemory(
   options: MemoryRequestOptions = {},
 ): Promise<MemorySyncResponse> {
   return memoryRequest<MemorySyncResponse>('/api/memory/sync', request, options);
+}
+
+export function apiExistingMemoryAttemptIds(
+  attemptIds: readonly string[],
+  options: MemoryRequestOptions = {},
+): Promise<MemoryAttemptReceiptResponse> {
+  const uniqueAttemptIds = [...new Set(attemptIds)];
+  if (uniqueAttemptIds.length > MEMORY_ATTEMPT_RECEIPT_BATCH_SIZE) {
+    return Promise.reject(new Error(`attempt receipt確認は${MEMORY_ATTEMPT_RECEIPT_BATCH_SIZE}件ずつ実行してください`));
+  }
+  return memoryRequest<MemoryAttemptReceiptResponse>(
+    '/api/memory/attempt-receipts',
+    { schemaVersion: 1, attemptIds: uniqueAttemptIds },
+    options,
+  );
 }

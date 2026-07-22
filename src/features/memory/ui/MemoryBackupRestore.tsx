@@ -4,11 +4,20 @@ import {
   parseFullMemoryBackup,
   type FullMemoryBackupParseResult,
 } from '../domain/importExport';
+import {
+  apiExistingMemoryAttemptIds,
+  MEMORY_ATTEMPT_RECEIPT_BATCH_SIZE,
+} from '../infrastructure/api';
 import { useToast } from '../../../components/ui/Toast';
 import { APP_TIME_ZONE } from '../../../lib/date';
 import { useMemory } from './MemoryContext';
 
 const MAX_BACKUP_BYTES = 25_000_000;
+
+interface RestoreProgress {
+  checked: number;
+  total: number;
+}
 
 export function MemoryBackupRestore() {
   const { repository, refresh, navigate, requestSync } = useMemory();
@@ -19,6 +28,7 @@ export function MemoryBackupRestore() {
   const [confirming, setConfirming] = useState(false);
   const [understood, setUnderstood] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [restoreProgress, setRestoreProgress] = useState<RestoreProgress>();
   const mountedRef = useRef(false);
   const repositoryRef = useRef(repository);
   repositoryRef.current = repository;
@@ -46,6 +56,7 @@ export function MemoryBackupRestore() {
     setConfirming(false);
     setUnderstood(false);
     setRestoring(false);
+    setRestoreProgress(undefined);
   }, [repository]);
 
   const inspect = async (file: File | undefined) => {
@@ -91,10 +102,41 @@ export function MemoryBackupRestore() {
     const token = ++restoreTokenRef.current;
     restoreInFlightRef.current = true;
     setRestoring(true);
+    setRestoreProgress(undefined);
     const isCurrentAction = () => mountedRef.current
       && repositoryRef.current === actionRepository
       && restoreTokenRef.current === token;
     try {
+      // Only attempts carrying an export-time receipt can possibly be skipped.
+      // Missing receipts and lookup failures stay unsynced, which is the safe
+      // fallback for another account or an empty/recreated server database.
+      const receiptCandidates = [...new Set(
+        actionBackup.attempts.filter((attempt) => Boolean(attempt.syncedAt)).map((attempt) => attempt.attemptId),
+      )];
+      const confirmedAttemptIds = new Set<string>();
+      let receiptServerTime: string | undefined;
+      if (receiptCandidates.length > 0) setRestoreProgress({ checked: 0, total: receiptCandidates.length });
+      for (let offset = 0; offset < receiptCandidates.length; offset += MEMORY_ATTEMPT_RECEIPT_BATCH_SIZE) {
+        const batch = receiptCandidates.slice(offset, offset + MEMORY_ATTEMPT_RECEIPT_BATCH_SIZE);
+        try {
+          const receipt = await apiExistingMemoryAttemptIds(batch);
+          if (!isCurrentAction()) return;
+          receipt.existingAttemptIds.forEach((attemptId) => confirmedAttemptIds.add(attemptId));
+          receiptServerTime = receipt.serverTime;
+        } catch (caught) {
+          // Do not block restoration when the server cannot be checked. Every
+          // unconfirmed attempt is intentionally re-sent through normal sync.
+          console.warn('暗記バックアップの回答receipt確認に失敗したため安全側で再送します', caught);
+          break;
+        }
+        if (isCurrentAction()) {
+          setRestoreProgress({
+            checked: Math.min(offset + batch.length, receiptCandidates.length),
+            total: receiptCandidates.length,
+          });
+        }
+      }
+
       await actionRepository.replaceFromBackup({
         snapshot: {
           sets: actionBackup.sets,
@@ -110,6 +152,20 @@ export function MemoryBackupRestore() {
         sessions: actionBackup.sessions,
       });
       if (!isCurrentAction()) return;
+
+      if (confirmedAttemptIds.size > 0 && receiptServerTime) {
+        const acceptedAttemptIds = [...confirmedAttemptIds];
+        await actionRepository.commitSyncResponse({
+          serverTime: receiptServerTime,
+          cursor: '0',
+          acceptedMutationIds: [],
+          acceptedAttemptIds,
+          sentAttemptIds: acceptedAttemptIds,
+          conflicts: [],
+          changes: {},
+        });
+      }
+      if (!isCurrentAction()) return;
       try {
         await refresh();
       } catch (caught) {
@@ -119,14 +175,20 @@ export function MemoryBackupRestore() {
       void requestSync(true).catch((caught) => {
         console.error('暗記バックアップ復元後の同期要求に失敗しました', caught);
       });
-      toast('完全バックアップを復元しました');
+      const skipped = confirmedAttemptIds.size;
+      toast(skipped > 0
+        ? `完全バックアップを復元しました（既存の回答${skipped}件は再送を省略）`
+        : '完全バックアップを復元しました');
       navigate({ name: 'home' });
     } catch (caught) {
       if (isCurrentAction()) toast(caught instanceof Error ? caught.message : 'バックアップを復元できませんでした');
     } finally {
       if (restoreTokenRef.current === token) {
         restoreInFlightRef.current = false;
-        if (mountedRef.current) setRestoring(false);
+        if (mountedRef.current) {
+          setRestoring(false);
+          setRestoreProgress(undefined);
+        }
       }
     }
   };
@@ -149,6 +211,9 @@ export function MemoryBackupRestore() {
       {fileName && <small className="memory-backup-file">{fileName}</small>}
       <div aria-live="polite">
         {reading && <p className="muted">安全性と参照関係を検証中…</p>}
+        {restoring && restoreProgress && restoreProgress.total > 0 && (
+          <p className="muted">回答履歴の同期状況を確認中… {restoreProgress.checked}/{restoreProgress.total}</p>
+        )}
         {result && !result.valid && (
           <div className="memory-backup-errors" role="alert">
             <b>このファイルは復元できません（{result.issues.length}件）</b>
