@@ -10,6 +10,7 @@ const [guardSource, mainSource, planSource, appContextSource] = await Promise.al
 
 assert.match(guardSource, /if \(button\.disabled\) button\.disabled = false/u);
 assert.match(guardSource, /setAttributeIfChanged\(button, 'aria-label', accessibleLabel\)/u);
+// 監視対象属性を同値で書き直すとMutationObserverが自己再発火し得るため、差分時だけ更新する。
 assert.match(guardSource, /if \(element\.getAttribute\(name\) !== value\) element\.setAttribute\(name, value\)/u);
 assert.doesNotMatch(guardSource, /button\.setAttribute\('aria-label', `\$\{originalLabel\}。\$\{BLOCKED_TITLE\}`\)/u);
 assert.match(guardSource, /attributeFilter: \['disabled', 'title', 'aria-label'\]/u);
