@@ -8,7 +8,8 @@ import type { ISODate } from '../types';
  * というバックトラック探索で、区間・チャンク条件込みの配置可能性を判定する。
  *
  * - 単位はitemごとのunit(教材=単位数、手動タスク=分でminutesPerUnit=1)。
- * - maxNodes / maxMs の探索上限に達したら indeterminate を返す(infeasibleにしない)。
+ * - 通常の探索終了はmaxNodesだけで決め、端末速度や負荷で結果を変えない。
+ * - emergencyStopはworker取消等の明示的な非常停止専用で、wall-clockは診断値にだけ使う。
  */
 
 export interface SolverSlot {
@@ -37,8 +38,12 @@ export interface SolverItem {
 }
 
 export interface SolverOptions {
+  /** 通常探索の決定的budget。端末速度に関係なく同じnodeで終了する。 */
   maxNodes: number;
+  /** @deprecated wall-clockは探索結果へ影響させず、呼出側互換のためだけに残す。 */
   maxMs: number;
+  /** worker取消等の明示的な非常停止。通常実行では指定しない。 */
+  emergencyStop?: () => boolean;
   /** trueなら期限側の日から先に埋める(最遅スケジュール=最低予約量の算出用) */
   preferLate: boolean;
 }
@@ -58,6 +63,9 @@ export interface SolveResult {
   allocations: Map<string, SlotAllocation[]>;
   nodes: number;
   elapsedMs: number;
+  /** falseなら探索を完了しておらず、infeasibleや最適解として扱ってはいけない。 */
+  exhaustive: boolean;
+  limitReason?: 'nodeBudget' | 'emergencyStop';
 }
 
 export function minutesForUnits(minutesPerUnit: number, units: number): number {
@@ -212,11 +220,12 @@ export function solveStrict(items: SolverItem[], daysInput: SolverDayInput[], op
     itemStates.push(state);
   }
   if (impossible !== null) {
-    return { status: 'infeasible', allocations: new Map(), nodes: 0, elapsedMs: Date.now() - startedAt };
+    return { status: 'infeasible', allocations: new Map(), nodes: 0, elapsedMs: Date.now() - startedAt, exhaustive: true };
   }
 
   let nodes = 0;
   let hitLimit = false;
+  let limitReason: SolveResult['limitReason'];
 
   const boundOk = (): boolean => {
     for (const state of itemStates) {
@@ -313,10 +322,14 @@ export function solveStrict(items: SolverItem[], daysInput: SolverDayInput[], op
     nodes += 1;
     if (nodes > options.maxNodes) {
       hitLimit = true;
+      limitReason = 'nodeBudget';
       return false;
     }
-    if ((nodes & 63) === 0 && Date.now() - startedAt > options.maxMs) {
+    // wall-clockで探索を打ち切ると、同じ入力でも端末性能や負荷で結果が変わる。
+    // 非常停止は外部から明示された取消だけを、一定node間隔で確認する。
+    if ((nodes & 63) === 0 && options.emergencyStop?.()) {
       hitLimit = true;
+      limitReason = 'emergencyStop';
       return false;
     }
     const pending = itemStates.filter((state) => state.remaining > 0);
@@ -365,7 +378,14 @@ export function solveStrict(items: SolverItem[], daysInput: SolverDayInput[], op
           })),
       );
     }
-    return { status: 'feasible', allocations, nodes, elapsedMs };
+    return { status: 'feasible', allocations, nodes, elapsedMs, exhaustive: true };
   }
-  return { status: hitLimit ? 'indeterminate' : 'infeasible', allocations: new Map(), nodes, elapsedMs };
+  return {
+    status: hitLimit ? 'indeterminate' : 'infeasible',
+    allocations: new Map(),
+    nodes,
+    elapsedMs,
+    exhaustive: !hitLimit,
+    ...(limitReason ? { limitReason } : {}),
+  };
 }
