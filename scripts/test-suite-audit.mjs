@@ -58,17 +58,16 @@ export function buildManifest(scriptMap = scripts) {
   return SUITE_KEYS.flatMap((suite) => commandFiles(scriptMap[suite]).map((file) => ({ suite, file, domain: domainFor(file) })));
 }
 
-export async function auditManifest(scriptMap = scripts, discovered = await discoverTestFiles()) {
+export async function auditManifest(scriptMap = scripts, discovered) {
+  const discoveredFiles = discovered ?? await discoverTestFiles();
   const manifest = buildManifest(scriptMap);
   const byFile = new Map();
   for (const entry of manifest) byFile.set(entry.file, [...(byFile.get(entry.file) ?? []), entry.suite]);
   const duplicates = [...byFile.entries()].filter(([, suites]) => suites.length > 1);
   const registered = new Set(byFile.keys());
-  const intentionallyStandalone = new Set([
-    'scripts/test-suite-audit.mjs',
-  ]);
-  const unregistered = discovered.filter((file) => !registered.has(file) && !intentionallyStandalone.has(file));
-  const missing = manifest.filter(({ file }) => !discovered.includes(file) && /\.(?:test|fixture)\./.test(file));
+  const intentionallyStandalone = new Set(['scripts/test-suite-audit.mjs']);
+  const unregistered = discoveredFiles.filter((file) => !registered.has(file) && !intentionallyStandalone.has(file));
+  const missing = manifest.filter(({ file }) => !discoveredFiles.includes(file) && /\.(?:test|fixture)\./.test(file));
   const domains = new Map();
   for (const entry of manifest) domains.set(entry.domain, (domains.get(entry.domain) ?? 0) + 1);
   return { manifest, duplicates, unregistered, missing, domains };
@@ -131,11 +130,9 @@ async function selfTest() {
 }
 
 const args = process.argv.slice(2);
-if (args[0] === '--run') {
-  await runSuite(args[1]);
-} else if (args[0] === '--self-test') {
-  await selfTest();
-} else {
+if (args[0] === '--run') await runSuite(args[1]);
+else if (args[0] === '--self-test') await selfTest();
+else {
   const report = await auditManifest();
   printAudit(report);
   if (report.duplicates.length || report.unregistered.length || report.missing.length) process.exitCode = 1;
