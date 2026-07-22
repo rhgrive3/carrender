@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { addDays, today } from '../src/lib/date';
-import { appReducer, emptyState } from '../src/state/AppContext';
+import { appReducer, emptyState, resolveAppAction } from '../src/state/AppContext';
 import type { AppState, StudyTask } from '../src/types';
 
 const date = today();
-const now = new Date().toISOString();
+const now = '2026-07-22T00:00:00.000Z';
 const doingTask: StudyTask = {
   id: 'doing-task', subjectId: 'subject', materialId: null, title: '計測中タスク', rangeLabel: '',
   rangeStart: null, rangeEnd: null, amount: 1, estimatedMinutes: 30, priority: 50, dueDate: addDays(date, 7),
@@ -25,48 +25,48 @@ const state: AppState = {
   tasks: [doingTask],
 };
 
-assert.strictEqual(
-  appReducer(state, { type: 'POSTPONE_TASK', taskId: doingTask.id }),
-  state,
-  '計測中タスクはReducer境界でも延期しない',
-);
-assert.strictEqual(
-  appReducer(state, { type: 'MOVE_TASK', taskId: doingTask.id, date: addDays(date, 1) }),
-  state,
-  '計測中タスクはReducer境界でも別日へ移動しない',
-);
-assert.strictEqual(
-  appReducer(state, {
-    type: 'UPDATE_TASK',
-    task: { ...doingTask, scheduledDate: addDays(date, 1), updatedAt: new Date().toISOString() },
-  }),
-  state,
-  '計測中タスクはUPDATE_TASK経由でも予定を変更しない',
-);
-assert.strictEqual(
-  appReducer(state, { type: 'DELETE_TASK', taskId: doingTask.id }),
-  state,
-  '計測中タスクはReducer境界でも削除しない',
-);
+const postponeAction = { type: 'POSTPONE_TASK' as const, taskId: doingTask.id };
+const resolvedPostpone = resolveAppAction(state, postponeAction, { nowIso: now, todayDate: date });
+assert.equal(resolvedPostpone.status, 'ready');
+assert.equal(resolvedPostpone.status === 'ready' ? resolvedPostpone.action.type : undefined, 'UPDATE_TASK');
 
-const recovered = appReducer(state, {
+const postponed = appReducer(state, postponeAction);
+assert.notStrictEqual(postponed, state, 'Reducer直接実行でもUI commandと同じstale doing復旧を行う');
+assert.equal(postponed.tasks[0]?.status, 'planned');
+assert.equal(postponed.tasks[0]?.scheduledDate, addDays(date, 1));
+assert.equal(postponed.tasks[0]?.scheduledStart, null);
+
+const moveDate = addDays(date, 2);
+const moveAction = { type: 'MOVE_TASK' as const, taskId: doingTask.id, date: moveDate };
+const resolvedMove = resolveAppAction(state, moveAction, { nowIso: now, todayDate: date });
+assert.equal(resolvedMove.status, 'ready');
+const moved = appReducer(state, moveAction);
+assert.equal(moved.tasks[0]?.status, 'planned');
+assert.equal(moved.tasks[0]?.scheduledDate, moveDate);
+assert.equal(moved.tasks[0]?.placementLock, 'date');
+
+const updated = appReducer(state, {
   type: 'UPDATE_TASK',
-  task: {
-    ...doingTask,
-    status: 'planned',
-    placementLock: 'none',
-    scheduledStart: null,
-    scheduledEnd: null,
-    manualScheduling: {
-      ...doingTask.manualScheduling!,
-      placementPolicy: 'flexibleBeforeDeadline',
-      fixedDate: undefined,
-      fixedStartTime: undefined,
-    },
-    updatedAt: new Date().toISOString(),
-  },
+  task: { ...doingTask, scheduledDate: addDays(date, 1), updatedAt: now },
 });
-assert.notStrictEqual(recovered, state, '古いdoing状態はplannedへ戻す同一更新で復旧できる');
-assert.equal(recovered.tasks[0]?.status, 'planned');
+assert.notStrictEqual(updated, state, 'UPDATE_TASKもdoingをplannedへ正規化して入口差を作らない');
+assert.equal(updated.tasks[0]?.status, 'planned');
 
-console.log('✅ doing task mutation guards passed');
+const deleted = resolveAppAction(state, { type: 'DELETE_TASK', taskId: doingTask.id });
+assert.equal(deleted.status, 'noChange', 'stale doingの削除は状態変更なしとして型で区別する');
+assert.strictEqual(appReducer(state, { type: 'DELETE_TASK', taskId: doingTask.id }), state);
+
+const activeTimerTarget = {
+  owner: 'owner',
+  taskId: doingTask.id,
+  subjectId: doingTask.subjectId,
+  materialId: doingTask.materialId,
+  sourceId: doingTask.sourceId,
+  rangeStart: doingTask.rangeStart,
+  rangeEnd: doingTask.rangeEnd,
+};
+const rejected = resolveAppAction(state, postponeAction, { activeTimerTarget });
+assert.equal(rejected.status, 'rejected', '実際のactive timer対象はstale doing復旧せず拒否する');
+assert.equal(rejected.status === 'rejected' ? rejected.errorCode : undefined, 'activeTaskMutation');
+
+console.log('✅ unified app command semantics passed');
