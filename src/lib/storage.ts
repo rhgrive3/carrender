@@ -4,6 +4,7 @@ import {
   type AppStateValidationResult,
 } from '../../functions/_shared/appState';
 import {
+  isAppStateShape as isLegacyAppStateShape,
   migrateState as migrateLegacyState,
   type MigrationResult,
 } from './storageLegacy';
@@ -25,32 +26,38 @@ function validationIssue(result: AppStateValidationResult): ValidationIssue {
   };
 }
 
-function validationMessage(result: AppStateValidationResult): string {
-  return result.error ? `不正なデータ形式です: ${result.error}` : '不正なデータ形式です';
+function malformedShapeIssue(): ValidationIssue {
+  return {
+    targetId: 'appState',
+    field: 'root',
+    value: undefined,
+    reason: '学習データの基本構造が正しくありません',
+    suggestion: '正常なJSONバックアップから復元してください',
+  };
 }
 
 /**
  * API・localStorage・IndexedDB・JSON importで同じ純粋validatorを使う。
- * 旧versionは移行前にlegacy互換条件で検証し、移行後は現行条件でもう一度検証する。
+ * migrationで修復可能な旧versionは最低形状だけ確認して移行し、
+ * 現行stateへ正規化した後にAPIと同じ厳密validatorを適用する。
  */
 export function migrateState(input: AppState): MigrationResult {
-  const beforeMigration = validateAppStatePayload(input, { allowLegacyGoalDateOverflow: true });
-  if (!beforeMigration.ok) {
-    return { ok: false, state: input, errors: [validationIssue(beforeMigration)] };
+  if (!isLegacyAppStateShape(input)) {
+    return { ok: false, state: input, errors: [malformedShapeIssue()] };
   }
 
   const migrated = migrateLegacyState(input);
   if (!migrated.ok) return migrated;
 
-  const afterMigration = validateAppStatePayload(migrated.state);
-  if (!afterMigration.ok) {
-    return { ok: false, state: migrated.state, errors: [validationIssue(afterMigration)] };
+  const validation = validateAppStatePayload(migrated.state);
+  if (!validation.ok) {
+    return { ok: false, state: migrated.state, errors: [validationIssue(validation)] };
   }
   return migrated;
 }
 
 export function isAppStateShape(value: unknown): value is AppState {
-  return validateAppStatePayload(value, { allowLegacyGoalDateOverflow: true }).ok;
+  return isLegacyAppStateShape(value) && migrateState(value).ok;
 }
 
 export function loadState(): AppState | null {
@@ -58,16 +65,15 @@ export function loadState(): AppState | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    const validation = validateAppStatePayload(parsed, { allowLegacyGoalDateOverflow: true });
-    if (!validation.ok) {
+    if (!isLegacyAppStateShape(parsed)) {
       localStorage.setItem(BACKUP_KEY, raw);
-      console.error('保存データの形式が不正です', validation.error);
+      console.error('保存データの基本構造が不正です');
       return null;
     }
-    const migration = migrateState(parsed as AppState);
+    const migration = migrateState(parsed);
     if (!migration.ok) {
       localStorage.setItem(BACKUP_KEY, raw);
-      console.error('一部の保存データに移行エラーがあります', migration.errors);
+      console.error('一部の保存データに検証または移行エラーがあります', migration.errors);
       return null;
     }
     return migration.state;
@@ -85,9 +91,8 @@ export function loadState(): AppState | null {
 
 export function importJSON(json: string): AppState {
   const parsed: unknown = JSON.parse(json);
-  const validation = validateAppStatePayload(parsed, { allowLegacyGoalDateOverflow: true });
-  if (!validation.ok) throw new Error(validationMessage(validation));
-  const migration = migrateState(parsed as AppState);
+  if (!isLegacyAppStateShape(parsed)) throw new Error('不正なデータ形式です: 学習データの基本構造が正しくありません');
+  const migration = migrateState(parsed);
   if (!migration.ok) {
     throw new Error(`移行できない項目があります: ${migration.errors.map((error) => `${error.targetId}.${error.field}: ${error.reason}`).join(', ')}`);
   }
