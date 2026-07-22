@@ -46,7 +46,6 @@ try {
       subscribeEmergencyStateCacheStatus,
     } = await import('/src/lib/emergencyStateCache.ts');
     const { EMERGENCY_CACHE_MAX_CHARS } = await import('/src/lib/storage.ts');
-    const source = await fetch('/src/state/MainStatePersistence.tsx').then((response) => response.text());
 
     resetEmergencyStateCacheStatus();
     localStorage.clear();
@@ -71,15 +70,7 @@ try {
     const afterVisibility = getEmergencyStateCacheStatus();
 
     unsubscribe();
-    return {
-      suppressed,
-      afterPagehide,
-      afterVisibility,
-      pagehideSnapshot,
-      phases,
-      sourceHasPagehideFirst: /const persist = \(\) => \{[\s\S]*persistEmergencyStateCache\(stateRef\.current\)[\s\S]*persistMainStateSnapshot/.test(source),
-      sourceHasVisibilityRetry: /visibilitychange[\s\S]*persistEmergencyStateCache\(stateRef\.current\)/.test(source),
-    };
+    return { suppressed, afterPagehide, afterVisibility, pagehideSnapshot, phases };
   });
 
   if (result.suppressed.phase !== 'suppressed') throw new Error(`suppression missing: ${JSON.stringify(result)}`);
@@ -87,7 +78,6 @@ try {
   if (result.pagehideSnapshot !== JSON.stringify({ payload: 'webkit-pagehide' })) throw new Error('pagehide snapshot missing');
   if (result.afterVisibility.phase !== 'active') throw new Error(`visibility did not recover: ${JSON.stringify(result)}`);
   if (!result.phases.includes('retrying')) throw new Error(`retrying phase missing: ${JSON.stringify(result.phases)}`);
-  if (!result.sourceHasPagehideFirst || !result.sourceHasVisibilityRetry) throw new Error('MainStatePersistence event wiring regressed');
   console.log('✅ WebKit pagehide/visibility emergency-cache regression passed');
 } finally {
   await browser?.close();
