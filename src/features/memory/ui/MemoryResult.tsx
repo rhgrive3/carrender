@@ -69,6 +69,8 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   const [bundle, setBundle] = useState<MemorySetBundle>();
   const [undoing, setUndoing] = useState(false);
   const [loadError, setLoadError] = useState<string>();
+  const [syncingResult, setSyncingResult] = useState(false);
+  const [syncWarning, setSyncWarning] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
   const mounted = useRef(true);
   const activeSessionId = useRef(sessionId);
@@ -87,6 +89,8 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
     setAttempts([]);
     setBundle(undefined);
     setLoadError(undefined);
+    setSyncingResult(false);
+    setSyncWarning(undefined);
     setUndoing(false);
     undoInFlightSessionId.current = undefined;
   }, [reloadKey, repository, sessionId]);
@@ -119,21 +123,23 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
 
       const initial = await loadResult();
       if (cancelled) return;
-      if (initial.loaded.status === 'active') {
-        navigate({ name: 'study', sessionId: initial.loaded.id });
-        return;
-      }
-      if (initial.loaded.status !== 'completed') throw new Error('この学習セッションは終了済みです');
+      if (!applyResult(initial)) return;
 
+      setSyncWarning(undefined);
+      setSyncingResult(true);
       try {
         await requestSync(true);
+        if (cancelled || undoInFlightSessionId.current === sessionId) return;
+        const synced = await loadResult();
+        if (cancelled || undoInFlightSessionId.current === sessionId) return;
+        applyResult(synced);
       } catch {
-        // 端末データで継続し、暗記ホームから再同期できる。
+        if (!cancelled) {
+          setSyncWarning('端末の結果を表示しています。同期は暗記ホームから再試行できます。');
+        }
+      } finally {
+        if (!cancelled) setSyncingResult(false);
       }
-      if (cancelled) return;
-      const synced = await loadResult();
-      if (cancelled) return;
-      applyResult(synced);
     })().catch((caught) => {
       if (!cancelled) setLoadError(caught instanceof Error ? caught.message : '学習結果を読み込めませんでした');
     });
@@ -207,6 +213,11 @@ export function MemoryResult({ sessionId }: { sessionId: string }) {
   return (
     <section className="memory-result memory-simple-result" aria-labelledby="memory-result-title" aria-describedby="memory-result-summary">
       <div className="memory-result-hero"><span aria-hidden="true">✓</span><h2 id="memory-result-title">学習完了</h2><p id="memory-result-summary">カード {initialTargetCount}件・回答 {attempts.length}回</p></div>
+      {(syncingResult || syncWarning) && (
+        <p className="faint" role="status" aria-live="polite">
+          {syncWarning ?? '最新の暗記データを同期しています…'}
+        </p>
+      )}
       <div className="memory-simple-result-grid" role="list" aria-label="カード単位の学習結果">
         <div className="card" role="listitem" aria-label={`覚えた ${counts.remembered}件`}><small>覚えた</small><b>{counts.remembered}</b></div>
         <div className="card" role="listitem" aria-label={`あやしい ${counts.unsure}件`}><small>あやしい</small><b>{counts.unsure}</b></div>
