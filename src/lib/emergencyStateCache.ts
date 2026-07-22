@@ -1,5 +1,5 @@
 import type { AppState } from '../types';
-import { EMERGENCY_CACHE_MAX_CHARS } from './storage';
+import { EMERGENCY_CACHE_MAX_CHARS } from './storageLegacy';
 
 const STATE_KEY = 'studycommander_state_v1';
 const UPDATED_KEY = 'studycommander_state_updated_at_v1';
