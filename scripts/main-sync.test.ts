@@ -43,6 +43,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 });
 
 const owner = 'user-1';
+const otherOwner = 'user-2';
 const v1 = '2026-07-14T00:00:00.000Z';
 const v2 = '2026-07-14T00:01:00.000Z';
 
@@ -101,6 +102,34 @@ check('cleanな端末は次回起動時にクラウド版を採用', decideIniti
   hasLocalState: true,
 }) === 'useRemote');
 
+console.log('--- Main sync: owner-scoped metadata ---');
+markMainSyncDirty(otherOwner, v1, '2026-07-14T00:02:05.000Z');
+check('別アカウントのdirty化で元アカウントのclean世代を上書きしない',
+  getMainSyncMetadata(owner)?.dirty === false
+    && getMainSyncMetadata(owner)?.baseUpdatedAt === v2
+    && getMainSyncMetadata(otherOwner)?.dirty === true,
+  { owner: getMainSyncMetadata(owner), other: getMainSyncMetadata(otherOwner) });
+clearMainSyncMetadata(owner);
+check('アカウント単位の消去で対象ownerだけ削除する',
+  getMainSyncMetadata(owner) === null && getMainSyncMetadata(otherOwner)?.dirty === true);
+markMainSyncClean(owner, v2, '2026-07-14T00:02:06.000Z');
+
+console.log('--- Main sync: legacy singleton migration ---');
+clearMainSyncMetadata();
+localStorage.setItem('studycommander_main_sync_meta_v1', JSON.stringify({
+  owner,
+  dirty: true,
+  baseUpdatedAt: v1,
+  localChangedAt: v2,
+}));
+check('旧共通キーは所有者一致時だけ読み込める',
+  getMainSyncMetadata(otherOwner) === null && getMainSyncMetadata(owner)?.baseUpdatedAt === v1);
+check('旧共通キーをowner scopedキーへ移行後に削除する',
+  localStorage.getItem('studycommander_main_sync_meta_v1') === null
+    && getMainSyncMetadata(owner)?.dirty === true);
+markMainSyncClean(owner, v2, '2026-07-14T00:02:07.000Z');
+markMainSyncDirty(otherOwner, v1, '2026-07-14T00:02:08.000Z');
+
 console.log('--- Main sync: metadata persistence failures ---');
 memoryStorage.failWrites = true;
 const failedDirty = markMainSyncDirty(owner, v2, '2026-07-14T00:02:10.000Z');
@@ -120,7 +149,7 @@ const recoveredDirty = markMainSyncDirty(owner, v2, '2026-07-14T00:02:40.000Z');
 check('保存環境の回復後は再試行でmetadataを永続化できる', recoveredDirty.persisted && getMainSyncMetadata(owner)?.dirty === true, recoveredDirty);
 markMainSyncClean(owner, v2, '2026-07-14T00:02:50.000Z');
 
-console.log('--- Main sync: malformed metadata ---');
+console.log('--- Main sync: malformed legacy metadata ---');
 localStorage.setItem('studycommander_main_sync_meta_v1', JSON.stringify({
   owner,
   dirty: true,
@@ -143,6 +172,7 @@ localStorage.setItem('studycommander_main_sync_meta_v1', JSON.stringify({
   baseEntityHashes: { sessions: { session1: 'invalid-hash' } },
 }));
 check('壊れたentity hashをマージ基準へ使わない', getCurrentMainSyncMetadata() === null);
+localStorage.removeItem('studycommander_main_sync_meta_v1');
 
 console.log('--- Main sync: conflict recovery backup ---');
 const localState = { ...emptyState(), onboarded: true };
@@ -155,14 +185,31 @@ const saved = saveMainSyncConflictBackup({
   localState,
   remoteState,
 });
+const otherSaved = saveMainSyncConflictBackup({
+  owner: otherOwner,
+  createdAt: '2026-07-14T00:03:10.000Z',
+  localBaseUpdatedAt: v2,
+  remoteUpdatedAt: v2,
+  localState: remoteState,
+  remoteState: localState,
+});
 const backup = getMainSyncConflictBackup(owner);
 check('競合解決前に端末版とクラウド版を同時退避', saved
   && backup?.localState.onboarded === true
   && backup.remoteState?.onboarded === false
   && backup.remoteUpdatedAt === v2, backup);
-check('別ユーザーは競合バックアップを読めない', getMainSyncConflictBackup('other-user') === null);
+check('別ユーザーの競合バックアップを独立して保持', otherSaved
+  && getMainSyncConflictBackup(otherOwner)?.localState.onboarded === false
+  && getMainSyncConflictBackup(owner)?.localState.onboarded === true);
+clearMainSyncMetadata(owner);
+check('ログアウト時は対象ownerの同期情報だけを消去',
+  getMainSyncMetadata(owner) === null
+    && getMainSyncConflictBackup(owner) === null
+    && getMainSyncMetadata(otherOwner)?.dirty === true
+    && getMainSyncConflictBackup(otherOwner) !== null);
 clearMainSyncMetadata();
-check('ログアウト時は同期メタデータと競合退避を消去', getMainSyncMetadata(owner) === null && getMainSyncConflictBackup(owner) === null);
+check('明示的な全消去では全ownerの同期情報を消去',
+  getMainSyncMetadata(otherOwner) === null && getMainSyncConflictBackup(otherOwner) === null);
 
 console.log(failures === 0 ? '\n🎉 ALL PASS (main sync)' : `\n💥 ${failures} FAILURES (main sync)`);
 process.exit(failures === 0 ? 0 : 1);
