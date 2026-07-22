@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [study, polish] = await Promise.all([
+const [study, polish, focusGuard, main] = await Promise.all([
   readFile(new URL('../src/features/memory/ui/MemoryStudy.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/styles/memory-study-polish.css', import.meta.url), 'utf8'),
+  readFile(new URL('../src/lib/memoryCardKeyboardFocusGuard.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/main.tsx', import.meta.url), 'utf8'),
 ]);
 
 assert.match(study, /examplesForSense\(bundle, sense\.id, \{ verifiedOnly: true \}\)/, '確認済み例文だけを学習画面へ出す');
@@ -25,4 +27,13 @@ assert.match(polish, /\.memory-study-examples \{[\s\S]*width: min\(760px, 100%\)
 assert.match(polish, /\.memory-study-examples li \{[\s\S]*display: grid[\s\S]*line-height: 1\.55/, '複数例文を読みやすい縦一覧にする');
 assert.match(polish, /data-card-side='answer'[\s\S]*overflow-y: auto/, '答え・例文・評価へ外側の縦スクロールで到達できる');
 
-console.log('✅ memory answer example review contracts passed');
+assert.match(focusGuard, /document\.addEventListener\('keydown', onKeyDown\)/, 'キーボード反転だけを監視する');
+assert.match(focusGuard, /event\.key !== 'Enter' && event\.key !== ' '/, 'EnterとSpaceだけを反転フォーカス対象にする');
+assert.match(focusGuard, /document\.activeElement !== source/, '利用者が別要素へ移動した場合はフォーカスを奪わない');
+assert.match(focusGuard, /generation !== requestGeneration \|\| !card\.isConnected/, 'カード・session切替後の古いfocus要求を破棄する');
+assert.match(focusGuard, /destination\.getAttribute\('aria-hidden'\) === 'true'[\s\S]*destination\.tabIndex < 0/, '非表示・無効・Tab対象外の面へフォーカスしない');
+assert.match(focusGuard, /destination\.focus\(\{ preventScroll: true \}\)/, '表示された反対面へスクロールを動かさずフォーカスする');
+assert.doesNotMatch(focusGuard, /pointer(?:down|up)|click/iu, 'pointer・touch反転ではフォーカスを強制しない');
+assert.match(main, /installMemoryCardKeyboardFocusGuard\(\);/, '起動時に暗記カードfocus guardを登録する');
+
+console.log('✅ memory answer example and keyboard focus contracts passed');
