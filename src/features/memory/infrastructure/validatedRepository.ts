@@ -8,6 +8,10 @@ import {
   MemoryMutationDependencyCycleError,
 } from './mutationDependencyGuard';
 import {
+  analyzeMemoryMutationReferences,
+  MemoryMutationReferenceError,
+} from './mutationReferenceGuard';
+import {
   MemoryRepository,
   createMemoryId,
   type MemoryPendingMutation,
@@ -61,9 +65,20 @@ export class ValidatedMemoryRepository extends MemoryRepository {
   }
 
   override async syncablePendingMutations(limit = 100): Promise<MemoryPendingMutation[]> {
-    const pending = await super.syncablePendingMutations(Number.MAX_SAFE_INTEGER);
-    const analysis = analyzeMemoryMutationDependencies(pending);
+    const [pending, snapshot] = await Promise.all([
+      super.syncablePendingMutations(Number.MAX_SAFE_INTEGER),
+      super.loadSnapshot(),
+    ]);
+    const references = analyzeMemoryMutationReferences(pending, snapshot);
 
+    // A server-side conflict choice can remove a parent while dependent local
+    // mutations remain queued. Drain independent work first, but never upload an
+    // orphan reference. Once only orphans remain, surface concrete entity keys.
+    if (references.sendable.length === 0 && references.blocked.length > 0) {
+      throw new MemoryMutationReferenceError(references);
+    }
+
+    const analysis = analyzeMemoryMutationDependencies(references.sendable);
     // Drain every independent DAG component first. Once only the cycle and its
     // descendants remain, surface a concrete error without deleting or sending
     // any of those rows.
