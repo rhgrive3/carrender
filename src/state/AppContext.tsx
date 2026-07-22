@@ -1,8 +1,9 @@
-import { createContext, useCallback, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import type { AppState, Material, StudySession, StudyTask } from '../types';
 import { addDays, today } from '../lib/date';
 import { emitAppCommandMessage } from '../lib/appCommandEvents';
+import { clearAppStateSnapshot, publishAppStateSnapshot } from '../lib/appStateSnapshot';
 import { validateMaterialIntegrity } from '../lib/materialIntegrity';
 import {
   parsePersistedTimerTarget,
@@ -281,6 +282,14 @@ function GuardedAppBridge({ children }: { children: ReactNode }) {
   const base = useBaseApp();
   const { user } = useAuth();
   const owner = user?.username ?? null;
+
+  useLayoutEffect(() => {
+    publishAppStateSnapshot(owner, base.state);
+  }, [base.state, owner]);
+
+  useLayoutEffect(() => () => {
+    clearAppStateSnapshot(owner);
+  }, [owner]);
 
   const dispatch = useCallback((action: Action) => {
     const resolved = resolveUiAction(base.state, action, owner);
