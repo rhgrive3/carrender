@@ -114,6 +114,10 @@ jobs:
           BROWSER: webkit
         run: set -o pipefail; node scripts/bottom-navigation-browser.mjs 2>&1 | tee ios-webkit.log
 
+      - name: iOS pagehide emergency-cache regression
+        shell: bash
+        run: set -o pipefail; node scripts/emergency-cache-webkit.mjs 2>&1 | tee -a ios-webkit.log
+
       - name: Upload WebKit failure log
         if: failure()
         uses: actions/upload-artifact@v4
