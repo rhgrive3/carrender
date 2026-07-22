@@ -14,7 +14,9 @@ import {
 import {
   MemoryRepository,
   createMemoryId,
+  type MemoryConflict,
   type MemoryPendingMutation,
+  type RemoteMemoryChanges,
 } from './repositories';
 
 function existingRecord(
@@ -85,6 +87,32 @@ export class ValidatedMemoryRepository extends MemoryRepository {
     if (analysis.sendable.length > 0) return analysis.sendable.slice(0, limit);
     if (analysis.blocked.length > 0) throw new MemoryMutationDependencyCycleError(analysis);
     return [];
+  }
+
+  /**
+   * Production code must apply one server response through commitSyncResponse.
+   * These inherited primitives remain on the base repository only for isolated
+   * fixtures and migration tests; exposing them on the validated app repository
+   * would allow queue receipts, conflicts, remote rows and cursor to diverge.
+   */
+  override async markSynced(
+    _mutationIds: string[],
+    _attemptIds: string[],
+    _syncedAt: string,
+  ): Promise<void> {
+    throw new Error('同期結果はcommitSyncResponseで原子的に保存してください');
+  }
+
+  override async addConflicts(_conflicts: MemoryConflict[]): Promise<void> {
+    throw new Error('同期結果はcommitSyncResponseで原子的に保存してください');
+  }
+
+  override async applyRemoteChanges(_changes: RemoteMemoryChanges): Promise<void> {
+    throw new Error('同期結果はcommitSyncResponseで原子的に保存してください');
+  }
+
+  override async setSyncCursor(_cursor: string): Promise<void> {
+    throw new Error('同期cursorはcommitSyncResponseで原子的に保存してください');
   }
 
   override async saveEntities(
