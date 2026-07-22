@@ -1,0 +1,24 @@
+name: Test suite audit
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Runner self-test
+        run: node scripts/test-suite-audit.mjs --self-test
+      - name: Registration, duplicate and domain coverage audit
+        run: node scripts/test-suite-audit.mjs
