@@ -1,6 +1,7 @@
 import type { LocalMemoryAttempt, MemoryConflict, MemoryPendingMutation, RemoteMemoryChanges } from './repositories';
 
 export const MEMORY_API_ERROR_SOURCE = 'memory-api' as const;
+export const MEMORY_SYNC_REQUEST_TIMEOUT_MS = 15_000;
 export type MemoryApiErrorKind = 'network' | 'timeout' | 'http';
 
 export interface MemoryApiError extends Error {
@@ -57,55 +58,83 @@ export interface MemorySyncResponse {
   hasMore?: boolean;
 }
 
+export interface MemoryApiRequestOptions {
+  timeoutMs?: number;
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-async function memoryRequest<T>(path: string, body: unknown): Promise<T> {
+function timeoutError(cause: unknown): MemoryApiRequestError {
+  return new MemoryApiRequestError(
+    '暗記同期が時間内に完了しませんでした',
+    'timeout',
+    undefined,
+    cause,
+  );
+}
+
+async function memoryRequest<T>(
+  path: string,
+  body: unknown,
+  options: MemoryApiRequestOptions = {},
+): Promise<T> {
   // Serialization failures are programming/validation errors, not network
   // failures. Keep them outside the fetch catch so the sync classifier can
   // retain the real cause.
   const serializedBody = JSON.stringify(body);
-  let response: Response;
+  const requestedTimeout = options.timeoutMs ?? MEMORY_SYNC_REQUEST_TIMEOUT_MS;
+  const timeoutMs = Number.isFinite(requestedTimeout)
+    ? Math.max(1, Math.floor(requestedTimeout))
+    : MEMORY_SYNC_REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutHandle = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
   try {
-    response = await fetch(path, {
+    const response = await fetch(path, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: serializedBody,
+      signal: controller.signal,
     });
-  } catch (caught) {
-    if (isAbortError(caught)) {
-      throw new MemoryApiRequestError(
-        '暗記同期が時間内に完了しませんでした',
-        'timeout',
-        undefined,
-        caught,
-      );
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch (caught) {
+      if (timedOut || isAbortError(caught)) throw timeoutError(caught);
+      data = null;
     }
+    if (!response.ok) {
+      const message = data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string'
+        ? (data as { error: string }).error
+        : `暗記データの同期に失敗しました (${response.status})`;
+      throw new MemoryApiRequestError(message, 'http', response.status);
+    }
+    return data as T;
+  } catch (caught) {
+    if (isMemoryApiError(caught)) throw caught;
+    if (timedOut || isAbortError(caught)) throw timeoutError(caught);
     throw new MemoryApiRequestError(
       '暗記データを同期できません。端末への保存は続けられます',
       'network',
       undefined,
       caught,
     );
+  } finally {
+    clearTimeout(timeoutHandle);
   }
-
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    data = null;
-  }
-  if (!response.ok) {
-    const message = data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string'
-      ? (data as { error: string }).error
-      : `暗記データの同期に失敗しました (${response.status})`;
-    throw new MemoryApiRequestError(message, 'http', response.status);
-  }
-  return data as T;
 }
 
-export function apiSyncMemory(request: MemorySyncRequest): Promise<MemorySyncResponse> {
-  return memoryRequest<MemorySyncResponse>('/api/memory/sync', request);
+export function apiSyncMemory(
+  request: MemorySyncRequest,
+  options: MemoryApiRequestOptions = {},
+): Promise<MemorySyncResponse> {
+  return memoryRequest<MemorySyncResponse>('/api/memory/sync', request, options);
 }
