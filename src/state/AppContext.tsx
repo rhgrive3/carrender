@@ -73,9 +73,15 @@ function dateLockedManualScheduling(task: StudyTask, date: string) {
       };
 }
 
-interface ResolvedAction {
-  action?: Action;
-  message?: string;
+export type AppActionResolution =
+  | { status: 'ready'; action: Action }
+  | { status: 'rejected'; message: string; errorCode: string }
+  | { status: 'noChange'; message?: string };
+
+export interface ResolveAppActionOptions {
+  activeTimerTarget?: TimerTargetLocator | null;
+  nowIso?: string;
+  todayDate?: string;
 }
 
 function mutatesActiveTimerRecord(state: AppState, action: Action, target: TimerTargetLocator | null): boolean {
@@ -95,20 +101,29 @@ function mutatesActiveTimerRecord(state: AppState, action: Action, target: Timer
   return false;
 }
 
-function resolveUiAction(state: AppState, action: Action, owner: string | null): ResolvedAction {
-  const activeTimerTarget = persistedTimerTarget(owner);
-  if (mutatesActiveTimerRecord(state, action, activeTimerTarget)) return { message: ACTIVE_RECORD_MESSAGE };
+export function resolveAppAction(
+  state: AppState,
+  action: Action,
+  options: ResolveAppActionOptions = {},
+): AppActionResolution {
+  const activeTimerTarget = options.activeTimerTarget ?? null;
+  if (mutatesActiveTimerRecord(state, action, activeTimerTarget)) {
+    return { status: 'rejected', message: ACTIVE_RECORD_MESSAGE, errorCode: 'activeRecordMutation' };
+  }
 
   const taskId = taskIdOf(action);
-  if (!taskId) return { action };
+  if (!taskId) return { status: 'ready', action };
   const current = state.tasks.find((task) => task.id === taskId);
-  if (!current) return { action };
-  if (activeTimerTarget && timerTargetMatchesTask(activeTimerTarget, current)) return { message: ACTIVE_TASK_MESSAGE };
-  if (current.status !== 'doing') return { action };
+  if (!current) return { status: 'ready', action };
+  if (activeTimerTarget && timerTargetMatchesTask(activeTimerTarget, current)) {
+    return { status: 'rejected', message: ACTIVE_TASK_MESSAGE, errorCode: 'activeTaskMutation' };
+  }
+  if (current.status !== 'doing') return { status: 'ready', action };
 
-  const updatedAt = new Date().toISOString();
+  const updatedAt = options.nowIso ?? new Date().toISOString();
   if (action.type === 'UPDATE_TASK') {
     return {
+      status: 'ready',
       action: {
         ...action,
         task: action.task.status === 'doing' ? { ...action.task, status: 'planned', updatedAt } : action.task,
@@ -116,8 +131,9 @@ function resolveUiAction(state: AppState, action: Action, owner: string | null):
     };
   }
   if (action.type === 'POSTPONE_TASK') {
-    const date = addDays(today(), 1);
+    const date = addDays(options.todayDate ?? today(), 1);
     return {
+      status: 'ready',
       action: {
         type: 'UPDATE_TASK',
         task: {
@@ -136,11 +152,12 @@ function resolveUiAction(state: AppState, action: Action, owner: string | null):
     };
   }
   if (action.type === 'MOVE_TASK') {
-    const t = today();
-    if (current.dueDate && current.dueDate >= t && action.date > current.dueDate) {
-      return { message: '期限を過ぎる日には移動できません' };
+    const currentDate = options.todayDate ?? today();
+    if (current.dueDate && current.dueDate >= currentDate && action.date > current.dueDate) {
+      return { status: 'rejected', message: '期限を過ぎる日には移動できません', errorCode: 'pastDueDate' };
     }
     return {
+      status: 'ready',
       action: {
         type: 'UPDATE_TASK',
         task: {
@@ -167,6 +184,7 @@ function resolveUiAction(state: AppState, action: Action, owner: string | null):
   }
   if (action.type === 'UNLOCK_TASK') {
     return {
+      status: 'ready',
       action: {
         type: 'UPDATE_TASK',
         task: {
@@ -180,7 +198,10 @@ function resolveUiAction(state: AppState, action: Action, owner: string | null):
       },
     };
   }
-  return { action };
+  if (action.type === 'DELETE_TASK') {
+    return { status: 'noChange', message: ACTIVE_TASK_MESSAGE };
+  }
+  return { status: 'ready', action };
 }
 
 function materialValidationError(material: Material): string | undefined {
@@ -246,10 +267,9 @@ function deterministicReducer(state: AppState, action: Action): AppState {
 }
 
 export function appReducer(state: AppState, action: Action): AppState {
-  const taskId = taskIdOf(action);
-  const current = taskId ? state.tasks.find((task) => task.id === taskId) : undefined;
-  if (current?.status === 'doing' && !(action.type === 'UPDATE_TASK' && action.task.status !== 'doing')) return state;
-  return deterministicReducer(state, action);
+  const resolved = resolveAppAction(state, action);
+  if (resolved.status !== 'ready') return state;
+  return deterministicReducer(state, resolved.action);
 }
 
 function rejectedCommandResult(message: string, errorCode = 'invalidInput'): AppCommandResult {
@@ -292,12 +312,14 @@ function GuardedAppBridge({ children }: { children: ReactNode }) {
   }, [owner]);
 
   const dispatch = useCallback((action: Action) => {
-    const resolved = resolveUiAction(base.state, action, owner);
-    if (!resolved.action) {
+    const resolved = resolveAppAction(base.state, action, {
+      activeTimerTarget: persistedTimerTarget(owner),
+    });
+    if (resolved.status !== 'ready') {
       if (resolved.message) emitAppCommandMessage(resolved.message, 'warning');
       return;
     }
-    if ((resolved.action.type === 'ADD_MATERIAL' || resolved.action.type === 'UPDATE_MATERIAL')) {
+    if (resolved.action.type === 'ADD_MATERIAL' || resolved.action.type === 'UPDATE_MATERIAL') {
       const validation = materialValidationError(resolved.action.material);
       if (validation) {
         emitAppCommandMessage(validation, 'warning');
@@ -312,8 +334,15 @@ function GuardedAppBridge({ children }: { children: ReactNode }) {
   }, [base, owner]);
 
   const execute = useCallback((action: Action): AppCommandResult => {
-    const resolved = resolveUiAction(base.state, action, owner);
-    if (!resolved.action) return rejectedCommandResult(resolved.message ?? ACTIVE_TASK_MESSAGE, 'activeTaskMutation');
+    const resolved = resolveAppAction(base.state, action, {
+      activeTimerTarget: persistedTimerTarget(owner),
+    });
+    if (resolved.status !== 'ready') {
+      return rejectedCommandResult(
+        resolved.message ?? '入力内容を確認してください',
+        resolved.status === 'rejected' ? resolved.errorCode : 'noChange',
+      );
+    }
     if (resolved.action.type === 'ADD_MATERIAL' || resolved.action.type === 'UPDATE_MATERIAL') {
       const validation = materialValidationError(resolved.action.material);
       if (validation) return rejectedCommandResult(validation);
