@@ -2,6 +2,10 @@ const BLOCKED_TITLE = '期限を過ぎるため移動できません';
 const GUARDED_ATTR = 'data-deadline-move-accessibility';
 const ORIGINAL_LABEL_ATTR = 'data-deadline-move-original-label';
 
+function setAttributeIfChanged(element: Element, name: string, value: string) {
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+}
+
 function repairButton(button: HTMLButtonElement) {
   const blocked = button.getAttribute('title') === BLOCKED_TITLE;
   const guarded = button.hasAttribute(GUARDED_ATTR);
@@ -10,16 +14,17 @@ function repairButton(button: HTMLButtonElement) {
     const originalLabel = button.getAttribute(ORIGINAL_LABEL_ATTR)
       ?? button.getAttribute('aria-label')
       ?? '翌日へ移動';
-    button.setAttribute(ORIGINAL_LABEL_ATTR, originalLabel);
-    button.setAttribute(GUARDED_ATTR, 'true');
-    button.disabled = false;
-    button.setAttribute('aria-label', `${originalLabel}。${BLOCKED_TITLE}`);
+    const accessibleLabel = `${originalLabel}。${BLOCKED_TITLE}`;
+    setAttributeIfChanged(button, ORIGINAL_LABEL_ATTR, originalLabel);
+    setAttributeIfChanged(button, GUARDED_ATTR, 'true');
+    if (button.disabled) button.disabled = false;
+    setAttributeIfChanged(button, 'aria-label', accessibleLabel);
     return;
   }
 
   if (!guarded) return;
   const originalLabel = button.getAttribute(ORIGINAL_LABEL_ATTR);
-  if (originalLabel) button.setAttribute('aria-label', originalLabel);
+  if (originalLabel) setAttributeIfChanged(button, 'aria-label', originalLabel);
   button.removeAttribute(GUARDED_ATTR);
   button.removeAttribute(ORIGINAL_LABEL_ATTR);
 }
