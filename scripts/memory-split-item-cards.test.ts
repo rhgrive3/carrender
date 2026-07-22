@@ -18,7 +18,7 @@ const item: MemoryItem = {
 const senses: MemorySense[] = [
   { id: 'sense-a', itemId: item.id, promptJa: '実体のない', meaningJa: '実体のない', siblingGroupId: 'legacy-group', tags: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 2 },
   { id: 'sense-b', itemId: item.id, promptJa: '現時点では', meaningJa: '現時点では', siblingGroupId: 'legacy-group', tags: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 2 },
-  { id: 'sense-c', itemId: item.id, promptJa: '贅沢な', meaningJa: '贅沢な', siblingGroupId: 'legacy-group', tags: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 2 },
+  { id: 'sense-c', itemId: item.id, promptJa: '贅沢な', meaningJa: '贅沢な', siblingGroupId: 'legacy-group', tags: [], source: 'user', verificationStatus: 'verified', createdAt: '2026-07-22T00:01:00.000Z', updatedAt: now, revision: 2 },
 ];
 const answers: MemoryAnswer[] = [
   { id: 'answer-a', senseId: 'sense-a', displayForm: 'immaterial', citationForm: 'immaterial', acceptedVariants: [], orthographicVariants: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 1 },
@@ -38,7 +38,7 @@ const setMembers: MemorySetMember[] = [
   { setId: 'set-b', itemId: item.id, order: 7, createdAt: now },
 ];
 const snapshot = {
-  items: [item], senses, answers, examples, exercises, sets: [], setMembers, stats: [],
+  items: [item], senses: [senses[2]!, senses[1]!, senses[0]!], answers, examples, exercises, sets: [], setMembers, stats: [],
 } as unknown as MemoryLocalSnapshot;
 
 let saveCalls = 0;
@@ -65,7 +65,7 @@ assert.deepEqual(itemWrites.map((entry) => (entry.value as MemoryItem).label), [
 assert.deepEqual(itemWrites.map((entry) => entry.operation), ['update', 'create', 'create']);
 
 const senseWrites = saved.filter((entry) => entry.entityType === 'sense').map((entry) => entry.value as MemorySense);
-assert.deepEqual(senseWrites.map((sense) => sense.id), ['sense-a', 'sense-b', 'sense-c'], '既存Sense IDを維持する');
+assert.deepEqual(senseWrites.map((sense) => sense.id), ['sense-a', 'sense-b', 'sense-c'], 'snapshot返却順に依存せずcreatedAt、同値ならID順で分離する');
 assert.deepEqual(senseWrites.map((sense) => sense.itemId), result.itemIds);
 assert.deepEqual(senseWrites.map((sense) => sense.siblingGroupId), result.itemIds.map((id) => `item:${id}`));
 
