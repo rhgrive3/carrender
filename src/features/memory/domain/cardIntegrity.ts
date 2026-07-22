@@ -82,14 +82,26 @@ export function examplesForSense(
   options: { verifiedOnly?: boolean } = {},
 ): MemoryExample[] {
   const seen = new Set<string>();
+  const sense = content.senses.find((value) => !value.deletedAt && value.id === senseId);
+  const item = sense
+    ? content.items.find((value) => !value.deletedAt && value.id === sense.itemId)
+    : undefined;
+  // カード本体を利用者が確認済みにした後は、そのSenseへ保存済みの例文も
+  // 答え合わせ資料として失わない。未確認カード自体は従来どおり出題されない。
+  const reviewedCard = sense?.verificationStatus === 'verified'
+    && item?.verificationStatus === 'verified';
   return content.examples
     .filter((example) => (
       !example.deletedAt
       && example.senseId === senseId
-      && (!options.verifiedOnly || example.verificationStatus === 'verified')
+      && (!options.verifiedOnly || example.verificationStatus === 'verified' || reviewedCard)
       && isUsableEnglishMemoryText(example.english)
     ))
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .sort((left, right) => {
+      const verificationOrder = Number(right.verificationStatus === 'verified')
+        - Number(left.verificationStatus === 'verified');
+      return verificationOrder || left.createdAt.localeCompare(right.createdAt);
+    })
     .filter((example) => {
       const key = `${normalizeMemoryCardText(example.english)}\u0000${normalizeMemoryCardText(example.japanese)}`;
       if (seen.has(key)) return false;
