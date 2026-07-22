@@ -56,6 +56,7 @@ interface TimerContextValue {
   /** 実勉強時間(休憩を除く)の秒数 */
   workSec: number;
   pendingRecord: boolean;
+  persistenceError: boolean;
   pomodoro: PomodoroSettings;
   /** 既存タイマーが無い時だけ開始する。開始できた場合はtrue。 */
   start: (target: TimerTarget, mode?: TimerMode) => boolean;
@@ -75,32 +76,96 @@ const TimerCtx = createContext<TimerContextValue | null>(null);
 
 /** アプリを閉じたままフェーズ境界を大きく超えていた場合は境界で自動一時停止する猶予(秒) */
 const AUTO_PAUSE_GRACE_SEC = 90;
+const MAX_FUTURE_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const TIMER_MODES: TimerMode[] = ['stopwatch', 'pomodoro'];
+const TIMER_PHASES: TimerPhase[] = ['work', 'break', 'longBreak'];
+const TIMER_TYPES = ['new', 'review', 'mockReview', 'pastExam'] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function nonNegativeFinite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function validEpoch(value: unknown, now: number): value is number {
+  return nonNegativeFinite(value) && value <= now + MAX_FUTURE_CLOCK_SKEW_MS;
+}
+
+function validTarget(value: unknown): value is TimerTarget {
+  if (!isRecord(value)) return false;
+  if (value.taskId !== null && typeof value.taskId !== 'string') return false;
+  if (typeof value.subjectId !== 'string' || value.subjectId.length === 0) return false;
+  if (value.materialId !== null && typeof value.materialId !== 'string') return false;
+  if (typeof value.title !== 'string' || typeof value.rangeLabel !== 'string') return false;
+  if (value.sourceId !== undefined && typeof value.sourceId !== 'string') return false;
+  if (value.type !== undefined && !TIMER_TYPES.includes(value.type as (typeof TIMER_TYPES)[number])) return false;
+  if (value.range !== undefined) {
+    if (!isRecord(value.range)) return false;
+    if (!Number.isSafeInteger(value.range.start) || !Number.isSafeInteger(value.range.end)) return false;
+    if ((value.range.start as number) < 0 || (value.range.end as number) < (value.range.start as number)) return false;
+  }
+  return true;
+}
+
+export function normalizePersistedTimer(
+  value: unknown,
+  owner: string | null,
+  now = Date.now(),
+): PersistedTimer | null {
+  if (!owner || !isRecord(value) || value.owner !== owner || !validTarget(value.target)) return null;
+
+  const mode = value.mode ?? 'stopwatch';
+  if (!TIMER_MODES.includes(mode as TimerMode)) return null;
+  const phase = value.phase ?? 'work';
+  if (!TIMER_PHASES.includes(phase as TimerPhase)) return null;
+  if (mode === 'stopwatch' && phase !== 'work') return null;
+
+  const legacyAccumulatedSec = value.accumulatedSec;
+  const phaseAccumulatedSec = value.phaseAccumulatedSec ?? legacyAccumulatedSec ?? 0;
+  const workCompletedSec = value.workCompletedSec ?? 0;
+  const cycle = value.cycle ?? 0;
+  if (!nonNegativeFinite(phaseAccumulatedSec) || !nonNegativeFinite(workCompletedSec)) return null;
+  if (!Number.isSafeInteger(cycle) || (cycle as number) < 0) return null;
+
+  const runningSince = value.runningSince ?? null;
+  if (runningSince !== null && !validEpoch(runningSince, now)) return null;
+  const explicitStartedAt = value.workStartedAt;
+  if (explicitStartedAt !== undefined && !validEpoch(explicitStartedAt, now)) return null;
+  if (typeof explicitStartedAt === 'number' && typeof runningSince === 'number' && explicitStartedAt > runningSince) return null;
+
+  const pendingRecordMinutes = value.pendingRecordMinutes;
+  if (pendingRecordMinutes !== undefined) {
+    if (!Number.isSafeInteger(pendingRecordMinutes) || (pendingRecordMinutes as number) < 1) return null;
+    if (runningSince !== null) return null;
+  }
+
+  const workStartedAt = typeof explicitStartedAt === 'number'
+    ? explicitStartedAt
+    : typeof runningSince === 'number'
+      ? runningSince
+      : undefined;
+
+  return {
+    target: value.target,
+    mode: mode as TimerMode,
+    workStartedAt,
+    runningSince: runningSince as number | null,
+    phase: phase as TimerPhase,
+    cycle: cycle as number,
+    phaseAccumulatedSec,
+    workCompletedSec,
+    pendingRecordMinutes: pendingRecordMinutes as number | undefined,
+    owner,
+  };
+}
 
 function loadPersisted(owner: string | null): PersistedTimer | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const p = JSON.parse(raw) as Partial<PersistedTimer> & { accumulatedSec?: number };
-    if (!p.target || !owner || p.owner !== owner) return null;
-    // 旧形式では不変開始時刻がない。実行中なら現在区間の開始時刻だけを安全なfallbackにし、
-    // 停止済み・保存待ちで復元不能な場合はundefinedのまま保存時刻へ偽装しない。
-    const workStartedAt = Number.isFinite(p.workStartedAt)
-      ? p.workStartedAt
-      : Number.isFinite(p.runningSince) && p.runningSince !== null
-        ? p.runningSince
-        : undefined;
-    return {
-      target: p.target,
-      mode: p.mode ?? 'stopwatch',
-      workStartedAt,
-      runningSince: p.runningSince ?? null,
-      phase: p.phase ?? 'work',
-      cycle: p.cycle ?? 0,
-      phaseAccumulatedSec: p.phaseAccumulatedSec ?? p.accumulatedSec ?? 0,
-      workCompletedSec: p.workCompletedSec ?? 0,
-      pendingRecordMinutes: p.pendingRecordMinutes,
-      owner: p.owner,
-    };
+    return normalizePersistedTimer(JSON.parse(raw), owner);
   } catch {
     return null;
   }
@@ -159,6 +224,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const pomo = timerSettings.pomodoro;
 
   const [persisted, setPersisted] = useState<PersistedTimer | null>(() => loadPersisted(user?.username ?? null));
+  const [persistenceError, setPersistenceError] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const persistedRef = useRef(persisted);
   persistedRef.current = persisted;
@@ -171,8 +237,9 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     try {
       if (persisted) localStorage.setItem(KEY, JSON.stringify(persisted));
       else localStorage.removeItem(KEY);
+      setPersistenceError(false);
     } catch {
-      // 保存失敗は致命的でない
+      setPersistenceError(true);
     }
   }, [persisted]);
 
@@ -308,8 +375,9 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     setNow(Date.now());
     try {
       localStorage.removeItem(KEY);
+      setPersistenceError(false);
     } catch {
-      // 保存失敗は致命的でない
+      setPersistenceError(true);
     }
   }, []);
 
@@ -329,6 +397,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       phaseDurationSec,
       workSec,
       pendingRecord: persisted?.pendingRecordMinutes !== undefined,
+      persistenceError,
       pomodoro: pomo,
       start,
       setMode,
@@ -339,10 +408,38 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       confirmRecordSaved,
       discard,
     }),
-    [persisted, phaseElapsedSec, phaseDurationSec, workSec, pomo, timerSettings.defaultMode, start, setMode, pause, resume, skipBreak, finish, confirmRecordSaved, discard],
+    [persisted, phaseElapsedSec, phaseDurationSec, workSec, persistenceError, pomo, timerSettings.defaultMode, start, setMode, pause, resume, skipBreak, finish, confirmRecordSaved, discard],
   );
 
-  return <TimerCtx.Provider value={value}>{children}</TimerCtx.Provider>;
+  return (
+    <TimerCtx.Provider value={value}>
+      {children}
+      {persistenceError && persisted && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            top: 'max(12px, env(safe-area-inset-top))',
+            left: '50%',
+            zIndex: 10050,
+            width: 'min(calc(100vw - 24px), 520px)',
+            transform: 'translateX(-50%)',
+            border: '1px solid color-mix(in srgb, #b45309 45%, transparent)',
+            borderRadius: 12,
+            background: 'color-mix(in srgb, #fff7ed 96%, transparent)',
+            padding: '10px 12px',
+            color: '#7c2d12',
+            fontSize: 14,
+            lineHeight: 1.45,
+            boxShadow: '0 8px 24px rgba(0,0,0,.12)',
+          }}
+        >
+          タイマーを端末に保存できていません。画面を閉じる前に記録を完了してください。
+        </div>
+      )}
+    </TimerCtx.Provider>
+  );
 }
 
 export function useTimer(): TimerContextValue {
