@@ -62,7 +62,7 @@
 
 .memory-card-verified,
 .memory-card-pending {
-  width: 44px;
+  min-width: 44px;
   height: 44px;
   border-radius: 12px;
   display: grid;
@@ -70,21 +70,44 @@
 }
 
 .memory-card-verified {
+  width: 44px;
   color: var(--ok);
   background: var(--ok-soft);
   border: 1px solid color-mix(in srgb, var(--ok) 32%, var(--border));
 }
 
 .memory-card-pending {
+  width: auto;
+  grid-auto-flow: column;
+  gap: 5px;
+  padding-inline: 10px;
   border: 1px solid color-mix(in srgb, var(--warn) 36%, var(--border));
   background: var(--warn-soft);
   color: var(--warn);
   cursor: pointer;
+  font: inherit;
+}
+
+.memory-card-pending::after {
+  content: '未確認・対象外';
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .memory-card-pending:disabled {
   opacity: 0.5;
   cursor: wait;
+}
+
+.memory-eligibility-diagnostic.partial {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.memory-eligibility-diagnostic.partial > p {
+  font-weight: 750;
 }
 
 .memory-example-list {
@@ -108,9 +131,19 @@
     padding-right: 3px;
   }
 
-  .memory-card-verified,
-  .memory-card-pending {
+  .memory-card-verified {
     width: 42px;
+    min-width: 42px;
     height: 42px;
+  }
+
+  .memory-card-pending {
+    min-width: 42px;
+    height: 42px;
+    padding-inline: 8px;
+  }
+
+  .memory-card-pending::after {
+    content: '未確認';
   }
 }
