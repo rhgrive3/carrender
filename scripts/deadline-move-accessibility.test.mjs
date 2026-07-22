@@ -8,8 +8,10 @@ const [guardSource, mainSource, planSource, appContextSource] = await Promise.al
   readFile(new URL('../src/state/AppContext.tsx', import.meta.url), 'utf8'),
 ]);
 
-assert.match(guardSource, /button\.disabled = false/u);
-assert.match(guardSource, /setAttribute\('aria-label', `\$\{originalLabel\}。\$\{BLOCKED_TITLE\}`\)/u);
+assert.match(guardSource, /if \(button\.disabled\) button\.disabled = false/u);
+assert.match(guardSource, /setAttributeIfChanged\(button, 'aria-label', accessibleLabel\)/u);
+assert.match(guardSource, /if \(element\.getAttribute\(name\) !== value\) element\.setAttribute\(name, value\)/u);
+assert.doesNotMatch(guardSource, /button\.setAttribute\('aria-label', `\$\{originalLabel\}。\$\{BLOCKED_TITLE\}`\)/u);
 assert.match(guardSource, /attributeFilter: \['disabled', 'title', 'aria-label'\]/u);
 assert.match(mainSource, /installDeadlineMoveAccessibilityGuard/u);
 assert.match(planSource, /title=\{blockedByDueDate \? '期限を過ぎるため移動できません' : undefined\}/u);
