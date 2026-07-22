@@ -6,7 +6,11 @@ import {
   resetEmergencyStateCacheStatus,
   subscribeEmergencyStateCacheStatus,
 } from '../src/lib/emergencyStateCache';
-import { EMERGENCY_CACHE_MAX_CHARS, saveStateNow } from '../src/lib/storage';
+import {
+  EMERGENCY_CACHE_MAX_CHARS,
+  saveStateNow,
+  subscribeStateSaveFailure,
+} from '../src/lib/storage';
 
 const STATE_KEY = 'studycommander_state_v1';
 const UPDATED_KEY = 'studycommander_state_updated_at_v1';
@@ -33,6 +37,10 @@ resetEmergencyStateCacheStatus();
 
 const phases: string[] = [];
 const unsubscribe = subscribeEmergencyStateCacheStatus((status) => phases.push(status.phase));
+let latestLegacyFailure: string | null = null;
+const unsubscribeLegacyFailure = subscribeStateSaveFailure((failure) => {
+  latestLegacyFailure = failure?.message ?? null;
+});
 
 const small = { payload: 'small' } as unknown as AppState;
 const first = persistEmergencyStateCache(small);
@@ -66,30 +74,32 @@ storage.failure = null;
 const generationOne = { payload: 'generation-one' } as unknown as AppState;
 saveStateNow(generationOne);
 assert.equal(storage.getItem(STATE_KEY), JSON.stringify(generationOne));
-const generationOneTimestamp = storage.getItem(UPDATED_KEY);
-assert.ok(generationOneTimestamp);
+assert.ok(storage.getItem(UPDATED_KEY));
+assert.equal(latestLegacyFailure, null);
 
 storage.failSetKey = UPDATED_KEY;
 const generationTwo = { payload: 'generation-two' } as unknown as AppState;
 saveStateNow(generationTwo);
 assert.equal(storage.getItem(STATE_KEY), null, 'timestamp保存失敗時は新stateだけを残さない');
 assert.equal(storage.getItem(UPDATED_KEY), null, 'timestamp保存失敗時は古い世代情報も残さない');
-assert.deepEqual(
-  [getEmergencyStateCacheStatus().phase, getEmergencyStateCacheStatus().reason],
-  ['suppressed', 'unavailable'],
-  '二つのkeyを一世代として保存できない場合は緊急cacheを無効扱いにする',
-);
+assert.match(latestLegacyFailure ?? '', /端末への保存に失敗/, '元の保存失敗通知を維持する');
 
+storage.values.set(STATE_KEY, JSON.stringify(generationOne));
+storage.values.set(UPDATED_KEY, '2026-07-22T00:00:00.000Z');
 storage.failRemove = true;
 saveStateNow(generationTwo);
-assert.equal(getEmergencyStateCacheStatus().phase, 'suppressed', 'cleanup拒否でも保存失敗状態を維持する');
+assert.equal(storage.getItem(STATE_KEY), JSON.stringify(generationTwo), 'cleanup拒否時も最初のstate書込み結果は観測できる');
+assert.equal(storage.getItem(UPDATED_KEY), '2026-07-22T00:00:00.000Z', 'cleanup拒否時は古いtimestampが残り得る');
+assert.match(latestLegacyFailure ?? '', /端末への保存に失敗/, 'cleanup拒否でも元の保存失敗を隠さない');
+
 storage.failRemove = false;
 storage.values.clear();
 storage.failSetKey = null;
 saveStateNow(generationTwo);
 assert.equal(storage.getItem(STATE_KEY), JSON.stringify(generationTwo), '後続の正常保存でstateを再作成する');
 assert.ok(storage.getItem(UPDATED_KEY), '後続の正常保存でtimestampも再作成する');
-assert.equal(getEmergencyStateCacheStatus().phase, 'active');
+assert.equal(latestLegacyFailure, null, '正常保存後は互換writerの失敗状態を解消する');
 
+unsubscribeLegacyFailure();
 unsubscribe();
 console.log('✅ emergency cache recovery regressions passed');
