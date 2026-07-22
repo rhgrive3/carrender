@@ -2,7 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Download, Play, Plus, RefreshCw, Search } from 'lucide-react';
 import type { MemoryLocalSnapshot } from '../infrastructure/repositories';
 import type { MemorySet } from '../domain/types';
-import { generateLearningTargets, summarizeLearningTargetStats } from '../domain/selectors';
+import {
+  diagnoseLearningTargetEligibility,
+  generateLearningTargets,
+  LEARNING_TARGET_EXCLUSION_LABELS,
+  summarizeLearningTargetStats,
+  type LearningTargetEligibilityDiagnostic,
+} from '../domain/selectors';
 import { createMemorySet } from '../application/content';
 import { createSimpleStudySession } from '../application/simpleSession';
 import { useToast } from '../../../components/ui/Toast';
@@ -10,17 +16,44 @@ import { useMemory } from './MemoryContext';
 import { MemoryDialog } from './MemoryDialog';
 import { MemoryConflictsDialog } from './MemoryConflictsDialog';
 
-interface SetSummary { set: MemorySet; cards: number; eligible: number; weak: number; newCount: number }
+interface SetSummary {
+  set: MemorySet;
+  cards: number;
+  eligible: number;
+  weak: number;
+  newCount: number;
+  diagnostic: LearningTargetEligibilityDiagnostic;
+}
 
 function summariesOf(snapshot: MemoryLocalSnapshot): SetSummary[] {
   return snapshot.sets.map((set) => {
     const itemIds = new Set(snapshot.setMembers.filter((member) => member.setId === set.id).map((member) => member.itemId));
     const cards = snapshot.senses.filter((sense) => itemIds.has(sense.itemId)).length;
-    const targets = generateLearningTargets({ content: snapshot, setMembers: snapshot.setMembers, selectedSetIds: [set.id], direction: 'output', includeUnverifiedAi: false })
+    const input = { content: snapshot, setMembers: snapshot.setMembers, selectedSetIds: [set.id], direction: 'output' as const, includeUnverifiedAi: false };
+    const targets = generateLearningTargets(input)
       .filter((target) => !target.exerciseId && target.mode === 'output');
     const summary = summarizeLearningTargetStats(targets, snapshot.stats);
-    return { set, cards, eligible: targets.length, weak: summary.weakSenseCount, newCount: summary.unattemptedSenseCount };
+    return {
+      set,
+      cards,
+      eligible: targets.length,
+      weak: summary.weakSenseCount,
+      newCount: summary.unattemptedSenseCount,
+      diagnostic: diagnoseLearningTargetEligibility(input),
+    };
   });
+}
+
+function EligibilityDiagnostic({ diagnostic }: { diagnostic: LearningTargetEligibilityDiagnostic }) {
+  if (diagnostic.excludedCount === 0) return null;
+  const rows = (Object.entries(diagnostic.counts) as [keyof typeof diagnostic.counts, number][])
+    .filter(([, count]) => count > 0);
+  return (
+    <div className="memory-eligibility-diagnostic" role="status" aria-label="出題できない理由">
+      <p>{diagnostic.primaryReason ? `${LEARNING_TARGET_EXCLUSION_LABELS[diagnostic.primaryReason]}が主な理由です。` : 'カードの内容を確認してください。'}</p>
+      <ul>{rows.map(([reason, count]) => <li key={reason}>{LEARNING_TARGET_EXCLUSION_LABELS[reason]} {count}件</li>)}</ul>
+    </div>
+  );
 }
 
 function CreateSetDialog({ onClose }: { onClose: () => void }) {
@@ -228,6 +261,7 @@ export function MemoryHome() {
                 <article className="card memory-simple-set-card" key={summary.set.id}>
                   <div><h3>{summary.set.name}</h3><p>{summary.cards}カード</p></div>
                   <div className="memory-simple-metrics"><span><b>{summary.weak}</b><small>苦手</small></span><span><b>{summary.newCount}</b><small>未学習</small></span></div>
+                  {summary.eligible === 0 && <EligibilityDiagnostic diagnostic={summary.diagnostic} />}
                   <div className="memory-simple-set-actions">
                     <button type="button" className="btn btn-primary" disabled={isStarting || summary.eligible === 0} aria-busy={startingSetId === summary.set.id} onClick={() => void start(summary)}><Play size={18} fill="currentColor" aria-hidden="true" />{startingSetId === summary.set.id ? '準備中…' : summary.eligible === 0 ? '出題できるカードなし' : '10問始める'}</button>
                     <button type="button" className="btn btn-ghost" disabled={isStarting} onClick={() => navigate({ name: 'set', setId: summary.set.id })}>カードを管理</button>

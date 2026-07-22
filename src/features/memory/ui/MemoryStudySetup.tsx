@@ -1,7 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowLeft, ArrowRight, Play } from 'lucide-react';
 import type { MemoryQuestionCount, MemorySessionConfig } from '../domain/types';
-import { generateLearningTargets, resolveQuestionCount } from '../domain/targets';
+import {
+  diagnoseLearningTargetEligibility,
+  generateLearningTargets,
+  LEARNING_TARGET_EXCLUSION_LABELS,
+  resolveQuestionCount,
+  type LearningTargetEligibilityDiagnostic,
+} from '../domain/selectors';
 import { createSimpleStudySession } from '../application/simpleSession';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
@@ -43,6 +49,35 @@ function handleRadioKeyDown<T extends string>(
   requestAnimationFrame(() => group?.querySelector<HTMLButtonElement>(`[data-radio-value="${next}"]`)?.focus());
 }
 
+function EligibilityDetails({
+  diagnostic,
+  selectedSetIds,
+  direction,
+  starting,
+  navigate,
+  setDirection,
+}: {
+  diagnostic: LearningTargetEligibilityDiagnostic;
+  selectedSetIds: string[];
+  direction: DirectionChoice;
+  starting: boolean;
+  navigate: ReturnType<typeof useMemory>['navigate'];
+  setDirection: (direction: DirectionChoice) => void;
+}) {
+  const rows = (Object.entries(diagnostic.counts) as [keyof typeof diagnostic.counts, number][])
+    .filter(([, count]) => count > 0);
+  return (
+    <div className="memory-eligibility-diagnostic" role="status" aria-label="出題できない理由">
+      <p>{diagnostic.primaryReason ? `${LEARNING_TARGET_EXCLUSION_LABELS[diagnostic.primaryReason]}が主な理由です。` : 'カードの内容を確認してください。'}</p>
+      <ul>{rows.map(([reason, count]) => <li key={reason}>{LEARNING_TARGET_EXCLUSION_LABELS[reason]} {count}件</li>)}</ul>
+      <div className="row" role="group" aria-label="カードを修正する操作">
+        {selectedSetIds.length === 1 && <button type="button" className="btn btn-secondary" disabled={starting} onClick={() => navigate({ name: 'set', setId: selectedSetIds[0] })}>カードを管理</button>}
+        <button type="button" className="btn btn-secondary" disabled={starting} onClick={() => setDirection(direction === 'output' ? 'input' : 'output')}>出題方向を変える</button>
+      </div>
+    </div>
+  );
+}
+
 export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] }) {
   const { repository, ready, sets, activeSession, navigate, refresh, requestSync } = useMemory();
   const toast = useToast();
@@ -51,6 +86,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   const [countChoice, setCountChoice] = useState<CountChoice>('weak10');
   const [direction, setDirection] = useState<DirectionChoice>('output');
   const [eligibleCount, setEligibleCount] = useState(0);
+  const [eligibilityDiagnostic, setEligibilityDiagnostic] = useState<LearningTargetEligibilityDiagnostic>();
   const [resolvedEligibilityKey, setResolvedEligibilityKey] = useState<string>();
   const [eligibilityError, setEligibilityError] = useState<string>();
   const [eligibilityRetry, setEligibilityRetry] = useState(0);
@@ -76,6 +112,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
     setStarting(false);
     setSelectedSetIds(initialSelectionKey ? initialSelectionKey.split('\u0000') : []);
     setEligibleCount(0);
+    setEligibilityDiagnostic(undefined);
     setResolvedEligibilityKey(undefined);
     setEligibilityError(undefined);
   }, [initialSelectionKey, repository]);
@@ -95,29 +132,36 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
   useEffect(() => {
     if (!repository || selectedSetIds.length === 0) {
       setEligibleCount(0);
+      setEligibilityDiagnostic(undefined);
       setResolvedEligibilityKey(undefined);
       setEligibilityError(undefined);
       return;
     }
     let cancelled = false;
     setEligibleCount(0);
+    setEligibilityDiagnostic(undefined);
     setResolvedEligibilityKey(undefined);
     setEligibilityError(undefined);
     void repository.loadSetBundle(selectedSetIds).then((bundle) => {
-      const targets = generateLearningTargets({
+      const input = {
         content: bundle,
         setMembers: bundle.setMembers,
         selectedSetIds,
         direction,
         includeUnverifiedAi: false,
-      }).filter((target) => !target.exerciseId && (target.mode === 'output' || target.mode === 'input'));
+      };
+      const targets = generateLearningTargets(input)
+        .filter((target) => !target.exerciseId && (target.mode === 'output' || target.mode === 'input'));
+      const diagnostic = diagnoseLearningTargetEligibility(input);
       if (!cancelled) {
         setEligibleCount(targets.length);
+        setEligibilityDiagnostic(diagnostic);
         setResolvedEligibilityKey(eligibilityKey);
       }
     }).catch((caught) => {
       if (cancelled) return;
       setEligibleCount(0);
+      setEligibilityDiagnostic(undefined);
       setResolvedEligibilityKey(undefined);
       setEligibilityError(caught instanceof Error ? caught.message : 'カード件数を読み込めませんでした');
     });
@@ -140,16 +184,16 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
       && repositoryRef.current === actionRepository
       && startTokenRef.current === actionToken;
     try {
-    const activeBeforeConfirm = await actionRepository.getActiveSession();
-    if (activeBeforeConfirm && !window.confirm(
-      `前回の暗記学習（回答${activeBeforeConfirm.answerCount}回）が途中です。\n前回を終了して新しい学習を始めますか？`,
-    )) return;
-    if (!isCurrentAction()) return;
-    const activeBeforeCreate = await actionRepository.getActiveSession();
-    if ((activeBeforeCreate?.id ?? null) !== (activeBeforeConfirm?.id ?? null)) {
-      throw new Error('途中の暗記学習が別の操作で変更されました。内容を確認してもう一度始めてください');
-    }
-    const config: MemorySessionConfig = {
+      const activeBeforeConfirm = await actionRepository.getActiveSession();
+      if (activeBeforeConfirm && !window.confirm(
+        `前回の暗記学習（回答${activeBeforeConfirm.answerCount}回）が途中です。\n前回を終了して新しい学習を始めますか？`,
+      )) return;
+      if (!isCurrentAction()) return;
+      const activeBeforeCreate = await actionRepository.getActiveSession();
+      if ((activeBeforeCreate?.id ?? null) !== (activeBeforeConfirm?.id ?? null)) {
+        throw new Error('途中の暗記学習が別の操作で変更されました。内容を確認してもう一度始めてください');
+      }
+      const config: MemorySessionConfig = {
         questionCount: questionCount(countChoice),
         direction,
         includeUnverifiedAi: false,
@@ -193,7 +237,7 @@ export function MemoryStudySetup({ initialSetIds }: { initialSetIds: string[] })
         <fieldset disabled={starting}><legend>セット</legend><div className="memory-set-chips">{sets.map((set) => { const checked = selectedSetIds.includes(set.id); return <label key={set.id} className={checked ? 'active' : ''}><input type="checkbox" checked={checked} onChange={(event) => setSelectedSetIds((current) => event.target.checked ? [...new Set([...current, set.id])] : current.filter((id) => id !== set.id))} />{set.name}</label>; })}</div></fieldset>
         <fieldset disabled={starting}><legend>出題方向</legend><div className="memory-simple-direction" role="radiogroup" aria-label="出題方向"><button type="button" role="radio" aria-checked={direction === 'output'} tabIndex={direction === 'output' ? 0 : -1} data-radio-value="output" className={direction === 'output' ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, DIRECTION_CHOICES, direction, setDirection)} onClick={() => setDirection('output')}><b>日本語 → 英語</b><span>英語を自力で思い出す</span></button><button type="button" role="radio" aria-checked={direction === 'input'} tabIndex={direction === 'input' ? 0 : -1} data-radio-value="input" className={direction === 'input' ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, DIRECTION_CHOICES, direction, setDirection)} onClick={() => setDirection('input')}><b>英語 → 日本語</b><span>意味を確認する</span></button></div></fieldset>
         <fieldset disabled={starting}><legend>問題数</legend><div className="memory-option-grid three" role="radiogroup" aria-label="問題数">{COUNT_CHOICES.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={countChoice === value} tabIndex={countChoice === value ? 0 : -1} data-radio-value={value} className={countChoice === value ? 'active' : ''} onKeyDown={(event) => handleRadioKeyDown(event, COUNT_CHOICES.map(([choice]) => choice), countChoice, setCountChoice)} onClick={() => setCountChoice(value)}>{label}</button>)}</div></fieldset>
-        <div className="memory-start-summary" aria-live="polite">{selectedSetIds.length === 0 ? '学習するセットを選んでください' : eligibilityError ? <span role="alert">カード件数を読み込めませんでした。<button type="button" className="btn btn-secondary" disabled={starting} onClick={() => setEligibilityRetry((current) => current + 1)}>再読み込み</button></span> : !eligibilityReady ? 'カード件数を確認中…' : eligibleCount === 0 ? '出題できるカードがありません' : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}</div>
+        <div className="memory-start-summary" aria-live="polite">{selectedSetIds.length === 0 ? '学習するセットを選んでください' : eligibilityError ? <span role="alert">カード件数を読み込めませんでした。<button type="button" className="btn btn-secondary" disabled={starting} onClick={() => setEligibilityRetry((current) => current + 1)}>再読み込み</button></span> : !eligibilityReady ? 'カード件数を確認中…' : eligibleCount === 0 && eligibilityDiagnostic ? <EligibilityDetails diagnostic={eligibilityDiagnostic} selectedSetIds={selectedSetIds} direction={direction} starting={starting} navigate={navigate} setDirection={setDirection} /> : `${eligibleCount}件から${plannedCount}件を出題します。間違えたカードは数問後に戻ります。`}</div>
         <button type="button" className="btn btn-primary memory-primary-large" disabled={starting || selectedSetIds.length === 0 || !eligibilityReady || plannedCount === 0 || Boolean(eligibilityError)} aria-busy={starting} onClick={() => void start()}><Play size={20} fill="currentColor" aria-hidden="true" />{starting ? '準備中…' : activeSession ? '前回を終了して新しく始める' : '学習を始める'}</button>
       </div>
     </section>
