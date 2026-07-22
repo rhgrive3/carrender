@@ -139,16 +139,13 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
         return;
       }
 
-      if (navigatorOnline() === false) {
-        if (mounted.current && activeRepository.current === next) setSyncStatus('offline');
-        return;
-      }
-
       if (mounted.current && activeRepository.current === next) {
         setSyncStatus('syncing');
         setSyncError(null);
       }
       try {
+        // navigator.onLine is only a display/error-classification hint. Safari can
+        // report false while the request is viable, so initial sync must still try.
         const result = await flushMemorySync(next, 100);
         if (mounted.current && activeRepository.current === next) {
           setSyncStatus(result.status);
