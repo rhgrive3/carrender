@@ -20,10 +20,26 @@ export interface MemorySyncResult {
   errorKind?: MemorySyncErrorKind;
   retryable?: boolean;
   retryPolicy?: MemorySyncRetryPolicy;
+  retryAfterMs?: number;
   diagnostic?: MemorySyncErrorDiagnostic;
 }
 
+export interface MemorySyncOptions {
+  /** User-initiated sync bypasses an automatic retry cooldown. */
+  force?: boolean;
+  /** Test seams for deterministic cooldown tests. */
+  now?: () => number;
+  random?: () => number;
+}
+
+interface MemorySyncRetryState {
+  failures: number;
+  retryAt: number;
+  lastFailure: MemorySyncResult;
+}
+
 const activeSyncs = new WeakMap<MemoryRepository, Promise<MemorySyncResult>>();
+const retryStates = new WeakMap<MemoryRepository, MemorySyncRetryState>();
 
 // A request can fan out into several D1 statements per mutation/attempt (including
 // stat recomputation). Keep the upload small and let flush iterate; the UI's
@@ -31,6 +47,10 @@ const activeSyncs = new WeakMap<MemoryRepository, Promise<MemorySyncResult>>();
 const MUTATION_UPLOAD_LIMIT = 5;
 const ATTEMPT_UPLOAD_LIMIT = 2;
 const INITIAL_PULL_ROUNDS = 10;
+const RETRY_BASE_MS = 2_000;
+const RETRY_MAX_MS = 60_000;
+const RETRY_JITTER_MIN = 0.75;
+const RETRY_JITTER_SPAN = 0.5;
 
 interface MemorySyncRoundResult extends MemorySyncResult {
   remoteHasMore: boolean;
@@ -55,6 +75,20 @@ function navigatorOnline(): boolean | undefined {
   return typeof navigator === 'undefined' ? undefined : navigator.onLine;
 }
 
+export function memorySyncBackoffDelay(failures: number, randomValue = Math.random()): number {
+  const exponent = Math.max(0, Math.min(10, failures - 1));
+  const base = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** exponent));
+  const normalizedRandom = Number.isFinite(randomValue) ? Math.min(1, Math.max(0, randomValue)) : 0.5;
+  return Math.round(base * (RETRY_JITTER_MIN + normalizedRandom * RETRY_JITTER_SPAN));
+}
+
+function shouldBackoff(result: MemorySyncResult): boolean {
+  return result.retryable === true
+    && (result.retryPolicy === 'backoff'
+      || result.retryPolicy === 'retry-soon'
+      || result.retryPolicy === 'when-online');
+}
+
 function failedRound(error: unknown): MemorySyncRoundResult {
   const failure = classifyMemorySyncError(error, { navigatorOnline: navigatorOnline() });
   logUnexpectedMemorySyncError(failure, error);
@@ -75,15 +109,6 @@ function failedRound(error: unknown): MemorySyncRoundResult {
 }
 
 async function performSyncRound(repository: MemoryRepository): Promise<MemorySyncRoundResult> {
-  if (navigatorOnline() === false) {
-    return {
-      status: 'offline', uploadedMutations: 0, uploadedAttempts: 0, conflicts: 0,
-      hasMore: false, remoteHasMore: false, localBatchFull: false,
-      errorKind: 'network', retryable: true, retryPolicy: 'when-online',
-      errorMessage: 'オフラインのため同期を保留しています。暗記データは端末へ保存されています',
-    };
-  }
-
   try {
     const [deviceClientId, cursor, mutationCandidates, attemptCandidates] = await Promise.all([
       repository.clientId(),
@@ -115,6 +140,9 @@ async function performSyncRound(repository: MemoryRepository): Promise<MemorySyn
       attempts = sameClient.slice(0, ATTEMPT_UPLOAD_LIMIT);
     }
 
+    // navigator.onLine is advisory only. Safari can report false while a request
+    // is already viable, and true while the network has no route. The request is
+    // the source of truth and its classified failure decides the UI state.
     const response = await apiSyncMemory({
       schemaVersion: 1,
       clientId: requestClientId,
@@ -157,6 +185,7 @@ function mergeFailureDetails(current: MemorySyncResult, next: MemorySyncResult):
     errorKind: current.errorKind,
     retryable: current.retryable,
     retryPolicy: current.retryPolicy,
+    retryAfterMs: current.retryAfterMs,
     diagnostic: current.diagnostic,
   } : {};
   return {
@@ -164,6 +193,7 @@ function mergeFailureDetails(current: MemorySyncResult, next: MemorySyncResult):
     errorKind: next.errorKind,
     retryable: next.retryable,
     retryPolicy: next.retryPolicy,
+    retryAfterMs: next.retryAfterMs,
     diagnostic: next.diagnostic,
   };
 }
@@ -191,16 +221,53 @@ async function performSync(repository: MemoryRepository): Promise<MemorySyncResu
   return aggregate;
 }
 
+function cooldownResult(state: MemorySyncRetryState, now: number): MemorySyncResult {
+  const retryAfterMs = Math.max(0, state.retryAt - now);
+  return {
+    ...state.lastFailure,
+    hasMore: true,
+    retryAfterMs,
+    errorMessage: state.lastFailure.status === 'offline'
+      ? state.lastFailure.errorMessage
+      : `同期を再試行するまで${Math.max(1, Math.ceil(retryAfterMs / 1_000))}秒待機しています。手動同期は今すぐ実行できます`,
+  };
+}
+
 /** Serializes sync per repository so visibility/online/answer thresholds cannot race. */
-export function syncMemory(repository: MemoryRepository): Promise<MemorySyncResult> {
+export function syncMemory(
+  repository: MemoryRepository,
+  options: MemorySyncOptions = {},
+): Promise<MemorySyncResult> {
   const current = activeSyncs.get(repository);
   if (current) return current;
-  const running = performSync(repository).finally(() => activeSyncs.delete(repository));
+
+  const now = options.now ?? Date.now;
+  const random = options.random ?? Math.random;
+  const retryState = retryStates.get(repository);
+  if (!options.force && retryState && retryState.retryAt > now()) {
+    return Promise.resolve(cooldownResult(retryState, now()));
+  }
+
+  const running = performSync(repository).then((result) => {
+    if (shouldBackoff(result)) {
+      const failures = (retryStates.get(repository)?.failures ?? 0) + 1;
+      const delay = memorySyncBackoffDelay(failures, random());
+      const withDelay = { ...result, hasMore: true, retryAfterMs: delay };
+      retryStates.set(repository, { failures, retryAt: now() + delay, lastFailure: withDelay });
+      return withDelay;
+    }
+    retryStates.delete(repository);
+    return result;
+  }).finally(() => activeSyncs.delete(repository));
   activeSyncs.set(repository, running);
   return running;
 }
 
-export async function flushMemorySync(repository: MemoryRepository, maximumRounds = 100): Promise<MemorySyncResult> {
+export async function flushMemorySync(
+  repository: MemoryRepository,
+  maximumRounds = 100,
+  options: MemorySyncOptions = {},
+): Promise<MemorySyncResult> {
   let aggregate: MemorySyncResult = {
     status: 'idle',
     uploadedMutations: 0,
@@ -209,7 +276,7 @@ export async function flushMemorySync(repository: MemoryRepository, maximumRound
     hasMore: false,
   };
   for (let round = 0; round < maximumRounds; round += 1) {
-    const result = await syncMemory(repository);
+    const result = await syncMemory(repository, options);
     aggregate = {
       status: mergeStatus(aggregate.status, result.status),
       uploadedMutations: aggregate.uploadedMutations + result.uploadedMutations,
