@@ -43,7 +43,17 @@ function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: n
   ctx.closePath();
 }
 
-function buildShareCard(state: AppState, ref: ISODate): Blob | null {
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  return new Promise((resolve, reject) => {
+    try {
+      canvas.toBlob(resolve, 'image/png');
+    } catch (caught) {
+      reject(caught);
+    }
+  });
+}
+
+async function buildShareCard(state: AppState, ref: ISODate): Promise<Blob | null> {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -160,19 +170,15 @@ function buildShareCard(state: AppState, ref: ISODate): Blob | null {
   ctx.font = font(28, 600);
   ctx.fillText('#StudyCommander で毎日の計画を自動再設計', 72, H - 80);
 
-  // toBlobは非同期だがdataURL経由で同期的にBlob化する(共有はユーザー操作起点が必要なため)
-  const dataUrl = canvas.toDataURL('image/png');
-  const bin = atob(dataUrl.split(',')[1]);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: 'image/png' });
+  // PNG圧縮を非同期化し、巨大なbase64文字列と全byte再コピーを作らない。
+  return canvasToPngBlob(canvas);
 }
 
 async function performShareStudyCard(state: AppState, ref: ISODate): Promise<ShareStudyCardResult> {
   try {
     // Canvas生成・PNG変換は端末のメモリ不足や実装制限で例外になることがある。
     // 呼び出し側へ例外を漏らさず、必ず利用者向けの失敗表示へ変換する。
-    const blob = buildShareCard(state, ref);
+    const blob = await buildShareCard(state, ref);
     if (!blob) return 'failed';
     const file = new File([blob], `studycommander-${ref}.png`, { type: 'image/png' });
     try {
