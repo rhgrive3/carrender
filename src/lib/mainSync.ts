@@ -1,8 +1,10 @@
 import type { AppState } from '../types';
 import { snapshotMainStateEntityHashes, type MainStateEntityHashSnapshot } from './mainStateMerge';
 
-const META_KEY = 'studycommander_main_sync_meta_v1';
-const CONFLICT_BACKUP_KEY = 'studycommander_main_sync_conflict_backup_v1';
+const LEGACY_META_KEY = 'studycommander_main_sync_meta_v1';
+const LEGACY_CONFLICT_BACKUP_KEY = 'studycommander_main_sync_conflict_backup_v1';
+const META_KEY_PREFIX = 'studycommander_main_sync_meta_v2:';
+const CONFLICT_BACKUP_KEY_PREFIX = 'studycommander_main_sync_conflict_backup_v2:';
 export const MAIN_SYNC_METADATA_WRITE_FAILURE_EVENT = 'studycommander-main-sync-metadata-write-failure';
 
 export interface MainSyncMetadata {
@@ -41,6 +43,18 @@ function storageAvailable(): boolean {
   return typeof localStorage !== 'undefined';
 }
 
+function ownerScopedKey(prefix: string, owner: string): string {
+  return `${prefix}${encodeURIComponent(owner)}`;
+}
+
+function metadataKey(owner: string): string {
+  return ownerScopedKey(META_KEY_PREFIX, owner);
+}
+
+function conflictBackupKey(owner: string): string {
+  return ownerScopedKey(CONFLICT_BACKUP_KEY_PREFIX, owner);
+}
+
 function readJSON<T>(key: string): T | null {
   if (!storageAvailable()) return null;
   try {
@@ -58,6 +72,15 @@ function writeJSON(key: string, value: unknown): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+function removeKey(key: string): void {
+  if (!storageAvailable()) return;
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Storage cleanup is best effort.
   }
 }
 
@@ -91,13 +114,32 @@ function validatedMetadata(value: Partial<MainSyncMetadata> | null): MainSyncMet
   return value as MainSyncMetadata;
 }
 
+function legacyMetadata(): MainSyncMetadata | null {
+  return validatedMetadata(readJSON<Partial<MainSyncMetadata>>(LEGACY_META_KEY));
+}
+
+function migrateLegacyMetadata(owner: string): MainSyncMetadata | null {
+  const legacy = legacyMetadata();
+  if (!legacy || legacy.owner !== owner) return null;
+  if (writeJSON(metadataKey(owner), legacy)) removeKey(LEGACY_META_KEY);
+  return legacy;
+}
+
+function migrateLegacyConflictBackup(owner: string): MainSyncConflictBackup | null {
+  const legacy = readJSON<MainSyncConflictBackup>(LEGACY_CONFLICT_BACKUP_KEY);
+  if (!legacy || legacy.owner !== owner) return null;
+  if (writeJSON(conflictBackupKey(owner), legacy)) removeKey(LEGACY_CONFLICT_BACKUP_KEY);
+  return legacy;
+}
+
+/** Returns only the legacy singleton entry. New metadata is account-scoped. */
 export function getCurrentMainSyncMetadata(): MainSyncMetadata | null {
-  return validatedMetadata(readJSON<Partial<MainSyncMetadata>>(META_KEY));
+  return legacyMetadata();
 }
 
 export function getMainSyncMetadata(owner: string): MainSyncMetadata | null {
-  const value = getCurrentMainSyncMetadata();
-  return value?.owner === owner ? value : null;
+  const scoped = validatedMetadata(readJSON<Partial<MainSyncMetadata>>(metadataKey(owner)));
+  return scoped?.owner === owner ? scoped : migrateLegacyMetadata(owner);
 }
 
 /**
@@ -118,8 +160,13 @@ export function markMainSyncDirty(
     baseEntityHashes: current?.baseEntityHashes,
     localChangedAt: now,
   };
-  const persisted = writeJSON(META_KEY, next);
-  if (!persisted) notifyMetadataWriteFailure(next);
+  const persisted = writeJSON(metadataKey(owner), next);
+  if (persisted) {
+    const legacy = legacyMetadata();
+    if (legacy?.owner === owner) removeKey(LEGACY_META_KEY);
+  } else {
+    notifyMetadataWriteFailure(next);
+  }
   return { ...next, persisted };
 }
 
@@ -137,22 +184,35 @@ export function markMainSyncClean(
     baseEntityHashes: cleanState ? snapshotMainStateEntityHashes(cleanState) : getMainSyncMetadata(owner)?.baseEntityHashes,
     localChangedAt: now,
   };
-  const persisted = writeJSON(META_KEY, next);
-  if (!persisted) {
+  const persisted = writeJSON(metadataKey(owner), next);
+  if (persisted) {
+    const legacy = legacyMetadata();
+    if (legacy?.owner === owner) removeKey(LEGACY_META_KEY);
+  } else {
     notifyMetadataWriteFailure(next);
     if (throwOnFailure) throw new MainSyncMetadataPersistenceError(next);
   }
   return { ...next, persisted };
 }
 
-export function clearMainSyncMetadata(): void {
+/**
+ * Clears one owner's account-scoped metadata. Without an owner, only the
+ * pre-v2 singleton keys are removed; account databases and resumable sync bases
+ * intentionally survive logout, matching IndexedDB retention.
+ */
+export function clearMainSyncMetadata(owner?: string): void {
   if (!storageAvailable()) return;
-  try {
-    localStorage.removeItem(META_KEY);
-    localStorage.removeItem(CONFLICT_BACKUP_KEY);
-  } catch {
-    // Storage cleanup is best effort.
+  if (owner) {
+    removeKey(metadataKey(owner));
+    removeKey(conflictBackupKey(owner));
+    const legacyMeta = legacyMetadata();
+    if (legacyMeta?.owner === owner) removeKey(LEGACY_META_KEY);
+    const legacyBackup = readJSON<MainSyncConflictBackup>(LEGACY_CONFLICT_BACKUP_KEY);
+    if (legacyBackup?.owner === owner) removeKey(LEGACY_CONFLICT_BACKUP_KEY);
+    return;
   }
+  removeKey(LEGACY_META_KEY);
+  removeKey(LEGACY_CONFLICT_BACKUP_KEY);
 }
 
 export function decideInitialSync(input: {
@@ -172,10 +232,15 @@ export function decideInitialSync(input: {
 }
 
 export function saveMainSyncConflictBackup(backup: MainSyncConflictBackup): boolean {
-  return writeJSON(CONFLICT_BACKUP_KEY, backup);
+  const persisted = writeJSON(conflictBackupKey(backup.owner), backup);
+  if (persisted) {
+    const legacy = readJSON<MainSyncConflictBackup>(LEGACY_CONFLICT_BACKUP_KEY);
+    if (legacy?.owner === backup.owner) removeKey(LEGACY_CONFLICT_BACKUP_KEY);
+  }
+  return persisted;
 }
 
 export function getMainSyncConflictBackup(owner: string): MainSyncConflictBackup | null {
-  const value = readJSON<MainSyncConflictBackup>(CONFLICT_BACKUP_KEY);
-  return value?.owner === owner ? value : null;
+  const scoped = readJSON<MainSyncConflictBackup>(conflictBackupKey(owner));
+  return scoped?.owner === owner ? scoped : migrateLegacyConflictBackup(owner);
 }
