@@ -6,6 +6,18 @@ function tabByLabel(group: Element | null, label: string): HTMLElement | undefin
     .find((tab) => tab.textContent?.trim() === label);
 }
 
+function hasCompleteNativePanels(group: Element | null): boolean {
+  if (!group) return false;
+  const tabs = [...group.querySelectorAll<HTMLElement>(':scope > [role="tab"]')];
+  return tabs.length > 0 && tabs.every((tab) => {
+    const panelId = tab.getAttribute('aria-controls');
+    const panel = panelId ? document.getElementById(panelId) : null;
+    return Boolean(tab.id && panel
+      && panel.getAttribute('role') === 'tabpanel'
+      && panel.getAttribute('aria-labelledby') === tab.id);
+  });
+}
+
 function connectPanel(
   container: HTMLElement,
   panel: HTMLElement | null,
@@ -34,6 +46,8 @@ function connectPanel(
 
 function connectRecordTabsToPanels(): void {
   const viewTabs = document.querySelector('[role="tablist"][aria-label="記録画面の切替"]');
+  if (hasCompleteNativePanels(viewTabs)) return;
+
   const recordContainer = viewTabs?.closest<HTMLElement>('.records-v2') ?? null;
   const overviewTab = tabByLabel(viewTabs, '集計');
   const logTab = tabByLabel(viewTabs, '学習ログ');
@@ -64,6 +78,8 @@ function connectRecordTabsToPanels(): void {
   }
 
   const periodTabs = overviewPanel?.querySelector('[role="tablist"][aria-label="集計期間"]') ?? null;
+  if (hasCompleteNativePanels(periodTabs)) return;
+
   const weekTab = tabByLabel(periodTabs, '週');
   const monthTab = tabByLabel(periodTabs, '月');
   const selectedPeriodTab = [weekTab, monthTab].find((tab) => tab?.getAttribute('aria-selected') === 'true');
