@@ -13,6 +13,14 @@ function stableMemberOrder(left: MemorySetMember, right: MemorySetMember): numbe
     || left.itemId.localeCompare(right.itemId);
 }
 
+function stableSenseOrder(
+  left: { createdAt: string; id: string },
+  right: { createdAt: string; id: string },
+): number {
+  return left.createdAt.localeCompare(right.createdAt)
+    || left.id.localeCompare(right.id);
+}
+
 /**
  * 過去データで1 Itemへ結合された複数Senseを、利用者の明示操作で独立Itemへ戻す。
  * Sense/Answer/Example/Exercise IDは維持し、既存の成績・回答履歴を失わない。
@@ -25,7 +33,9 @@ export async function splitMemoryItemIntoCards(
   const item = snapshot.items.find((value) => value.id === itemId);
   if (!item) throw new Error('分割する保存項目が見つかりません');
 
-  const senses = snapshot.senses.filter((sense) => sense.itemId === itemId && !sense.deletedAt);
+  const senses = snapshot.senses
+    .filter((sense) => sense.itemId === itemId && !sense.deletedAt)
+    .sort(stableSenseOrder);
   if (senses.length <= 1) throw new Error('この保存項目はすでに1枚のカードです');
 
   const labels = senses.map((sense) => {
