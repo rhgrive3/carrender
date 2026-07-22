@@ -1,5 +1,6 @@
 import { buildMemoryCard } from './content';
 import type { MemoryItemDraft } from './editContent';
+import { normalizeEnglishCitationForm } from '../domain/cardIntegrity';
 import type { MemoryRepository } from '../infrastructure/repositories';
 
 function splitList(value: string | undefined): string[] {
@@ -41,7 +42,7 @@ export async function saveNewMemoryItemCards(input: {
       explanation: senseDraft.explanation,
       answers: answerEntries.map(({ answer }) => ({
         displayForm: answer.displayForm,
-        citationForm: answer.citationForm,
+        citationForm: normalizeEnglishCitationForm(answer.displayForm, answer.citationForm),
         pattern: answer.pattern,
         acceptedVariants: splitList(answer.acceptedVariants),
         orthographicVariants: splitList(answer.orthographicVariants),

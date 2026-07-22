@@ -2,11 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { verifyMemoryCard } from '../src/features/memory/application/verification';
 import {
-  effectiveMemoryCitationForm,
   examplesForSense,
   languageIssuesForMemoryEntity,
   primaryEnglishForSense,
-  sameEnglishBearingFields,
 } from '../src/features/memory/domain/cardIntegrity';
 import { buildMemorySetCardRows } from '../src/features/memory/domain/cardRows';
 import { generateLearningTargets } from '../src/features/memory/domain/selectors';
@@ -31,17 +29,8 @@ const content: MemoryContentBundle = {
   exercises: [],
 };
 
-assert.equal(languageIssuesForMemoryEntity('answer', { displayForm: '意識', citationForm: '意識' }).length, 1, '表示中の英語欄が日本語だけなら保存を拒否する');
+assert.equal(languageIssuesForMemoryEntity('answer', { displayForm: '意識', citationForm: '意識' }).length, 2, '英語欄が日本語だけなら保存を拒否する');
 assert.equal(languageIssuesForMemoryEntity('answer', { displayForm: 'awareness', citationForm: 'awareness' }).length, 0, '英字を含む英語は保存できる');
-assert.equal(languageIssuesForMemoryEntity('answer', { displayForm: 'appalled', citationForm: '唖然とした' }).length, 0, '表示中の英語が有効なら非表示の旧citationFormで保存を拒否しない');
-assert.equal(languageIssuesForMemoryEntity('answer', { displayForm: 'appalled', citationForm: '' }).length, 0, '空のcitationFormは表示中の英語へフォールバックする');
-assert.equal(effectiveMemoryCitationForm('appalled', '唖然とした'), 'appalled', '日本語だけの基本形は表示中の英語へフォールバックする');
-assert.equal(effectiveMemoryCitationForm('be appalled at A', 'appall'), 'appall', '有効な英語の基本形は維持する');
-assert.equal(sameEnglishBearingFields(
-  'answer',
-  { displayForm: 'appalled', citationForm: '唖然とした' },
-  { displayForm: 'appalled', citationForm: 'appalled' },
-), true, '旧citationFormを修復しただけの差分を英語内容の変更として扱わない');
 assert.equal(primaryEnglishForSense(content, 'sense-1'), 'tap into', '壊れたItem見出しよりSenseのAnswerを優先する');
 assert.equal(examplesForSense(content, 'sense-1').length, 2, '同じカードの複数例文を保持する');
 
@@ -110,4 +99,4 @@ assert.match(studySource, /examplesForSense\(bundle, sense\.id, \{ verifiedOnly:
 assert.match(studySource, /memory-study-examples[\s\S]*examples\.map/u, '答え後の独立確認欄に複数例文を表示する');
 assert.match(studySource, /memory-question-example/u, '問題面でも方向に合う例文を使う');
 
-console.log('✅ memory cards keep language direction, repair hidden citation forms, preserve verification, stable editing order and multiple examples');
+console.log('✅ memory cards keep language direction, one Sense per row, persistent verification, stable editing order and multiple examples');
