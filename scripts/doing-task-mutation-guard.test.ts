@@ -53,8 +53,13 @@ assert.notStrictEqual(updated, state, 'UPDATE_TASKもdoingをplannedへ正規化
 assert.equal(updated.tasks[0]?.status, 'planned');
 
 const deleted = resolveAppAction(state, { type: 'DELETE_TASK', taskId: doingTask.id });
-assert.equal(deleted.status, 'noChange', 'stale doingの削除は状態変更なしとして型で区別する');
-assert.strictEqual(appReducer(state, { type: 'DELETE_TASK', taskId: doingTask.id }), state);
+assert.equal(deleted.status, 'rejected', 'stale doingの削除は無反応なnoChangeではなく明示的に拒否する');
+assert.equal(deleted.status === 'rejected' ? deleted.errorCode : undefined, 'activeTaskMutation');
+assert.equal(
+  deleted.status === 'rejected' ? deleted.message : undefined,
+  '進行中のタスクは変更できません。タイマーを終了してから操作してください',
+);
+assert.strictEqual(appReducer(state, { type: 'DELETE_TASK', taskId: doingTask.id }), state, '削除拒否時は状態を変更しない');
 
 const activeTimerTarget = {
   owner: 'owner',

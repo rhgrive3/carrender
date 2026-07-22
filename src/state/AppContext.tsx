@@ -233,7 +233,7 @@ export function resolveAppAction(
     };
   }
   if (action.type === 'DELETE_TASK') {
-    return { status: 'noChange', message: ACTIVE_TASK_MESSAGE };
+    return { status: 'rejected', message: ACTIVE_TASK_MESSAGE, errorCode: 'activeTaskMutation' };
   }
   return { status: 'ready', action };
 }
