@@ -1,5 +1,13 @@
 import type { AppSettings, AppState } from '../types';
 import { compactPlanRevisions } from './planHistory';
+import {
+  MAIN_STATE_ENTITY_HASH_VERSION,
+  mainStateEntityDigest,
+  type MainStateEntityHashVersion,
+} from './mainStateEntityDigest';
+
+export { MAIN_STATE_ENTITY_HASH_VERSION };
+export type { MainStateEntityHashVersion };
 
 export type MainStateEntitySection =
   | 'goal'
@@ -31,26 +39,9 @@ export interface MainStateMergeResult {
   deletedKeys: string[];
 }
 
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => [key, stableValue(entry)]),
-  );
-}
-
-/** Small deterministic hash. It is a change detector, not a security primitive. */
+/** Versioned SHA-256 digest over canonical entity JSON. */
 export function mainStateEntityHash(value: unknown): string {
-  const input = JSON.stringify(stableValue(value));
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < input.length; index += 1) {
-    hash ^= input.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
+  return mainStateEntityDigest(value);
 }
 
 function settingsCore(settings: AppSettings): AppSettings {
