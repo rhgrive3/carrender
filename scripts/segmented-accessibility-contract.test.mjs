@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components/ui/bits.tsx', import.meta.url), 'utf8');
 const guard = readFileSync(new URL('../src/lib/radiogroupKeyboardGuard.ts', import.meta.url), 'utf8');
+const chartGuard = readFileSync(new URL('../src/lib/chartAccessibleDataGuard.ts', import.meta.url), 'utf8');
 const recordTabs = readFileSync(new URL('../src/lib/recordTabPanelSemantics.ts', import.meta.url), 'utf8');
 const material = readFileSync(new URL('../src/components/materials/MaterialFormSheet.tsx', import.meta.url), 'utf8');
 const records = readFileSync(new URL('../src/screens/RecordsScreen.tsx', import.meta.url), 'utf8');
@@ -36,6 +37,14 @@ assert.match(guard, /repairRecordLogButtons\(\)[\s\S]*dateContext[\s\S]*task-tit
 assert.match(guard, /repairAchievementBadges\(\)[\s\S]*role', 'progressbar'[\s\S]*aria-valuenow[\s\S]*aria-valuetext/, '実績バッジの説明と進捗を支援技術へ公開する');
 assert.match(guard, /MEMORY_CARD_FACE_SELECTOR[\s\S]*event\.key === 'Enter'[\s\S]*aria-hidden[\s\S]*focus\(\{ preventScroll: true \}\)/, 'キーボード反転後に表示面へフォーカスを移す');
 assert.match(guard, /attributeFilter: \['aria-checked', 'aria-selected', 'aria-disabled', 'aria-orientation', 'aria-hidden', 'disabled', 'role', 'class'\]/, '選択・表示面・class変更後も補修を再実行する');
+
+assert.match(chartGuard, /summarizeWeek\(state, start\)[\s\S]*日別の予定・実績を表で見る[\s\S]*科目別内訳/, '週グラフと同じ端末stateから日別予定・実績・科目内訳表を生成する');
+assert.match(chartGuard, /computeAnalytics\(state, today\(\)\)\.heatmap[\s\S]*過去12週間の学習時間を一覧で見る/, '12週間ヒートマップと同じanalytics selectorから学習日一覧を生成する');
+assert.match(chartGuard, /plannedMaterialAmountThrough[\s\S]*actualMaterialAmountThrough[\s\S]*教材別の現在達成率を表で見る/, '教材達成率の目標・実績をproduction selectorから表へ再構成する');
+assert.match(chartGuard, /aria-describedby[\s\S]*ensureDescription/, '各視覚グラフを数値要約へ関連付ける');
+assert.match(chartGuard, /data-chart-accessible-data[\s\S]*dataset\.chartAccessibleData === signature/, '同じ内容で代替DOMを作り直さずobserver循環を防ぐ');
+assert.match(chartGuard, /MutationObserver[\s\S]*requestAnimationFrame/, '期間切替・lazy描画後に一度だけ再構築する');
+
 assert.match(records, /role="tablist" aria-label="記録画面の切替"[\s\S]*role="tab"[\s\S]*role="tab"/, '記録画面切替をtablistとして公開する');
 assert.match(records, /role="tablist" aria-label="集計期間"[\s\S]*role="tab"[\s\S]*role="tab"/, '週月切替をtablistとして公開する');
 assert.match(monthCalendar, /data-month-calendar/, '月表示の実DOMへ安定した識別子を持つ');
@@ -51,5 +60,6 @@ assert.match(recordTabs, /periodPanel\.id = periodPanelId[\s\S]*setAttribute\('r
 assert.match(recordTabs, /attributeFilter: \['aria-selected'\]/, 'Reactのtab選択変更後に関連付けを再構築する');
 assert.match(main, /installRadiogroupKeyboardGuard\(\);/, 'アプリ起動時に共有選択グループガードを有効化する');
 assert.match(main, /installRecordTabPanelSemanticsGuard\(\);/, 'アプリ起動時に記録tabpanelガードを有効化する');
+assert.match(main, /installChartAccessibleDataGuard\(\);/, 'アプリ起動時にグラフ代替データガードを有効化する');
 
-console.log('✅ selection groups and main feature accessibility repairs passed');
+console.log('✅ selection groups, chart alternatives, and main feature accessibility repairs passed');
