@@ -40,8 +40,12 @@ jobs:
       - name: Production build
         run: npm run build
       - name: Run actual DOM and visual accessibility audit
-        run: node scripts/accessibility-visual-browser.mjs
-      - name: Upload reviewable screenshots
+        shell: bash
+        run: |
+          mkdir -p artifacts/accessibility-visual
+          set -o pipefail
+          node scripts/accessibility-visual-browser.mjs 2>&1 | tee artifacts/accessibility-visual/run.log
+      - name: Upload reviewable screenshots and audit log
         if: always()
         uses: actions/upload-artifact@v4
         with:
