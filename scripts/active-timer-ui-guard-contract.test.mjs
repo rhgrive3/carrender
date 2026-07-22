@@ -13,8 +13,9 @@ assert.match(identity, /left\.sourceId !== right\.sourceId[\s\S]*left\.materialI
 assert.match(appContext, /action\.type === 'RECORD_SESSION'[\s\S]*action\.input\.source !== 'timer'[\s\S]*timerTargetMatchesSessionInput/, '計測中タスクの手動完了記録を中央境界で拒否する');
 assert.match(appContext, /action\.type === 'UPDATE_SESSION'[\s\S]*timerTargetMatchesSession\(target, previous\)/, '編集後に参照を外しても編集前の計測中タスクを保護する');
 assert.match(appContext, /action\.type === 'DELETE_SESSION'[\s\S]*timerTargetMatchesSession\(target, previous\)/, '計測中タスクに紐づく既存記録の削除を拒否する');
-assert.match(appContext, /queueMicrotask\([\s\S]*if \(!messageRead\) emitAppCommandMessage/, '拒否結果を呼び出し側が無視した場合だけ中央通知する');
-assert.match(appContext, /if \(resolved\.message\) emitAppCommandMessage/, '戻り値のないdispatch拒否も無反応にしない');
+assert.doesNotMatch(appContext, /queueMicrotask|messageRead|Object\.defineProperty\(result, ['"]message['"]/, '拒否通知をmessage getterの読取有無へ依存させない');
+assert.match(appContext, /result\.status === 'rejected' && !options\.suppressNotification[\s\S]*emitAppCommandMessage/, 'execute拒否は共通境界で即時通知し、明示optionだけで抑止する');
+assert.match(appContext, /resolved\.status === 'rejected'\) emitAppCommandMessage/, '戻り値のないdispatch拒否も同じ規則で無反応にしない');
 assert.match(events, /studycommander:app-command-message/, '操作拒否メッセージ用イベント名を固定する');
 assert.match(toast, /window\.addEventListener\(APP_COMMAND_MESSAGE_EVENT, handleCommandMessage\)/, '中央通知を既存トーストUIへ表示する');
 

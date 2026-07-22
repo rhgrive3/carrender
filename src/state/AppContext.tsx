@@ -18,11 +18,35 @@ import {
   appReducer as baseAppReducer,
   useApp as useBaseApp,
 } from './AppContextBase';
-import type { Action, AppCommandResult, SessionInput } from './AppContextBase';
+import type {
+  Action,
+  AppCommandResult as BaseAppCommandResult,
+  SessionInput,
+} from './AppContextBase';
 
 export * from './AppContextBase';
 
-type AppContextValue = ReturnType<typeof useBaseApp>;
+export interface AppCommandExecutionOptions {
+  /** 呼出側が独自表示する場合だけ共通Toastを抑止する。 */
+  suppressNotification?: boolean;
+}
+
+export type AppCommandResult =
+  | (BaseAppCommandResult & { status: 'success'; changed: true })
+  | (BaseAppCommandResult & {
+      status: 'rejected';
+      changed: false;
+      message: string;
+      errorCode: string;
+    })
+  | (BaseAppCommandResult & {
+      status: 'noChange';
+      changed: false;
+    });
+
+type AppContextValue = Omit<ReturnType<typeof useBaseApp>, 'execute'> & {
+  execute: (action: Action, options?: AppCommandExecutionOptions) => AppCommandResult;
+};
 
 const GuardedAppContext = createContext<AppContextValue | null>(null);
 const TIMER_STORAGE_KEY = 'studycommander_timer_v1';
@@ -282,23 +306,49 @@ export function appReducer(state: AppState, action: Action): AppState {
   return deterministicReducer(state, resolved.action);
 }
 
-function rejectedCommandResult(message: string, errorCode = 'invalidInput'): AppCommandResult {
-  let messageRead = false;
-  const result = {
+export function createRejectedAppCommandResult(
+  message: string,
+  errorCode = 'invalidInput',
+): AppCommandResult {
+  return {
+    status: 'rejected',
     changed: false,
-    scheduleStatus: 'invalidInput' as const,
+    scheduleStatus: 'invalidInput',
+    message,
     errorCode,
-  } as AppCommandResult;
-  Object.defineProperty(result, 'message', {
-    enumerable: true,
-    get() {
-      messageRead = true;
-      return message;
-    },
-  });
-  queueMicrotask(() => {
-    if (!messageRead) emitAppCommandMessage(message, 'warning');
-  });
+  };
+}
+
+export function createNoChangeAppCommandResult(
+  message?: string,
+  errorCode = 'noChange',
+): AppCommandResult {
+  return {
+    status: 'noChange',
+    changed: false,
+    ...(message ? { message } : {}),
+    errorCode,
+  };
+}
+
+function normalizeBaseCommandResult(result: BaseAppCommandResult): AppCommandResult {
+  if (result.changed) return { ...result, status: 'success', changed: true };
+  if (result.scheduleStatus === 'invalidInput' || (result.errorCode && result.errorCode !== 'noChange')) {
+    return createRejectedAppCommandResult(
+      result.message ?? '入力内容を確認してください',
+      result.errorCode ?? 'invalidInput',
+    );
+  }
+  return createNoChangeAppCommandResult(result.message, result.errorCode ?? 'noChange');
+}
+
+export function notifyAppCommandResult(
+  result: AppCommandResult,
+  options: AppCommandExecutionOptions = {},
+): AppCommandResult {
+  if (result.status === 'rejected' && !options.suppressNotification) {
+    emitAppCommandMessage(result.message, 'warning');
+  }
   return result;
 }
 
@@ -326,7 +376,7 @@ function GuardedAppBridge({ children }: { children: ReactNode }) {
       activeTimerTarget: persistedTimerTarget(owner),
     });
     if (resolved.status !== 'ready') {
-      if (resolved.message) emitAppCommandMessage(resolved.message, 'warning');
+      if (resolved.status === 'rejected') emitAppCommandMessage(resolved.message, 'warning');
       return;
     }
     if (resolved.action.type === 'ADD_MATERIAL' || resolved.action.type === 'UPDATE_MATERIAL') {
@@ -343,26 +393,30 @@ function GuardedAppBridge({ children }: { children: ReactNode }) {
     base.dispatch(resolved.action);
   }, [base, owner]);
 
-  const execute = useCallback((action: Action): AppCommandResult => {
+  const execute = useCallback((
+    action: Action,
+    options: AppCommandExecutionOptions = {},
+  ): AppCommandResult => {
+    const finish = (result: AppCommandResult) => notifyAppCommandResult(result, options);
     const resolved = resolveAppAction(base.state, action, {
       activeTimerTarget: persistedTimerTarget(owner),
     });
-    if (resolved.status !== 'ready') {
-      return rejectedCommandResult(
-        resolved.message ?? '入力内容を確認してください',
-        resolved.status === 'rejected' ? resolved.errorCode : 'noChange',
-      );
+    if (resolved.status === 'rejected') {
+      return finish(createRejectedAppCommandResult(resolved.message, resolved.errorCode));
+    }
+    if (resolved.status === 'noChange') {
+      return createNoChangeAppCommandResult(resolved.message);
     }
     if (resolved.action.type === 'ADD_MATERIAL' || resolved.action.type === 'UPDATE_MATERIAL') {
       const validation = materialValidationError(resolved.action.material);
-      if (validation) return rejectedCommandResult(validation);
+      if (validation) return finish(createRejectedAppCommandResult(validation));
     }
     if (requiresDeterministicReplacement(base.state, resolved.action)) {
       const next = deterministicReducer(base.state, resolved.action);
-      if (next === base.state) return rejectedCommandResult('入力内容を確認してください');
-      return base.execute({ type: 'REPLACE_STATE', state: next });
+      if (next === base.state) return createNoChangeAppCommandResult();
+      return finish(normalizeBaseCommandResult(base.execute({ type: 'REPLACE_STATE', state: next })));
     }
-    return base.execute(resolved.action);
+    return finish(normalizeBaseCommandResult(base.execute(resolved.action)));
   }, [base, owner]);
 
   const value = useMemo<AppContextValue>(() => ({ ...base, dispatch, execute }), [base, dispatch, execute]);
