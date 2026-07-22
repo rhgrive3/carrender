@@ -4,6 +4,7 @@ import type { MemorySet, MemorySession } from '../domain/types';
 import { MemoryRepository } from '../infrastructure/repositories';
 import { ValidatedMemoryRepository } from '../infrastructure/validatedRepository';
 import { flushMemorySync, type MemorySyncStatus } from '../infrastructure/syncEngine';
+import { classifyMemorySyncError, logUnexpectedMemorySyncError } from '../infrastructure/syncError';
 
 export type MemoryView =
   | { name: 'home' }
@@ -35,6 +36,16 @@ const MemoryContext = createContext<MemoryContextValue | null>(null);
 const MEMORY_EDITOR_SELECTOR = '.memory-editor, .memory-bulk-editor';
 const INTERNAL_EDITOR_POINTER_WINDOW_MS = 1_000;
 // IndexedDBを開けない場合だけ暗記機能全体のエラーにする。同期失敗は端末データを使える状態のまま扱う。
+
+function navigatorOnline(): boolean | undefined {
+  return typeof navigator === 'undefined' ? undefined : navigator.onLine;
+}
+
+function classifiedSyncFailure(caught: unknown) {
+  const failure = classifyMemorySyncError(caught, { navigatorOnline: navigatorOnline() });
+  logUnexpectedMemorySyncError(failure, caught);
+  return failure;
+}
 
 function shouldConfirmExternalMemoryNavigation(lastEditorPointerDownAt: number): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
@@ -128,7 +139,7 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
         return;
       }
 
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      if (navigatorOnline() === false) {
         if (mounted.current && activeRepository.current === next) setSyncStatus('offline');
         return;
       }
@@ -146,8 +157,9 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
         await refreshRepository(next);
       } catch (caught) {
         if (mounted.current && activeRepository.current === next) {
-          setSyncStatus('error');
-          setSyncError(caught instanceof Error ? caught.message : '暗記データを同期できませんでした');
+          const failure = classifiedSyncFailure(caught);
+          setSyncStatus(failure.syncStatus);
+          setSyncError(failure.syncStatus === 'offline' ? null : failure.userMessage);
         }
       }
     })();
@@ -200,9 +212,9 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
           }
         } catch (caught) {
           if (mounted.current && activeRepository.current === target) {
-            const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
-            setSyncStatus(offline ? 'offline' : 'error');
-            setSyncError(offline ? null : caught instanceof Error ? caught.message : '暗記データを同期できませんでした');
+            const failure = classifiedSyncFailure(caught);
+            setSyncStatus(failure.syncStatus);
+            setSyncError(failure.syncStatus === 'offline' ? null : failure.userMessage);
           }
         }
         runForced = syncForceQueued.current;
