@@ -1,0 +1,24 @@
+name: Apply issue 548 patch
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  apply:
+    if: github.head_ref == 'fix/issue-548-import-final-snapshot'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-548-import-final-snapshot
+      - name: Apply patch
+        run: |
+          echo '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' | base64 -d | gunzip > /tmp/issue548.patch
+          patch -p1 < /tmp/issue548.patch
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/screens/SettingsSheet.tsx package.json scripts/main-local-import-application.test.ts
+          git commit -m 'fix: persist final local import snapshot'
+          git push origin HEAD:fix/issue-548-import-final-snapshot
