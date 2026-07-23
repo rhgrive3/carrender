@@ -20,6 +20,15 @@ import {
   type MemoryWriteOperation,
   type MemoryWritePrecondition,
 } from './indexedDb';
+import {
+  attemptHistoryIndex,
+  compoundPrefixRange,
+  cursorPageLimit,
+  decodeDateIdCursor,
+  descendingCompoundRange,
+  descendingDateIdRange,
+  encodeDateIdCursor,
+} from './cursorQueries';
 
 export type MemoryEntityType =
   | 'item'
@@ -69,6 +78,11 @@ export interface LocalMemoryAttempt extends MemoryAttempt {
 
 export interface MemoryLocalSnapshot extends MemorySetBundle {
   stats: MemoryStat[];
+}
+
+export interface MemoryCursorPage<T> {
+  rows: T[];
+  nextCursor?: string;
 }
 
 export interface RemoteMemoryChanges extends Partial<MemoryLocalSnapshot> {
@@ -765,26 +779,61 @@ export class MemoryRepository {
   }
 
   async getActiveSession(): Promise<MemorySession | undefined> {
-    const sessions = await this.store.getAllFromIndex<MemorySession>(MEMORY_STORES.sessions, 'status', 'active');
-    return sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    const sessions = await this.store.scanFromIndex<MemorySession>(
+      MEMORY_STORES.sessions,
+      'statusUpdatedAtId',
+      { query: compoundPrefixRange('active'), direction: 'prev', limit: 1 },
+    );
+    return sessions[0];
+  }
+
+  async listSessionsPage(limit = 20, cursor?: string): Promise<MemoryCursorPage<MemorySession>> {
+    const pageLimit = cursorPageLimit(limit, 20);
+    const rows = await this.store.scanFromIndex<MemorySession>(MEMORY_STORES.sessions, 'updatedAtId', {
+      query: descendingDateIdRange(decodeDateIdCursor(cursor)),
+      direction: 'prev',
+      limit: pageLimit,
+    });
+    const last = rows[rows.length - 1];
+    return {
+      rows,
+      ...(last && rows.length === pageLimit ? { nextCursor: encodeDateIdCursor(last.updatedAt, last.id) } : {}),
+    };
   }
 
   async listSessions(limit = 20): Promise<MemorySession[]> {
-    const sessions = await this.store.getAll<MemorySession>(MEMORY_STORES.sessions);
-    return sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, limit);
+    return (await this.listSessionsPage(limit)).rows;
   }
 
   async getSessionAttempts(sessionId: string): Promise<LocalMemoryAttempt[]> {
-    const attempts = await this.store.getAllFromIndex<LocalMemoryAttempt>(MEMORY_STORES.attempts, 'sessionId', sessionId);
-    return attempts.filter((attempt) => !attempt.undoneAt).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    return this.store.scanFromIndex<LocalMemoryAttempt>(MEMORY_STORES.attempts, 'sessionCreatedAtId', {
+      query: compoundPrefixRange(sessionId),
+      direction: 'next',
+      accept: (attempt) => !attempt.undoneAt,
+    });
+  }
+
+  async getTargetAttemptsPage(
+    targetId: string,
+    limit = 50,
+    cursor?: string,
+  ): Promise<MemoryCursorPage<LocalMemoryAttempt>> {
+    const pageLimit = cursorPageLimit(limit, 50);
+    const rows = await this.store.scanFromIndex<LocalMemoryAttempt>(MEMORY_STORES.attempts, 'targetCreatedAtId', {
+      query: descendingCompoundRange(targetId, decodeDateIdCursor(cursor)),
+      direction: 'prev',
+      limit: pageLimit,
+      accept: (attempt) => !attempt.undoneAt,
+    });
+    const last = rows[rows.length - 1];
+    return {
+      rows,
+      ...(last && rows.length === pageLimit ? { nextCursor: encodeDateIdCursor(last.createdAt, last.attemptId) } : {}),
+    };
   }
 
   async getTargetAttempts(targetId: string, limit = 50): Promise<LocalMemoryAttempt[]> {
-    const attempts = await this.store.getAllFromIndex<LocalMemoryAttempt>(MEMORY_STORES.attempts, 'targetId', targetId);
-    return attempts
-      .filter((attempt) => !attempt.undoneAt)
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .slice(0, limit);
+    return (await this.getTargetAttemptsPage(targetId, limit)).rows;
   }
 
   async getStatTargetAttempts(
@@ -795,29 +844,28 @@ export class MemoryRepository {
   ): Promise<LocalMemoryAttempt[]> {
     const mode = typeof modeOrLimit === 'string' ? modeOrLimit : undefined;
     const limit = typeof modeOrLimit === 'number' ? modeOrLimit : requestedLimit;
-    const indexName = targetType === 'sense' ? 'senseId' : targetType === 'answer' ? 'answerId' : 'exerciseId';
-    const attempts = await this.store.getAllFromIndex<LocalMemoryAttempt>(MEMORY_STORES.attempts, indexName, targetId);
-    return attempts
-      .filter((attempt) => !attempt.undoneAt && (!mode || attempt.mode === mode))
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .slice(0, limit);
+    return this.store.scanFromIndex<LocalMemoryAttempt>(MEMORY_STORES.attempts, attemptHistoryIndex(targetType), {
+      query: compoundPrefixRange(targetId),
+      direction: 'prev',
+      limit: cursorPageLimit(limit, 50),
+      accept: (attempt) => !attempt.undoneAt && (!mode || attempt.mode === mode),
+    });
   }
 
   async unsyncedAttempts(limit = 20): Promise<LocalMemoryAttempt[]> {
-    const [attempts, conflicts] = await Promise.all([
-      this.store.getAll<LocalMemoryAttempt>(MEMORY_STORES.attempts),
-      this.store.getAll<MemoryConflict>(MEMORY_STORES.conflicts),
-    ]);
-    const blocked = new Set(
-      conflicts.filter((conflict) => !conflict.resolvedAt).map((conflict) => conflict.entityKey),
-    );
+    const conflicts = await this.store.scanFromIndex<MemoryConflict>(MEMORY_STORES.conflicts, 'createdAtId', {
+      accept: (conflict) => !conflict.resolvedAt,
+    });
+    const blocked = new Set(conflicts.map((conflict) => conflict.entityKey));
     const blockedStats = new Set(
       conflicts
-        .filter((conflict) => !conflict.resolvedAt && conflict.entityType === 'stat_preference')
+        .filter((conflict) => conflict.entityType === 'stat_preference')
         .map((conflict) => conflict.entityId),
     );
-    return attempts
-      .filter((attempt) => {
+    return this.store.scanFromIndex<LocalMemoryAttempt>(MEMORY_STORES.attempts, 'createdAtId', {
+      direction: 'next',
+      limit: cursorPageLimit(limit, 20),
+      accept: (attempt) => {
         if (attempt.syncedAt) return false;
         const entityKeys = [
           entityIdentity('item', attempt.itemId),
@@ -828,9 +876,8 @@ export class MemoryRepository {
         ];
         return entityKeys.every((key) => !blocked.has(key))
           && statIdsForAttempt(attempt).every((id) => !blockedStats.has(id));
-      })
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-      .slice(0, limit);
+      },
+    });
   }
 
   async undoAttempt(attemptId: string, restoredStats: MemoryStat[], restoredSession: MemorySession): Promise<void> {
@@ -865,8 +912,15 @@ export class MemoryRepository {
   }
 
   async pendingMutations(limit = 100): Promise<MemoryPendingMutation[]> {
-    const rows = await this.store.getAll<MemoryPendingMutation>(MEMORY_STORES.pendingMutations);
-    return sortPendingMutationsForSync(rows).slice(0, limit);
+    // Dependency ordering may move a later parent before an earlier child, so the
+    // queue must be considered as one graph. Cursor traversal avoids IDB getAll;
+    // only the pending queue itself is materialised for the topological sort.
+    const rows = await this.store.scan<MemoryPendingMutation>(MEMORY_STORES.pendingMutations);
+    return sortPendingMutationsForSync(rows).slice(0, cursorPageLimit(limit, 100, 10_000));
+  }
+
+  async countPendingMutations(): Promise<number> {
+    return this.store.count(MEMORY_STORES.pendingMutations);
   }
 
   /**
@@ -879,22 +933,29 @@ export class MemoryRepository {
   }
 
   async syncablePendingMutations(limit = 100): Promise<MemoryPendingMutation[]> {
-    const [rows, conflicts, attempts] = await Promise.all([
-      this.store.getAll<MemoryPendingMutation>(MEMORY_STORES.pendingMutations),
-      this.store.getAll<MemoryConflict>(MEMORY_STORES.conflicts),
-      this.store.getAll<LocalMemoryAttempt>(MEMORY_STORES.attempts),
+    const [rows, conflicts] = await Promise.all([
+      this.store.scan<MemoryPendingMutation>(MEMORY_STORES.pendingMutations),
+      this.store.scanFromIndex<MemoryConflict>(MEMORY_STORES.conflicts, 'createdAtId', {
+        accept: (conflict) => !conflict.resolvedAt,
+      }),
     ]);
-    const blocked = expandBlockedEntityKeys(
-      rows,
-      conflicts.filter((conflict) => !conflict.resolvedAt).map((conflict) => conflict.entityKey),
-    );
-    const unsyncedAttempts = new Set(attempts.filter((attempt) => !attempt.syncedAt).map((attempt) => attempt.attemptId));
+    const blocked = expandBlockedEntityKeys(rows, conflicts.map((conflict) => conflict.entityKey));
+    const voidAttemptIds = [...new Set(rows.flatMap((mutation) => {
+      if (mutation.entityType !== 'attempt_void') return [];
+      const attemptId = payloadRecord(mutation).attemptId;
+      return typeof attemptId === 'string' ? [attemptId] : [];
+    }))];
+    const unsyncedAttempts = new Set<string>();
+    await Promise.all(voidAttemptIds.map(async (attemptId) => {
+      const attempt = await this.store.get<LocalMemoryAttempt>(MEMORY_STORES.attempts, attemptId);
+      if (attempt && !attempt.syncedAt) unsyncedAttempts.add(attemptId);
+    }));
     return sortPendingMutationsForSync(rows.filter((mutation) => {
       if (blocked.has(mutation.entityKey)) return false;
       if (mutation.entityType !== 'attempt_void') return true;
       const attemptId = payloadRecord(mutation).attemptId;
       return typeof attemptId !== 'string' || !unsyncedAttempts.has(attemptId);
-    })).slice(0, limit);
+    })).slice(0, cursorPageLimit(limit, 100, 10_000));
   }
 
   async markSynced(mutationIds: string[], attemptIds: string[], syncedAt: string): Promise<void> {
@@ -915,9 +976,32 @@ export class MemoryRepository {
     await this.store.write(conflicts.map((conflict) => ({ store: MEMORY_STORES.conflicts, type: 'put', value: conflict })));
   }
 
-  async listConflicts(): Promise<MemoryConflict[]> {
-    const conflicts = await this.store.getAll<MemoryConflict>(MEMORY_STORES.conflicts);
-    return conflicts.filter((conflict) => !conflict.resolvedAt).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  async listConflictsPage(limit = 100, cursor?: string): Promise<MemoryCursorPage<MemoryConflict>> {
+    const pageLimit = cursorPageLimit(limit, 100);
+    const rows = await this.store.scanFromIndex<MemoryConflict>(MEMORY_STORES.conflicts, 'createdAtId', {
+      query: descendingDateIdRange(decodeDateIdCursor(cursor)),
+      direction: 'prev',
+      limit: pageLimit,
+      accept: (conflict) => !conflict.resolvedAt,
+    });
+    const last = rows[rows.length - 1];
+    return {
+      rows,
+      ...(last && rows.length === pageLimit ? { nextCursor: encodeDateIdCursor(last.createdAt, last.id) } : {}),
+    };
+  }
+
+  async listConflicts(limit = 100): Promise<MemoryConflict[]> {
+    return (await this.listConflictsPage(limit)).rows;
+  }
+
+  async countUnresolvedConflicts(): Promise<number> {
+    let count = 0;
+    await this.store.visitFromIndex<MemoryConflict>(MEMORY_STORES.conflicts, 'createdAtId', {
+      accept: (conflict) => !conflict.resolvedAt,
+      visit: () => { count += 1; },
+    });
+    return count;
   }
 
   async resolveConflict(id: string, resolution: NonNullable<MemoryConflict['resolution']>): Promise<void> {
@@ -942,8 +1026,12 @@ export class MemoryRepository {
       const conflict = await transaction.get<MemoryConflict>(MEMORY_STORES.conflicts, id);
       if (!conflict || conflict.resolvedAt) return;
       const [pending, conflicts] = await Promise.all([
-        transaction.getAll<MemoryPendingMutation>(MEMORY_STORES.pendingMutations),
-        transaction.getAll<MemoryConflict>(MEMORY_STORES.conflicts),
+        transaction.getAllFromIndex<MemoryPendingMutation>(
+          MEMORY_STORES.pendingMutations,
+          'entityKey',
+          conflict.entityKey,
+        ),
+        transaction.getAllFromIndex<MemoryConflict>(MEMORY_STORES.conflicts, 'entityKey', conflict.entityKey),
       ]);
       for (const mutation of pending) {
         if (mutation.entityKey === conflict.entityKey) transaction.delete(MEMORY_STORES.pendingMutations, mutation.mutationId);
@@ -1010,13 +1098,15 @@ export class MemoryRepository {
       const conflict = await transaction.get<MemoryConflict>(MEMORY_STORES.conflicts, id);
       if (!conflict || conflict.resolvedAt) return;
       const [pending, conflicts, counter] = await Promise.all([
-        transaction.getAll<MemoryPendingMutation>(MEMORY_STORES.pendingMutations),
-        transaction.getAll<MemoryConflict>(MEMORY_STORES.conflicts),
+        transaction.getAllFromIndex<MemoryPendingMutation>(
+          MEMORY_STORES.pendingMutations,
+          'entityKey',
+          conflict.entityKey,
+        ),
+        transaction.getAllFromIndex<MemoryConflict>(MEMORY_STORES.conflicts, 'entityKey', conflict.entityKey),
         transaction.get<{ key: string; value: number }>(MEMORY_STORES.meta, 'nextMutationSequence'),
       ]);
-      const relatedPending = sortPendingMutationsForSync(
-        pending.filter((mutation) => mutation.entityKey === conflict.entityKey),
-      );
+      const relatedPending = sortPendingMutationsForSync(pending);
       const desired = mergedValue
         ?? relatedPending[relatedPending.length - 1]?.payload
         ?? conflict.localValue;
@@ -1144,14 +1234,15 @@ export class MemoryRepository {
       MEMORY_STORES.conflicts,
     ])];
     await this.store.transaction(stores, 'readwrite', async (transaction) => {
-      const [pending, conflicts, attempts] = await Promise.all([
-        transaction.getAll<MemoryPendingMutation>(MEMORY_STORES.pendingMutations),
-        transaction.getAll<MemoryConflict>(MEMORY_STORES.conflicts),
-        transaction.getAll<LocalMemoryAttempt>(MEMORY_STORES.attempts),
+      const [pending, conflicts] = await Promise.all([
+        transaction.scan<MemoryPendingMutation>(MEMORY_STORES.pendingMutations),
+        transaction.scanFromIndex<MemoryConflict>(MEMORY_STORES.conflicts, 'createdAtId', {
+          accept: (conflict) => !conflict.resolvedAt,
+        }),
       ]);
       const blocked = new Set([
         ...pending.map((mutation) => mutation.entityKey),
-        ...conflicts.filter((conflict) => !conflict.resolvedAt).map((conflict) => conflict.entityKey),
+        ...conflicts.map((conflict) => conflict.entityKey),
       ]);
       const blockedStatIds = new Set<string>();
       for (const mutation of pending) {
@@ -1159,11 +1250,12 @@ export class MemoryRepository {
         if (id) blockedStatIds.add(id);
       }
       for (const conflict of conflicts) {
-        if (!conflict.resolvedAt && conflict.entityType === 'stat_preference') blockedStatIds.add(conflict.entityId);
+        if (conflict.entityType === 'stat_preference') blockedStatIds.add(conflict.entityId);
       }
-      for (const attempt of attempts) {
-        if (!attempt.syncedAt) statIdsForAttempt(attempt).forEach((id) => blockedStatIds.add(id));
-      }
+      await transaction.visitFromIndex<LocalMemoryAttempt>(MEMORY_STORES.attempts, 'createdAtId', {
+        accept: (attempt) => !attempt.syncedAt,
+        visit: (attempt) => { statIdsForAttempt(attempt).forEach((id) => blockedStatIds.add(id)); },
+      });
       await applyRemoteChangesInTransaction(transaction, changes, blocked, blockedStatIds);
     });
   }
@@ -1183,11 +1275,12 @@ export class MemoryRepository {
       MEMORY_STORES.meta,
     ])];
     await this.store.transaction(stores, 'readwrite', async (transaction) => {
-      const [pending, storedConflicts, cursorRow, localAttempts] = await Promise.all([
-        transaction.getAll<MemoryPendingMutation>(MEMORY_STORES.pendingMutations),
-        transaction.getAll<MemoryConflict>(MEMORY_STORES.conflicts),
+      const [pending, storedConflicts, cursorRow] = await Promise.all([
+        transaction.scan<MemoryPendingMutation>(MEMORY_STORES.pendingMutations),
+        transaction.scanFromIndex<MemoryConflict>(MEMORY_STORES.conflicts, 'createdAtId', {
+          accept: (conflict) => !conflict.resolvedAt,
+        }),
         transaction.get<{ key: string; value: string }>(MEMORY_STORES.meta, 'syncCursor'),
-        transaction.getAll<LocalMemoryAttempt>(MEMORY_STORES.attempts),
       ]);
       const acceptedMutationIds = new Set(response.acceptedMutationIds);
       for (const mutationId of acceptedMutationIds) transaction.delete(MEMORY_STORES.pendingMutations, mutationId);
@@ -1215,15 +1308,13 @@ export class MemoryRepository {
       for (const conflict of [...storedConflicts, ...response.conflicts]) {
         if (!conflict.resolvedAt && conflict.entityType === 'stat_preference') blockedStatIds.add(conflict.entityId);
       }
-      for (const attempt of localAttempts) {
-        if (!attempt.syncedAt && !acceptedAttemptIds.has(attempt.attemptId)) {
-          statIdsForAttempt(attempt).forEach((id) => blockedStatIds.add(id));
-        }
-      }
+      await transaction.visitFromIndex<LocalMemoryAttempt>(MEMORY_STORES.attempts, 'createdAtId', {
+        accept: (attempt) => !attempt.syncedAt && !acceptedAttemptIds.has(attempt.attemptId),
+        visit: (attempt) => { statIdsForAttempt(attempt).forEach((id) => blockedStatIds.add(id)); },
+      });
       for (const attemptId of locallyDirtyAttemptIds) {
-        const attempt = localAttempts.find((candidate) => candidate.attemptId === attemptId);
-        if (!attempt) continue;
-        statIdsForAttempt(attempt).forEach((id) => blockedStatIds.add(id));
+        const attempt = await transaction.get<LocalMemoryAttempt>(MEMORY_STORES.attempts, attemptId);
+        if (attempt) statIdsForAttempt(attempt).forEach((id) => blockedStatIds.add(id));
       }
 
       await applyRemoteChangesInTransaction(transaction, response.changes, blockedEntityKeys, blockedStatIds);

@@ -105,14 +105,14 @@ export function MemoryProvider({ owner, children }: { owner: string; children: R
     const [nextSets, session, pending, conflicts] = await Promise.all([
       target.listSets(),
       target.getActiveSession(),
-      target.pendingMutations(10_000),
-      target.listConflicts(),
+      target.countPendingMutations(),
+      target.countUnresolvedConflicts(),
     ]);
     if (!mounted.current || activeRepository.current !== target) return;
     setSets(nextSets);
     setActiveSession(session ?? null);
-    setPendingCount(pending.length);
-    setConflictCount(conflicts.length);
+    setPendingCount(pending);
+    setConflictCount(conflicts);
   }, []);
 
   useEffect(() => {

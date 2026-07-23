@@ -138,9 +138,14 @@ try {
       request.onsuccess = () => { request.result.close(); resolve(); };
     });
     const upgraded = await openMemoryDatabase(upgradeOwner);
-    const upgradeTransaction = upgraded.transaction([MEMORY_STORES.attempts, MEMORY_STORES.pendingMutations], 'readonly');
+    const upgradeTransaction = upgraded.transaction(
+      [MEMORY_STORES.attempts, MEMORY_STORES.sessions, MEMORY_STORES.pendingMutations, MEMORY_STORES.conflicts],
+      'readonly',
+    );
     const upgradedAttemptStore = upgradeTransaction.objectStore(MEMORY_STORES.attempts);
+    const upgradedSessionStore = upgradeTransaction.objectStore(MEMORY_STORES.sessions);
     const upgradedPendingStore = upgradeTransaction.objectStore(MEMORY_STORES.pendingMutations);
+    const upgradedConflictStore = upgradeTransaction.objectStore(MEMORY_STORES.conflicts);
     const upgradePreserved = await new Promise((resolve, reject) => {
       const request = upgradedAttemptStore.get('legacy-attempt');
       request.onerror = () => reject(request.error);
@@ -150,6 +155,12 @@ try {
       sense: upgradedAttemptStore.indexNames.contains('senseId'),
       answer: upgradedAttemptStore.indexNames.contains('answerId'),
       exercise: upgradedAttemptStore.indexNames.contains('exerciseId'),
+      attemptCreated: upgradedAttemptStore.indexNames.contains('createdAtId'),
+      attemptSessionCreated: upgradedAttemptStore.indexNames.contains('sessionCreatedAtId'),
+      attemptTargetCreated: upgradedAttemptStore.indexNames.contains('targetCreatedAtId'),
+      sessionUpdated: upgradedSessionStore.indexNames.contains('updatedAtId'),
+      activeSessionUpdated: upgradedSessionStore.indexNames.contains('statusUpdatedAtId'),
+      conflictCreated: upgradedConflictStore.indexNames.contains('createdAtId'),
       sequence: upgradedPendingStore.indexNames.contains('localSequence'),
     };
     upgraded.close();
@@ -958,7 +969,7 @@ try {
   ];
   check('必要なIndexedDB object storeを作成', requiredStores.every((name) => result.storeNames.includes(name)), result.storeNames);
   check(
-    'IndexedDB v1→v2で既存データを保ち統計・mutation indexを追加',
+    'IndexedDB v1→v3で既存データを保ち履歴cursor用複合indexを追加',
     result.upgradePreserved && Object.values(result.upgradeIndexes).every(Boolean),
     result.upgradeIndexes,
   );
