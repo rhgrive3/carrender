@@ -19,15 +19,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply route-bound identity fix and tests
+      - name: Apply route-bound identity patch
         shell: bash
         run: |
           echo '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' | base64 -d | python3 -c 'import sys,zlib;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))' > /tmp/apply.py
           python3 /tmp/apply.py
-          npm ci
-          npm run typecheck
-          npm run test:unit
-          node scripts/memory-editor-save-resilience.test.mjs
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit regression
+        run: npm run test:unit
+      - name: Editor wiring regression
+        run: node scripts/memory-editor-save-resilience.test.mjs
       - name: Commit implementation
         shell: bash
         run: |
