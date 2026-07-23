@@ -16,6 +16,7 @@ import { loadState, saveState, saveStateNow, getStateOwner, setStateOwner, isApp
 import { generatePlan } from '../lib/scheduler';
 import { adjustCompletedRanges, prepareSessionMutation, type SessionInput, type SessionMutationAction } from '../lib/sessionMutation';
 import { canApplyDeferredPlan, createDeferredScheduler, type DeferredPlanningStatus, type DeferredScheduler } from '../lib/deferredScheduler';
+import { AsyncOwnerGenerationGuard } from '../lib/asyncOwnerGeneration';
 import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
 import { buildDemoState } from '../data/demo';
 import { defaultSettings, defaultAvailability } from '../data/defaults';
@@ -782,6 +783,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const skipNextRemotePush = useRef(false);
   const skipNextLocalDirty = useRef(false);
   const [syncAttempt, setSyncAttempt] = useState(0);
+  const syncOwnerGeneration = useRef(new AsyncOwnerGenerationGuard(owner));
+  // Render-time invalidation closes the gap before owner-scoped effects clean up.
+  syncOwnerGeneration.current.updateOwner(owner);
 
   useEffect(() => subscribeStateSaveFailure((failure) => setLocalSaveError(failure?.message ?? null)), []);
 
@@ -858,8 +862,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [dispatch, markLocalClean]);
 
   const pushToD1 = useCallback((nextState: AppState) => {
+    const ownerToken = syncOwnerGeneration.current.capture();
     pushChain.current = pushChain.current.then(async () => {
-      if (syncConflict.current) return;
+      if (!syncOwnerGeneration.current.isCurrent(ownerToken) || syncConflict.current) return;
       if (!remoteKnown.current) {
         pendingPush.current = true;
         const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -875,13 +880,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       try {
         const saved = await apiPutData(nextState, remoteUpdatedAt.current);
+        if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
         finishSuccessfulPush(nextState, saved.updatedAt);
       } catch (caught) {
+        if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
         const error = caught as ApiError;
         pendingPush.current = true;
         if (error.status === 409) {
           try {
             const latest = await apiGetData();
+            if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
             const metadata = owner ? getMainSyncMetadata(owner) : null;
             if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
             else {
@@ -964,6 +972,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!owner) return;
     let cancelled = false;
     const controller = new AbortController();
+    const ownerToken = syncOwnerGeneration.current.capture();
     remoteUpdatedAt.current = undefined;
     remoteKnown.current = false;
     pushChain.current = Promise.resolve();
@@ -975,7 +984,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const response = await apiGetData({ signal: controller.signal });
-        if (cancelled) return;
+        if (cancelled || !syncOwnerGeneration.current.isCurrent(ownerToken)) return;
         remoteUpdatedAt.current = response.updatedAt;
         remoteKnown.current = true;
         const metadata = getMainSyncMetadata(owner);
@@ -992,6 +1001,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } else if (decision === 'pushLocal') {
           if (localState.onboarded) {
             const saved = await apiPutData(localState, response.updatedAt, { signal: controller.signal });
+            if (cancelled || !syncOwnerGeneration.current.isCurrent(ownerToken)) return;
             finishSuccessfulPush(localState, saved.updatedAt);
             skipNextRemotePush.current = stateRef.current === localState;
           } else {
@@ -1014,6 +1024,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (error.status === 409) {
           try {
             const latest = await apiGetData({ signal: controller.signal });
+            if (cancelled || !syncOwnerGeneration.current.isCurrent(ownerToken)) return;
             const metadata = getMainSyncMetadata(owner);
             if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
             else {
@@ -1030,7 +1041,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setSyncStatus(error.isNetworkError ? 'offline' : 'error');
         }
       } finally {
-        if (!cancelled) setSyncReady(true);
+        if (!cancelled && syncOwnerGeneration.current.isCurrent(ownerToken)) setSyncReady(true);
       }
     })();
     return () => {
@@ -1066,6 +1077,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const resolveSyncConflict = useCallback(async (choice: 'local' | 'cloud') => {
     const conflict = syncConflictInfo;
     if (!owner || !conflict) return;
+    const ownerToken = syncOwnerGeneration.current.capture();
     saveMainSyncConflictBackup({
       owner,
       createdAt: new Date().toISOString(),
@@ -1083,11 +1095,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const snapshot = stateRef.current;
       const saved = await apiPutData(snapshot, conflict.remoteUpdatedAt);
+      if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
       finishSuccessfulPush(snapshot, saved.updatedAt);
     } catch (caught) {
+      if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
       const error = caught as ApiError;
       if (error.status === 409) {
         const latest = await apiGetData();
+        if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
         const metadata = getMainSyncMetadata(owner);
         if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
       } else {
