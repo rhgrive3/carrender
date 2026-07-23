@@ -372,6 +372,24 @@ export interface UnscheduledWorkItem {
   reason: string;
 }
 
+export type UnscheduledReasonCode = 'capacity' | 'cadence' | 'deadline' | 'fixedSlot' | 'solverLimit' | 'unknown';
+
+export interface SchedulerCapRelaxationDiagnostic {
+  phase: 'strictDailyLoad';
+  attempt: number;
+  fromCap: number;
+  toCap: number;
+  trigger: 'infeasible' | 'indeterminate';
+  outcome: 'feasible' | 'infeasible' | 'indeterminate';
+  termination: 'relaxed' | 'nodeBudget' | 'timeBudget';
+}
+
+export interface SchedulerDiagnostics {
+  capRelaxations: SchedulerCapRelaxationDiagnostic[];
+  inputGuards: Array<{ targetId: string; field: string; reason: string }>;
+  unscheduledReasons: Array<{ workItemId: string; code: UnscheduledReasonCode; detail: string }>;
+}
+
 /** 固定タスクが配置できない具体的理由 */
 export type ConflictCode =
   | 'OUTSIDE_AVAILABILITY'
@@ -481,6 +499,7 @@ export interface ScheduleGenerationResult {
   capacityReport: CapacityReport;
   deadlineReports: DeadlineReport[];
   objectiveReport: ObjectiveReport;
+  diagnostics?: SchedulerDiagnostics;
   validationErrors?: ValidationIssue[];
   generatedAt: string;
   generationId: string;
