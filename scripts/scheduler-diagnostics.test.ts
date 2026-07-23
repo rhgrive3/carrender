@@ -7,6 +7,7 @@ assert.equal(classifyUnscheduledReason({ workItemId: 'b', sourceId: 'b', minutes
 assert.equal(classifyUnscheduledReason({ workItemId: 'c', sourceId: 'c', minutes: 10, reason: '期限までに配置できません' }), 'deadline');
 assert.equal(classifyUnscheduledReason({ workItemId: 'd', sourceId: 'd', minutes: 10, reason: '指定頻度を満たせません' }), 'cadence');
 assert.equal(classifyUnscheduledReason({ workItemId: 'e', sourceId: 'e', minutes: 10, reason: '探索上限により判定できません' }), 'solverLimit');
+assert.equal(classifyUnscheduledReason({ workItemId: 'f', sourceId: 'f', minutes: 10, reason: '分類未定の理由です' }), 'unknown');
 assert.throws(() => requirePositiveSchedulerValue(0, 'minutesPerUnit'), /SCHEDULER_INVARIANT/);
 assert.throws(() => requirePositiveSchedulerValue(Number.NaN, 'minutesPerUnit'), /SCHEDULER_INVARIANT/);
 assert.throws(() => requirePositiveSchedulerValue(Number.POSITIVE_INFINITY, 'minutesPerUnit'), /SCHEDULER_INVARIANT/);
