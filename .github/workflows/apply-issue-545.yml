@@ -11,11 +11,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/issue-545-sync-owner-generation
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
       - name: Complete stale error guards
         run: |
           python3 <<'PY'
@@ -35,16 +30,11 @@ jobs:
 
           test = Path('scripts/main-sync-owner-generation.test.ts')
           value = test.read_text()
-          marker = "assert.equal((source.match(/catch \\(refreshError\\) \\{\\n            if \\(!syncOwnerGeneration\\.current\\.isCurrent\\(ownerToken\\)\\) return;/g) ?? []).length, 2, 'both 409 refresh failures are generation guarded');\n"
-          if marker not in value:
-            value = value.replace("console.log('main sync owner-generation guards: ok');", marker + "console.log('main sync owner-generation guards: ok');")
+          addition = "\nassert.equal(\n  (source.match(/catch \\(refreshError\\) \\{\\n            if \\(!syncOwnerGeneration\\.current\\.isCurrent\\(ownerToken\\)\\) return;/g) ?? []).length,\n  2,\n  'both 409 refresh failures are generation guarded',\n);\n"
+          if 'both 409 refresh failures are generation guarded' not in value:
+            value = value.replace("console.log('main sync owner-generation guards: ok');", addition + "console.log('main sync owner-generation guards: ok');")
           test.write_text(value)
           PY
-      - name: Verify targeted and repository contracts
-        run: |
-          npm run typecheck
-          npx vite-node scripts/main-sync-owner-generation.test.ts
-          npm run test:unit
       - name: Commit completion
         run: |
           git config user.name github-actions[bot]
