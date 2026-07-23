@@ -8,33 +8,13 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply-scheduler-policy:
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/fix-scheduler-policy' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout head branch
-        uses: actions/checkout@v4
-        with:
-          ref: agent/fix-scheduler-policy
-          fetch-depth: 0
-      - name: Apply and commit
-        run: |
-          python3 scripts/apply-scheduler-policy.py
-          rm scripts/apply-scheduler-policy.py .github/workflows/apply-scheduler-policy.yml
-          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git commit -m "スケジューラ調整値を名前付きpolicyへ集約する"
-          git push origin HEAD:agent/fix-scheduler-policy
-
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20

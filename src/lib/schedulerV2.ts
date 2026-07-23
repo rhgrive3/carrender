@@ -22,6 +22,7 @@ import type {
 import { addDays, diffDays, hmToMinutes, minutesInTimeZone, minutesToHM, toISODate, weekdayOf } from './date';
 import type { SlotAllocation, SolverDayInput, SolverItem } from './strictSolver';
 import { compareItemsForSearch, countItemPlacements, minutesForUnits, solveStrict } from './strictSolver';
+import { ESTIMATE_POLICY, SCHEDULER_POLICY } from './schedulerPolicy';
 
 interface MinuteRange {
   start: number;
@@ -151,7 +152,7 @@ function median(values: number[]): number {
 export function updateMinutesPerUnitEstimate(
   material: Material,
   sessions: StudySession[],
-  alpha = 0.2,
+  alpha = ESTIMATE_POLICY.smoothingAlpha,
 ): EstimateUpdateResult {
   const raw = sessions
     .filter((session) => session.materialId === material.id && !session.excludedFromEstimate && !session.pausedMinutes && session.minutes >= 1 && session.amountDone > 0)
@@ -159,16 +160,21 @@ export function updateMinutesPerUnitEstimate(
     .filter((value) => Number.isFinite(value) && value > 0);
   const center = median(raw);
   const mad = median(raw.map((value) => Math.abs(value - center)));
-  const valid = raw.filter((value) => value >= center / 4 && value <= center * 4 && (mad === 0 || Math.abs(value - center) <= mad * 3));
+  const valid = raw.filter((value) => value >= center * ESTIMATE_POLICY.medianRatioFloor
+      && value <= center * ESTIMATE_POLICY.medianRatioCeiling
+      && (mad === 0 || Math.abs(value - center) <= mad * ESTIMATE_POLICY.madMultiplier));
   const observed = valid.length > 0 ? median(valid) : null;
   const boundedAlpha = Math.max(0, Math.min(1, alpha));
   const smoothed = observed === null ? null : material.minutesPerUnit * (1 - boundedAlpha) + observed * boundedAlpha;
-  const suggested = smoothed === null ? null : Math.max(material.minutesPerUnit * 0.85, Math.min(material.minutesPerUnit * 1.15, smoothed));
-  const applied = valid.length >= 3 && material.estimateMode === 'auto' && suggested !== null;
+  const suggested = smoothed === null ? null : Math.max(
+    material.minutesPerUnit * (1 - ESTIMATE_POLICY.maxRelativeDecrease),
+    Math.min(material.minutesPerUnit * (1 + ESTIMATE_POLICY.maxRelativeIncrease), smoothed),
+  );
+  const applied = valid.length >= ESTIMATE_POLICY.minimumSamples && material.estimateMode === 'auto' && suggested !== null;
   return {
     previousEstimate: material.minutesPerUnit,
     observedEstimate: observed,
-    suggestedEstimate: valid.length >= 3 ? suggested : null,
+    suggestedEstimate: valid.length >= ESTIMATE_POLICY.minimumSamples ? suggested : null,
     appliedEstimate: applied ? suggested! : material.minutesPerUnit,
     sampleCount: valid.length,
     excludedCount: raw.length - valid.length,
@@ -206,8 +212,12 @@ function preferredFinishDateFor(material: Material): ISODate {
   if (material.preferredFinishDate) return material.preferredFinishDate;
   const span = Math.max(0, diffDays(material.startDate, material.targetDate));
   if (material.deadlinePolicy === 'flexible') return material.targetDate;
-  const ratio = material.deadlinePolicy === 'strict' ? 0.85 : 0.9;
-  const minimumLead = material.deadlinePolicy === 'strict' ? 2 : 1;
+  const ratio = material.deadlinePolicy === 'strict'
+    ? SCHEDULER_POLICY.strictPreferredFinishRatio
+    : SCHEDULER_POLICY.normalPreferredFinishRatio;
+  const minimumLead = material.deadlinePolicy === 'strict'
+    ? SCHEDULER_POLICY.strictMinimumLeadDays
+    : SCHEDULER_POLICY.normalMinimumLeadDays;
   const proportional = addDays(material.startDate, Math.floor(span * ratio));
   const leadDate = addDays(material.targetDate, -minimumLead);
   return proportional < material.startDate ? material.startDate : proportional > leadDate ? (leadDate < material.startDate ? material.startDate : leadDate) : proportional;
@@ -229,8 +239,16 @@ interface SafetyFinishInput {
  */
 function computeSafetyFinishDate(input: SafetyFinishInput): ISODate {
   const span = Math.max(0, diffDays(input.start, input.deadline));
-  const baseReserve = span <= 7 ? 1 : span <= 21 ? 2 : span <= 60 ? 5 : Math.ceil(span * 0.12);
-  const reserve = input.deadlinePolicy === 'strict' ? baseReserve + 1 : baseReserve;
+  const baseReserve = span <= SCHEDULER_POLICY.reserveShortSpanMaxDays
+    ? SCHEDULER_POLICY.reserveShortDays
+    : span <= SCHEDULER_POLICY.reserveMediumSpanMaxDays
+      ? SCHEDULER_POLICY.reserveMediumDays
+      : span <= SCHEDULER_POLICY.reserveLongSpanMaxDays
+        ? SCHEDULER_POLICY.reserveLongDays
+        : Math.ceil(span * SCHEDULER_POLICY.reserveProportion);
+  const reserve = input.deadlinePolicy === 'strict'
+    ? baseReserve + SCHEDULER_POLICY.strictAdditionalReserveDays
+    : baseReserve;
   let finish = input.preferredFinishDate
     ? (input.preferredFinishDate < input.start ? input.start : input.preferredFinishDate > input.deadline ? input.deadline : input.preferredFinishDate)
     : addDays(input.deadline, -reserve);
@@ -338,7 +356,7 @@ function unitsAvailableAcrossBalancedDays(
 function minimumBalancedDailyLoadCap(
   items: ReadonlyArray<BalancedLoadItem>,
   days: ReadonlyArray<BalancedLoadDay>,
-  minimumStepMinutes = 5,
+  minimumStepMinutes = SCHEDULER_POLICY.balancedLoadStepMinutes,
 ): number {
   if (items.length === 0 || days.length === 0) return 0;
   const activeDays = days.filter((day) => items.some((item) =>
@@ -504,7 +522,7 @@ function balanceCapsForSharedDeadlines(
       .reduce((sum, day) => sum + day.budget, 0);
     return mandatoryMinutes <= sharedCapacity;
   });
-  for (let attempt = 0; attempt < 12 && !necessaryBoundsHold(); attempt += 1) {
+  for (let attempt = 0; attempt < SCHEDULER_POLICY.maximumCapRelaxationAttempts && !necessaryBoundsHold(); attempt += 1) {
     const relaxed = relaxBalancedDailyUnitsCaps(works, items);
     if (relaxed.every((item, index) => item.maxUnitsPerDay === items[index].maxUnitsPerDay)) break;
     items = relaxed;
