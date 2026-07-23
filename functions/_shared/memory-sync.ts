@@ -444,6 +444,7 @@ function contentWriteStatement(
   mutation: MemoryMutationInput,
   storage: EntityStorage,
   now: string,
+  insertMissing = false,
 ): D1PreparedStatement {
   const recordJson = JSON.stringify(mutation.payload);
   if (mutation.entityType === 'set_member' || mutation.entityType === 'session') {
@@ -472,7 +473,7 @@ function contentWriteStatement(
     ).bind(...values);
   }
 
-  if (mutation.operation === 'create') {
+  if (mutation.operation === 'create' || insertMissing) {
     const columns = [
       'user_id', ...storage.keyColumns, ...storage.extraColumns, 'data_json', 'revision',
       'created_at', 'updated_at', 'server_updated_at', 'deleted_at', 'last_mutation_id',
@@ -762,7 +763,24 @@ async function applyMutation(
 
   const storage = storageFor(mutation);
   const current = await loadStoredRecord(env.DB, userId, storage);
-  if (mutation.operation === 'create' ? current !== null : mutation.entityType !== 'set_member' && mutation.entityType !== 'session' && current === null) {
+  const revisionedEntity = ['item', 'sense', 'answer', 'example', 'exercise', 'set'].includes(mutation.entityType);
+  const restoreUpsert = revisionedEntity && mutation.operation === 'upsert';
+  const restoringMissingRecord = restoreUpsert && current === null;
+  const restoringMissingTombstone = restoringMissingRecord
+    && typeof mutation.payload.deletedAt === 'string';
+
+  if (restoringMissingTombstone) {
+    // The backup observed a deletion that an empty/new cloud has already
+    // satisfied. Persist only the idempotency receipt; no conflict or row is
+    // necessary.
+    await recordAppliedMutation(env.DB, userId, mutation, requestHash, now);
+    return {};
+  }
+  if (mutation.operation === 'create' ? current !== null
+    : mutation.entityType !== 'set_member'
+      && mutation.entityType !== 'session'
+      && current === null
+      && !restoreUpsert) {
     return { conflict: await storeConflict(env.DB, userId, mutation, requestHash, parseStoredRecord(current), now) };
   }
   if (current && storage.incomingRevision !== undefined) {
@@ -780,7 +798,7 @@ async function applyMutation(
   let results: D1Result[];
   try {
     results = await env.DB.batch([
-      contentWriteStatement(env.DB, userId, mutation, storage, now),
+      contentWriteStatement(env.DB, userId, mutation, storage, now, restoringMissingRecord),
       changeStatement(env.DB, userId, mutation, storage, now),
       mutationReceiptStatement(env.DB, userId, mutation, requestHash, storage, now),
     ]);

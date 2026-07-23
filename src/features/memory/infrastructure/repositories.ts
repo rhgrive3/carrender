@@ -1403,16 +1403,17 @@ export class MemoryRepository {
       rows: Array<{ id: string; revision: number; deletedAt?: string }>,
     ) => {
       for (const row of rows) {
-        const operation: MemoryMutationOperation = row.deletedAt
-          ? 'delete'
-          : row.revision <= 1 ? 'create' : 'update';
+        // A full-backup restore may target either the same cloud snapshot or an
+        // empty account. `upsert` carries the observed backup revision so the
+        // server can insert a missing row, update an equal revision, and still
+        // conflict when the cloud has advanced beyond the backup.
         pending.push(mutationFor(
           clientId,
           entityType,
           row.id,
-          operation,
+          'upsert',
           row,
-          operation === 'create' ? 0 : Math.max(1, row.revision - 1),
+          Math.max(1, row.revision - 1),
         ));
       }
     };

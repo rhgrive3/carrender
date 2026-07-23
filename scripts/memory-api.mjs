@@ -595,6 +595,113 @@ try {
     missingTargetResult,
   );
 
+  console.log('--- Memory API: full-backup restore upsert semantics ---');
+  const restoreUser = await register(`restoreapi${process.pid}`.slice(0, 20));
+  check('空クラウド復元用ユーザーを登録', restoreUser.response.status === 201 && Boolean(restoreUser.cookie), restoreUser);
+  if (!restoreUser.cookie) throw new Error('restore test user registration failed');
+
+  const restoredItem = {
+    ...item,
+    id: 'restore-item',
+    label: 'restored item',
+    lemma: 'restored item',
+    revision: 2,
+    updatedAt: later,
+  };
+  const restoredSense = {
+    ...sense,
+    id: 'restore-sense',
+    itemId: restoredItem.id,
+    siblingGroupId: 'restore-siblings',
+    revision: 2,
+    updatedAt: later,
+  };
+  const restoredAnswer = {
+    ...answer,
+    id: 'restore-answer',
+    senseId: restoredSense.id,
+    displayForm: 'restored answer',
+    citationForm: 'restored answer',
+    revision: 2,
+    updatedAt: later,
+  };
+  const restoreMutations = [
+    mutation('answer', restoredAnswer.id, restoredAnswer, {
+      mutationId: 'restore-upsert-answer', operation: 'upsert', baseRevision: 1, createdAt: later,
+    }),
+    mutation('sense', restoredSense.id, restoredSense, {
+      mutationId: 'restore-upsert-sense', operation: 'upsert', baseRevision: 1, createdAt: later,
+    }),
+    mutation('item', restoredItem.id, restoredItem, {
+      mutationId: 'restore-upsert-item', operation: 'upsert', baseRevision: 1, createdAt: later,
+    }),
+  ];
+  const emptyCloudRestore = await jsonRequest('/api/memory/sync', {
+    cookie: restoreUser.cookie,
+    body: syncBody({ mutations: restoreMutations }),
+  });
+  check(
+    '空クラウドへ復元したrevisioned entityをparent-first insertして競合にしない',
+    emptyCloudRestore.response.status === 200
+      && emptyCloudRestore.data.acceptedMutationIds.length === restoreMutations.length
+      && emptyCloudRestore.data.conflicts.length === 0,
+    emptyCloudRestore,
+  );
+
+  const restoredItemV3 = { ...restoredItem, label: 'restored item v3', revision: 3, updatedAt: '2026-07-12T00:02:00.000Z' };
+  const equalRevisionRestore = await jsonRequest('/api/memory/sync', {
+    cookie: restoreUser.cookie,
+    body: syncBody({ mutations: [mutation('item', restoredItem.id, restoredItemV3, {
+      mutationId: 'restore-upsert-item-v3', operation: 'upsert', baseRevision: 2,
+      createdAt: '2026-07-12T00:02:00.000Z',
+    })] }),
+  });
+  check(
+    'クラウドがbackup観測revisionと一致すればupsert更新を適用',
+    equalRevisionRestore.response.status === 200
+      && equalRevisionRestore.data.acceptedMutationIds.includes('restore-upsert-item-v3')
+      && equalRevisionRestore.data.conflicts.length === 0,
+    equalRevisionRestore,
+  );
+
+  const staleRestore = await jsonRequest('/api/memory/sync', {
+    cookie: restoreUser.cookie,
+    body: syncBody({ mutations: [mutation('item', restoredItem.id, restoredItem, {
+      mutationId: 'restore-upsert-item-stale', operation: 'upsert', baseRevision: 1,
+      createdAt: '2026-07-12T00:03:00.000Z',
+    })] }),
+  });
+  check(
+    'クラウドがbackupより先へ進んだentityだけ明示競合にする',
+    staleRestore.response.status === 200
+      && staleRestore.data.conflicts.length === 1
+      && staleRestore.data.conflicts[0].entityId === restoredItem.id,
+    staleRestore,
+  );
+
+  const missingTombstone = {
+    ...item,
+    id: 'restore-missing-tombstone',
+    label: 'already deleted',
+    lemma: 'already deleted',
+    revision: 2,
+    updatedAt: later,
+    deletedAt: later,
+  };
+  const tombstoneRestore = await jsonRequest('/api/memory/sync', {
+    cookie: restoreUser.cookie,
+    body: syncBody({ mutations: [mutation('item', missingTombstone.id, missingTombstone, {
+      mutationId: 'restore-upsert-missing-tombstone', operation: 'upsert', baseRevision: 1, createdAt: later,
+    })] }),
+  });
+  check(
+    '空クラウドに存在しないtombstoneを適用済みとして大量競合にしない',
+    tombstoneRestore.response.status === 200
+      && tombstoneRestore.data.acceptedMutationIds.includes('restore-upsert-missing-tombstone')
+      && tombstoneRestore.data.conflicts.length === 0,
+    tombstoneRestore,
+  );
+
   console.log('--- Memory API: cursor pagination ---');
   let drained = await jsonRequest('/api/memory/sync', {
     cookie: firstUser.cookie,

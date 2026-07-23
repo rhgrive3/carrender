@@ -4,10 +4,12 @@ import {
   CHATGPT_CONTENT_REQUEST,
   createAiContentExport,
   createFullMemoryBackup,
+  FULL_MEMORY_BACKUP_MAX_BYTES,
   createSelectedSetExport,
   detectImportTextFormat,
   findImportDuplicateCandidates,
   parseFullMemoryBackup,
+  serializeFullMemoryBackup,
   parseImportText,
   type AiContentDocument,
 } from '../src/features/memory/domain/importExport';
@@ -425,6 +427,48 @@ console.log('--- Memory export: selected sets and full backup ---');
       && parsedBackup.counts.attempts === 1,
     parsedBackup,
   );
+  const compactBackup = serializeFullMemoryBackup(validRestoreBackup);
+  const prettyBackupBytes = new TextEncoder().encode(JSON.stringify(validRestoreBackup, null, 2)).byteLength;
+  check(
+    '完全バックアップは復元入口と同じpolicyでcompact JSON化する',
+    compactBackup.byteLength < prettyBackupBytes
+      && compactBackup.byteLength <= FULL_MEMORY_BACKUP_MAX_BYTES
+      && parseFullMemoryBackup(compactBackup.text).valid,
+    { compact: compactBackup.byteLength, pretty: prettyBackupBytes },
+  );
+  let oversizedExportRejected = false;
+  try {
+    serializeFullMemoryBackup(validRestoreBackup, { maxJsonBytes: compactBackup.byteLength - 1 });
+  } catch (caught) {
+    oversizedExportRejected = caught instanceof Error && caught.message.includes('超えています');
+  }
+  check('復元上限を超えるfileを成功download扱いにしない', oversizedExportRejected);
+
+  const longTermBackup = createFullMemoryBackup({
+    sets: validRestoreBackup.sets,
+    setMembers: validRestoreBackup.setMembers,
+    content: validRestoreBackup,
+    stats: validRestoreBackup.stats,
+    attempts: Array.from({ length: 100_000 }, (_, index) => ({
+      ...attempt,
+      attemptId: `long-term-attempt-${index}`,
+      undoneAt: undefined,
+    })),
+    sessions: validRestoreBackup.sessions,
+    settings: {},
+    exportedAt: now,
+  });
+  const longTermSerialized = serializeFullMemoryBackup(longTermBackup);
+  const longTermParsed = parseFullMemoryBackup(longTermSerialized.text);
+  check(
+    '100,000件のAttemptを含むexport成功fileを同versionで復元入口へ通す',
+    longTermSerialized.byteLength > 25_000_000
+      && longTermSerialized.byteLength <= FULL_MEMORY_BACKUP_MAX_BYTES
+      && longTermParsed.valid
+      && longTermParsed.counts?.attempts === 100_000,
+    { byteLength: longTermSerialized.byteLength, issues: longTermParsed.issues.slice(0, 3) },
+  );
+
   check(
     '完全バックアップ解析はSetと参照Memberのtombstoneを保持',
     parsedBackup.backup?.sets.find((set) => set.id === 'set-b')?.deletedAt === '2026-07-12T00:02:00.000Z'
