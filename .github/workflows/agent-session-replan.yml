@@ -1,0 +1,273 @@
+name: Apply session background replan
+on:
+  push:
+    branches: [agent/session-save-background-replan]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/session-save-background-replan
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply refactor and regression tests
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+
+          p = Path('src/state/AppContextBase.tsx')
+          s = p.read_text()
+
+          start = s.index("function recordSession(state: AppState, inp: SessionInput, sessionId = genId('sess')): AppState {")
+          end = s.index("\n}\n\nexport function appReducer", start) + 2
+          replacement = r'''export interface CommittedSessionResult {
+            state: AppState;
+            preserveRescheduleBanner: boolean;
+          }
+
+          /**
+           * Commits the durable learning record and its direct progress effects without
+           * running the expensive global scheduler. The caller can persist this state
+           * immediately, then replan from the latest snapshot after the current UI turn.
+           */
+          export function commitSessionWithoutReplan(
+            state: AppState,
+            inp: SessionInput,
+            sessionId = genId('sess'),
+          ): CommittedSessionResult {
+            const t = today();
+            const progress = resolveSessionProgress(state, inp);
+            const currentTask = findCurrentTask(state, inp);
+            const now = new Date().toISOString();
+            let materials = state.materials;
+            if (inp.materialId && progress.amountDone > 0) {
+              materials = materials.map((material) => {
+                if (material.id !== inp.materialId) return material;
+                const completed = material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
+                const merged = normalizeUnitRanges([...completed, ...progress.addedRanges], material.totalAmount);
+                return { ...material, completedRanges: merged, doneAmount: sumRangeLengths(merged) };
+              });
+            }
+            let tasks = state.tasks;
+            let newReviews: StudyTask[] = [];
+            let replacementTaskIds: string[] = [];
+            if (currentTask && inp.completedTask && currentTask.status !== 'done') {
+              tasks = tasks.map((task) => task.id === currentTask.id ? { ...task, status: 'done' as const, completedAt: now } : task);
+              newReviews = generateReviewTasks({ ...state, materials }, currentTask, inp.date ?? t);
+            } else if (currentTask && progress.amountDone > 0 && currentTask.status !== 'done') {
+              const material = currentTask.materialId ? materials.find((item) => item.id === currentTask.materialId) : undefined;
+              const completedRanges = material?.completedRanges ?? [];
+              const replacements = shrinkTaskAfterProgress(currentTask, material, progress.addedRanges.length > 0 ? completedRanges : [{ start: 1, end: progress.amountDone }]);
+              replacementTaskIds = replacements.map((task) => task.id);
+              tasks = tasks.flatMap((task) => task.id === currentTask.id ? replacements : [task]);
+            }
+            const session: StudySession = {
+              id: sessionId,
+              taskId: currentTask?.id ?? inp.taskId,
+              subjectId: inp.subjectId,
+              materialId: inp.materialId,
+              date: inp.date ?? t,
+              startedAt: inp.date && inp.startTime ? localDateTimeToISOString(inp.date, inp.startTime) : now,
+              minutes: inp.minutes,
+              amountDone: progress.amountDone,
+              rangeLabel: inp.rangeLabel,
+              focus: inp.focus,
+              memo: inp.memo,
+              source: inp.source,
+              progressRangesAdded: progress.addedRanges,
+              taskSnapshotBefore: currentTask ? { ...currentTask } : undefined,
+              generatedReviewTaskIds: newReviews.map((task) => task.id),
+              replacementTaskIds,
+              completedTask: Boolean(currentTask && inp.completedTask),
+              updatedAt: now,
+            };
+            const sessions = [...state.sessions, session];
+            materials = materials.map((material) => {
+              if (material.id !== inp.materialId) return material;
+              const estimate = updateMinutesPerUnitEstimate(material, sessions, state.settings.estimateAlpha ?? 0.2);
+              return { ...material, minutesPerUnit: estimate.appliedEstimate, estimatedMinutesPerUnit: estimate.suggestedEstimate ?? material.estimatedMinutesPerUnit };
+            });
+            return {
+              state: { ...state, materials, tasks: [...tasks, ...newReviews], sessions },
+              preserveRescheduleBanner: newReviews.length > 0 || Boolean(currentTask && !inp.completedTask),
+            };
+          }
+
+          function recordSession(state: AppState, inp: SessionInput, sessionId = genId('sess')): AppState {
+            const committed = commitSessionWithoutReplan(state, inp, sessionId);
+            const replanned = generatePlan(committed.state, addDays(today(), 1), '学習実績の反映');
+            return committed.preserveRescheduleBanner
+              ? replanned.state
+              : { ...replanned.state, lastReschedule: null };
+          }'''
+          s = s[:start] + replacement + s[end:]
+
+          old = "  localSaveError: string | null;\n}"
+          new = "  localSaveError: string | null;\n  isReplanning: boolean;\n  replanError: string | null;\n}"
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          marker = "  const [undoNotice, setUndoNotice] = useState<string | null>(null);\n"
+          insertion = marker + r'''  const [isReplanning, setIsReplanning] = useState(false);
+            const [replanError, setReplanError] = useState<string | null>(null);
+            const sessionReplanGeneration = useRef(0);
+            const sessionReplanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+            const pendingPreserveRescheduleBanner = useRef(false);
+
+            const scheduleSessionReplan = useCallback((preserveRescheduleBanner: boolean) => {
+              const generation = sessionReplanGeneration.current + 1;
+              sessionReplanGeneration.current = generation;
+              pendingPreserveRescheduleBanner.current ||= preserveRescheduleBanner;
+              if (sessionReplanTimer.current) clearTimeout(sessionReplanTimer.current);
+              setIsReplanning(true);
+              setReplanError(null);
+              sessionReplanTimer.current = setTimeout(() => {
+                sessionReplanTimer.current = null;
+                if (generation !== sessionReplanGeneration.current) return;
+                const snapshot = stateRef.current;
+                const preserveBanner = pendingPreserveRescheduleBanner.current;
+                pendingPreserveRescheduleBanner.current = false;
+                try {
+                  const replanned = generatePlan(snapshot, addDays(today(), 1), '学習実績の反映');
+                  if (generation !== sessionReplanGeneration.current) return;
+                  const next = preserveBanner ? replanned.state : { ...replanned.state, lastReschedule: null };
+                  stateRef.current = next;
+                  reducerDispatch({ type: 'REPLACE_STATE', state: next });
+                  setReplanError(null);
+                } catch (caught) {
+                  if (generation !== sessionReplanGeneration.current) return;
+                  setReplanError(caught instanceof Error ? caught.message : '計画の更新に失敗しました');
+                } finally {
+                  if (generation === sessionReplanGeneration.current) setIsReplanning(false);
+                }
+              }, 0);
+            }, []);
+'''
+          assert marker in s
+          s = s.replace(marker, insertion, 1)
+
+          old_dispatch = r'''    const previous = stateRef.current;
+              const next = appReducer(previous, action);
+              if (next === previous) return;
+              rememberUndo(action, previous);
+              // 同一イベント内で複数コマンドが続いても、2件目が古いReact stateを基準にしない。
+              stateRef.current = next;
+              reducerDispatch({ type: 'REPLACE_STATE', state: next });'''
+          new_dispatch = r'''    const previous = stateRef.current;
+              if (action.type === 'RECORD_SESSION') {
+                const committed = commitSessionWithoutReplan(previous, action.input);
+                stateRef.current = committed.state;
+                reducerDispatch({ type: 'REPLACE_STATE', state: committed.state });
+                scheduleSessionReplan(committed.preserveRescheduleBanner);
+                return;
+              }
+              const next = appReducer(previous, action);
+              if (next === previous) return;
+              rememberUndo(action, previous);
+              // 同一イベント内で複数コマンドが続いても、2件目が古いReact stateを基準にしない。
+              stateRef.current = next;
+              reducerDispatch({ type: 'REPLACE_STATE', state: next });'''
+          assert old_dispatch in s
+          s = s.replace(old_dispatch, new_dispatch, 1)
+          s = s.replace("  }, [rememberUndo]);\n  const execute", "  }, [rememberUndo, scheduleSessionReplan]);\n  const execute", 1)
+
+          old_execute = r'''    const previous = stateRef.current;
+              const next = appReducer(previous, action);
+              const changed = next !== previous;'''
+          new_execute = r'''    const previous = stateRef.current;
+              if (action.type === 'RECORD_SESSION') {
+                const committed = commitSessionWithoutReplan(previous, action.input);
+                stateRef.current = committed.state;
+                reducerDispatch({ type: 'REPLACE_STATE', state: committed.state });
+                scheduleSessionReplan(committed.preserveRescheduleBanner);
+                return { changed: true, message: '記録を保存しました。計画を更新しています' };
+              }
+              const next = appReducer(previous, action);
+              const changed = next !== previous;'''
+          assert old_execute in s
+          s = s.replace(old_execute, new_execute, 1)
+          s = s.replace("  }, [rememberUndo]);\n  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);", "  }, [rememberUndo, scheduleSessionReplan]);\n  useEffect(() => () => {\n    if (undoTimer.current) clearTimeout(undoTimer.current);\n    if (sessionReplanTimer.current) clearTimeout(sessionReplanTimer.current);\n    sessionReplanGeneration.current += 1;\n  }, []);", 1)
+
+          old_value = "  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError]);"
+          new_value = "  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError, isReplanning, replanError }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError, isReplanning, replanError]);"
+          assert old_value in s
+          s = s.replace(old_value, new_value, 1)
+
+          old_ui = "    {localSaveError && <div className=\"toast undo-notice\" role=\"alert\">{localSaveError}</div>}\n"
+          new_ui = old_ui + "    {isReplanning && <div className=\"toast undo-notice\" role=\"status\">記録は保存済みです。計画を更新中…</div>}\n    {replanError && <div className=\"toast undo-notice\" role=\"alert\">記録は保存済みですが、計画更新に失敗しました: {replanError}</div>}\n"
+          assert old_ui in s
+          s = s.replace(old_ui, new_ui, 1)
+          p.write_text(s)
+
+          test = r'''import assert from 'node:assert/strict';
+          import { appReducer, commitSessionWithoutReplan, emptyState, type SessionInput } from '../src/state/AppContextBase';
+          import { addDays, today } from '../src/lib/date';
+          import { generatePlan } from '../src/lib/scheduler';
+
+          const base = emptyState();
+          const subject = { id: 'subj-1', name: '英語', color: '#000', importance: 3 as const, weakness: 3 as const };
+          const state = { ...base, onboarded: true, subjects: [subject] };
+          const input: SessionInput = {
+            taskId: null,
+            subjectId: subject.id,
+            materialId: null,
+            minutes: 25,
+            amountDone: 0,
+            focus: 4,
+            memo: 'background replan',
+            source: 'manual',
+            rangeLabel: '',
+            completedTask: false,
+          };
+
+          const committed = commitSessionWithoutReplan(state, input, 'sess-fixed');
+          assert.equal(committed.state.sessions.length, 1, 'record must be committed before global planning');
+          assert.equal(committed.state.sessions[0].id, 'sess-fixed');
+          assert.equal(committed.state.lastScheduleResult, state.lastScheduleResult, 'commit phase must not run scheduler');
+
+          const eventual = generatePlan(committed.state, addDays(today(), 1), '学習実績の反映').state;
+          const synchronous = appReducer(state, { type: 'RECORD_SESSION', input });
+          assert.equal(eventual.sessions.length, synchronous.sessions.length);
+          assert.deepEqual(
+            eventual.sessions.map(({ id: _id, updatedAt: _updatedAt, startedAt: _startedAt, ...session }) => session),
+            synchronous.sessions.map(({ id: _id, updatedAt: _updatedAt, startedAt: _startedAt, ...session }) => session),
+            'deferred planning must preserve record semantics',
+          );
+
+          const source = await import('node:fs/promises').then(({ readFile }) => readFile(new URL('../src/state/AppContextBase.tsx', import.meta.url), 'utf8'));
+          assert.match(source, /scheduleSessionReplan\(committed\.preserveRescheduleBanner\)/);
+          assert.match(source, /sessionReplanGeneration/);
+          assert.match(source, /記録は保存済みですが、計画更新に失敗しました/);
+          assert.match(source, /setTimeout\(\(\) => \{/);
+          console.log('✅ session commit/background replan contracts passed');
+          '''
+          Path('scripts/session-background-replan.test.ts').write_text(test)
+
+          package = Path('package.json')
+          data = json.loads(package.read_text())
+          command = 'vite-node scripts/session-background-replan.test.ts'
+          current = data['scripts']['test:regressions']
+          if command not in current:
+            data['scripts']['test:regressions'] = current + ' && ' + command
+          package.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+
+          Path('.github/workflows/agent-session-replan.yml').unlink()
+          PY
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run test:regressions
+          npm run test:scheduler
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "学習記録を即時保存して再計画を後続処理へ分離する"
+          git push origin HEAD:agent/session-save-background-replan
