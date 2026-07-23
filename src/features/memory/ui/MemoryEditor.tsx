@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Save, Table2, Trash2 } from 'lucide-react';
 import type { MemoryContentBundle } from '../domain/types';
-import { saveMemoryItemDraft, type MemoryItemDraft, type MemorySenseDraft } from '../application/editContent';
+import { type MemoryItemDraft, type MemorySenseDraft } from '../application/editContent';
+import { saveRoutedMemoryItemDraft } from '../application/saveRoutedMemoryItemDraft';
 import { saveNewMemoryItemCards } from '../application/saveMemoryItemCards';
 import { useToast } from '../../../components/ui/Toast';
 import { useMemory } from './MemoryContext';
@@ -199,8 +200,9 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
       const members = actionSetId ? await actionRepository.listSetMembers(actionSetId) : [];
       let savedCount = 1;
       if (actionItemId) {
-        await saveMemoryItemDraft({
+        await saveRoutedMemoryItemDraft({
           repository: actionRepository,
+          expectedItemId: actionItemId,
           draft: actionDraft,
           original: actionOriginal,
           setId: actionSetId,
