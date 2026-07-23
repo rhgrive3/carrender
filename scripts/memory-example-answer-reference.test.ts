@@ -47,4 +47,26 @@ const created = saved.find((candidate) => candidate.entityType === 'example' && 
 assert.ok(created);
 assert.equal((created.value as { answerId?: string }).answerId, 'answer-b');
 
+saved = [];
+await saveMemoryItemDraft({
+  repository,
+  original,
+  draft: {
+    ...draft,
+    senses: [{
+      ...draft.senses[0],
+      answers: [
+        { id: 'answer-b', displayForm: 'answer b', citationForm: 'answer b' },
+        { id: 'answer-a', displayForm: 'answer a', citationForm: 'answer a' },
+      ],
+      examples: [
+        { id: 'example-a', english: 'Example for answer A.', japanese: 'A用の例文。', answerId: 'answer-a' },
+        { id: 'example-b', english: 'Example for answer B.', japanese: 'B用の例文。', answerId: 'answer-b' },
+      ],
+    }],
+  },
+});
+assert.equal(value('example-a').answerId, 'answer-a');
+assert.equal(value('example-b').answerId, 'answer-b');
+
 console.log('✅ example Answer references remain ID-based');
