@@ -463,7 +463,15 @@ export interface ObjectiveReport {
   safetyBufferViolationMinutes: number;
 }
 
+export interface SchedulerPolicySnapshot {
+  version: string;
+  estimate: Readonly<Record<string, number>>;
+  scheduler: Readonly<Record<string, number>>;
+}
+
 export interface ScheduleGenerationResult {
+  /** Exact named policy used to produce this result. */
+  policy?: SchedulerPolicySnapshot;
   status: ScheduleGenerationStatus;
   scheduledTasks: StudyTask[];
   unscheduledWork: UnscheduledWorkItem[];

@@ -1,4 +1,5 @@
 import type { ISODate } from '../types';
+import { SCHEDULER_POLICY } from './schedulerPolicy';
 
 /**
  * 厳守期限作業のグローバル実行可能性ソルバー。
@@ -128,7 +129,7 @@ interface Move {
 }
 
 /** 指定作業の現時点での候補配置数を数える(cap打ち切り)。初期の処理順決定にも使う。 */
-export function countItemPlacements(item: SolverItem, days: SolverDayInput[], cap = 33): number {
+export function countItemPlacements(item: SolverItem, days: SolverDayInput[], cap = SCHEDULER_POLICY.placementCountCap): number {
   const state = buildItemState(item, days);
   if (!state) return 0;
   let count = 0;

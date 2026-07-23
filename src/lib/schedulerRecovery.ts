@@ -9,6 +9,7 @@ import type {
 import { addDays, diffDays, hmToMinutes, weekdayOf } from './date';
 import { invalidMaterialScheduleResult, materialIntegrityValidationIssues } from './materialIntegrity';
 import { smoothMaterialScheduleSafely } from './safeMaterialScheduleSmoothing';
+import { schedulerPolicyReport } from './schedulerPolicy';
 import {
   dateInTimeZone,
   generatePlanV2 as generateBasePlanV2,
@@ -174,7 +175,7 @@ function restoreTaskDeadline(task: StudyTask, original: StudyTask): StudyTask {
  */
 export function generatePlanV2(state: AppState, context: SchedulerContext): ScheduleGenerationResult {
   const materialErrors = materialIntegrityValidationIssues(state.materials);
-  if (materialErrors.length > 0) return invalidMaterialScheduleResult(context, materialErrors);
+  if (materialErrors.length > 0) return { ...invalidMaterialScheduleResult(context, materialErrors), policy: schedulerPolicyReport() };
 
   const currentDate = dateInTimeZone(context.now, context.timezone);
   const planningStartDate = context.planningStartDate;
@@ -191,7 +192,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     if (isMovableOverdueTask(state, task, today)) overdueTasks.set(task.id, task);
   }
   if (overdueMaterials.size === 0 && overdueTasks.size === 0) {
-    return smoothMaterialScheduleSafely(state, generateBasePlanV2(state, context), context);
+    return { ...smoothMaterialScheduleSafely(state, generateBasePlanV2(state, context), context), policy: schedulerPolicyReport() };
   }
 
   const reviewReleases = spreadOverdueReviewReleases(state, [...overdueTasks.values()], today, end);
@@ -277,6 +278,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
 
   return {
     ...result,
+    policy: schedulerPolicyReport(),
     scheduledTasks: result.scheduledTasks.map((task) => {
       const material = task.materialId ? overdueMaterials.get(task.materialId) : undefined;
       const originalTask = originalTaskForOutput(overdueTasks, task);
