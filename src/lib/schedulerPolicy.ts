@@ -9,7 +9,35 @@ import type { SchedulerPolicySnapshot } from '../types';
  */
 export const SCHEDULER_POLICY_VERSION = '2026-07-23.1';
 
-export const ESTIMATE_POLICY = Object.freeze({
+interface EstimatePolicy {
+  readonly smoothingAlpha: number;
+  readonly medianRatioFloor: number;
+  readonly medianRatioCeiling: number;
+  readonly madMultiplier: number;
+  readonly maxRelativeDecrease: number;
+  readonly maxRelativeIncrease: number;
+  readonly minimumSamples: number;
+}
+
+interface SchedulerPolicy {
+  readonly strictPreferredFinishRatio: number;
+  readonly normalPreferredFinishRatio: number;
+  readonly strictMinimumLeadDays: number;
+  readonly normalMinimumLeadDays: number;
+  readonly reserveShortSpanMaxDays: number;
+  readonly reserveMediumSpanMaxDays: number;
+  readonly reserveLongSpanMaxDays: number;
+  readonly reserveShortDays: number;
+  readonly reserveMediumDays: number;
+  readonly reserveLongDays: number;
+  readonly reserveProportion: number;
+  readonly strictAdditionalReserveDays: number;
+  readonly balancedLoadStepMinutes: number;
+  readonly maximumCapRelaxationAttempts: number;
+  readonly placementCountCap: number;
+}
+
+export const ESTIMATE_POLICY: Readonly<EstimatePolicy> = Object.freeze({
   /** Exponential smoothing weight applied to the newest observed median. */
   smoothingAlpha: 0.2,
   /** Reject samples below one quarter or above four times the median. */
@@ -24,7 +52,7 @@ export const ESTIMATE_POLICY = Object.freeze({
   minimumSamples: 3,
 });
 
-export const SCHEDULER_POLICY = Object.freeze({
+export const SCHEDULER_POLICY: Readonly<SchedulerPolicy> = Object.freeze({
   /** Target 15%/10% of the material span as strict/normal deadline buffer. */
   strictPreferredFinishRatio: 0.85,
   normalPreferredFinishRatio: 0.9,
