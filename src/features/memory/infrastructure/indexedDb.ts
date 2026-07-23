@@ -1,4 +1,4 @@
-const MEMORY_DB_VERSION = 2;
+const MEMORY_DB_VERSION = 3;
 
 export const MEMORY_STORES = {
   items: 'memoryItems',
@@ -37,6 +37,18 @@ export interface MemoryWritePrecondition {
   indexName?: string;
 }
 
+export interface MemoryCursorScanOptions<T> {
+  query?: IDBValidKey | IDBKeyRange | null;
+  direction?: IDBCursorDirection;
+  limit?: number;
+  accept?: (value: T) => boolean;
+}
+
+export interface MemoryCursorVisitOptions<T> extends Omit<MemoryCursorScanOptions<T>, 'limit'> {
+  /** Return false to stop without materialising the remaining rows. */
+  visit: (value: T) => boolean | void;
+}
+
 export interface MemoryTransactionAccessor {
   get<T>(storeName: MemoryStoreName, key: IDBValidKey): Promise<T | undefined>;
   getFromIndex<T>(storeName: MemoryStoreName, indexName: string, key: IDBValidKey): Promise<T | undefined>;
@@ -46,6 +58,18 @@ export interface MemoryTransactionAccessor {
     indexName: string,
     query?: IDBValidKey | IDBKeyRange | null,
   ): Promise<T[]>;
+  scan<T>(storeName: MemoryStoreName, options?: MemoryCursorScanOptions<T>): Promise<T[]>;
+  scanFromIndex<T>(
+    storeName: MemoryStoreName,
+    indexName: string,
+    options?: MemoryCursorScanOptions<T>,
+  ): Promise<T[]>;
+  visit<T>(storeName: MemoryStoreName, options: MemoryCursorVisitOptions<T>): Promise<void>;
+  visitFromIndex<T>(
+    storeName: MemoryStoreName,
+    indexName: string,
+    options: MemoryCursorVisitOptions<T>,
+  ): Promise<void>;
   put<T>(storeName: MemoryStoreName, value: T): void;
   delete(storeName: MemoryStoreName, key: IDBValidKey): void;
   clear(storeName: MemoryStoreName): void;
@@ -64,6 +88,57 @@ function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     request.addEventListener('success', () => resolve(request.result), { once: true });
     request.addEventListener('error', () => reject(request.error ?? new Error('IndexedDB request failed')), { once: true });
+  });
+}
+
+function cursorResults<T>(
+  source: IDBObjectStore | IDBIndex,
+  options: MemoryCursorScanOptions<T> = {},
+): Promise<T[]> {
+  const limit = Math.max(0, Math.floor(options.limit ?? Number.MAX_SAFE_INTEGER));
+  if (limit === 0) return Promise.resolve([]);
+  return new Promise<T[]>((resolve, reject) => {
+    const rows: T[] = [];
+    const request = source.openCursor(options.query ?? undefined, options.direction ?? 'next');
+    request.addEventListener('error', () => reject(request.error ?? new Error('IndexedDB cursor failed')), { once: true });
+    request.addEventListener('success', () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve(rows);
+        return;
+      }
+      const value = cursor.value as T;
+      if (!options.accept || options.accept(value)) rows.push(value);
+      if (rows.length >= limit) {
+        resolve(rows);
+        return;
+      }
+      cursor.continue();
+    });
+  });
+}
+
+
+function visitCursor<T>(
+  source: IDBObjectStore | IDBIndex,
+  options: MemoryCursorVisitOptions<T>,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const request = source.openCursor(options.query ?? undefined, options.direction ?? 'next');
+    request.addEventListener('error', () => reject(request.error ?? new Error('IndexedDB cursor failed')), { once: true });
+    request.addEventListener('success', () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      const value = cursor.value as T;
+      if ((!options.accept || options.accept(value)) && options.visit(value) === false) {
+        resolve();
+        return;
+      }
+      cursor.continue();
+    });
   });
 }
 
@@ -145,11 +220,19 @@ function createSchema(database: IDBDatabase): void {
   ensureIndex(attempts, 'answerId', 'answerId');
   ensureIndex(attempts, 'exerciseId', 'exerciseId');
   ensureIndex(attempts, 'createdAt', 'createdAt');
+  ensureIndex(attempts, 'createdAtId', ['createdAt', 'attemptId'], { unique: true });
+  ensureIndex(attempts, 'sessionCreatedAtId', ['sessionId', 'createdAt', 'attemptId'], { unique: true });
+  ensureIndex(attempts, 'targetCreatedAtId', ['targetId', 'createdAt', 'attemptId'], { unique: true });
+  ensureIndex(attempts, 'senseCreatedAtId', ['senseId', 'createdAt', 'attemptId'], { unique: true });
+  ensureIndex(attempts, 'answerCreatedAtId', ['answerId', 'createdAt', 'attemptId'], { unique: true });
+  ensureIndex(attempts, 'exerciseCreatedAtId', ['exerciseId', 'createdAt', 'attemptId'], { unique: true });
   ensureIndex(attempts, 'syncedAt', 'syncedAt');
 
   const sessions = database.createObjectStore(MEMORY_STORES.sessions, { keyPath: 'id' });
   ensureIndex(sessions, 'status', 'status');
   ensureIndex(sessions, 'updatedAt', 'updatedAt');
+  ensureIndex(sessions, 'updatedAtId', ['updatedAt', 'id'], { unique: true });
+  ensureIndex(sessions, 'statusUpdatedAtId', ['status', 'updatedAt', 'id'], { unique: true });
 
   const pending = database.createObjectStore(MEMORY_STORES.pendingMutations, { keyPath: 'mutationId' });
   ensureIndex(pending, 'entityKey', 'entityKey');
@@ -159,6 +242,7 @@ function createSchema(database: IDBDatabase): void {
   const conflicts = database.createObjectStore(MEMORY_STORES.conflicts, { keyPath: 'id' });
   ensureIndex(conflicts, 'entityKey', 'entityKey');
   ensureIndex(conflicts, 'createdAt', 'createdAt');
+  ensureIndex(conflicts, 'createdAtId', ['createdAt', 'id'], { unique: true });
   ensureIndex(conflicts, 'resolvedAt', 'resolvedAt');
 
   database.createObjectStore(MEMORY_STORES.meta, { keyPath: 'key' });
@@ -176,6 +260,20 @@ function upgradeSchema(database: IDBDatabase, transaction: IDBTransaction, oldVe
     ensureIndex(attempts, 'exerciseId', 'exerciseId');
     const pending = transaction.objectStore(MEMORY_STORES.pendingMutations);
     ensureIndex(pending, 'localSequence', 'localSequence', { unique: true });
+  }
+  if (oldVersion < 3) {
+    const attempts = transaction.objectStore(MEMORY_STORES.attempts);
+    ensureIndex(attempts, 'createdAtId', ['createdAt', 'attemptId'], { unique: true });
+    ensureIndex(attempts, 'sessionCreatedAtId', ['sessionId', 'createdAt', 'attemptId'], { unique: true });
+    ensureIndex(attempts, 'targetCreatedAtId', ['targetId', 'createdAt', 'attemptId'], { unique: true });
+    ensureIndex(attempts, 'senseCreatedAtId', ['senseId', 'createdAt', 'attemptId'], { unique: true });
+    ensureIndex(attempts, 'answerCreatedAtId', ['answerId', 'createdAt', 'attemptId'], { unique: true });
+    ensureIndex(attempts, 'exerciseCreatedAtId', ['exerciseId', 'createdAt', 'attemptId'], { unique: true });
+    const sessions = transaction.objectStore(MEMORY_STORES.sessions);
+    ensureIndex(sessions, 'updatedAtId', ['updatedAt', 'id'], { unique: true });
+    ensureIndex(sessions, 'statusUpdatedAtId', ['status', 'updatedAt', 'id'], { unique: true });
+    const conflicts = transaction.objectStore(MEMORY_STORES.conflicts);
+    ensureIndex(conflicts, 'createdAtId', ['createdAt', 'id'], { unique: true });
   }
 }
 
@@ -254,6 +352,48 @@ export class IndexedDbMemoryStore {
     return result as T[];
   }
 
+  async scan<T>(
+    storeName: MemoryStoreName,
+    options: MemoryCursorScanOptions<T> = {},
+  ): Promise<T[]> {
+    const database = await this.database();
+    const transaction = database.transaction(storeName, 'readonly');
+    const result = await cursorResults<T>(transaction.objectStore(storeName), options);
+    await transactionComplete(transaction);
+    return result;
+  }
+
+  async scanFromIndex<T>(
+    storeName: MemoryStoreName,
+    indexName: string,
+    options: MemoryCursorScanOptions<T> = {},
+  ): Promise<T[]> {
+    const database = await this.database();
+    const transaction = database.transaction(storeName, 'readonly');
+    const result = await cursorResults<T>(transaction.objectStore(storeName).index(indexName), options);
+    await transactionComplete(transaction);
+    return result;
+  }
+
+
+  async visit<T>(storeName: MemoryStoreName, options: MemoryCursorVisitOptions<T>): Promise<void> {
+    const database = await this.database();
+    const transaction = database.transaction(storeName, 'readonly');
+    await visitCursor<T>(transaction.objectStore(storeName), options);
+    await transactionComplete(transaction);
+  }
+
+  async visitFromIndex<T>(
+    storeName: MemoryStoreName,
+    indexName: string,
+    options: MemoryCursorVisitOptions<T>,
+  ): Promise<void> {
+    const database = await this.database();
+    const transaction = database.transaction(storeName, 'readonly');
+    await visitCursor<T>(transaction.objectStore(storeName).index(indexName), options);
+    await transactionComplete(transaction);
+  }
+
   async count(storeName: MemoryStoreName, query?: IDBValidKey | IDBKeyRange | null): Promise<number> {
     const database = await this.database();
     const transaction = database.transaction(storeName, 'readonly');
@@ -307,6 +447,22 @@ export class IndexedDbMemoryStore {
         );
         return result as Value[];
       },
+      scan: async <Value>(storeName: MemoryStoreName, options: MemoryCursorScanOptions<Value> = {}) => (
+        cursorResults<Value>(transaction.objectStore(storeName), options)
+      ),
+      scanFromIndex: async <Value>(
+        storeName: MemoryStoreName,
+        indexName: string,
+        options: MemoryCursorScanOptions<Value> = {},
+      ) => cursorResults<Value>(transaction.objectStore(storeName).index(indexName), options),
+      visit: async <Value>(storeName: MemoryStoreName, options: MemoryCursorVisitOptions<Value>) => (
+        visitCursor<Value>(transaction.objectStore(storeName), options)
+      ),
+      visitFromIndex: async <Value>(
+        storeName: MemoryStoreName,
+        indexName: string,
+        options: MemoryCursorVisitOptions<Value>,
+      ) => visitCursor<Value>(transaction.objectStore(storeName).index(indexName), options),
       put: <Value>(storeName: MemoryStoreName, value: Value) => {
         transaction.objectStore(storeName).put(value);
       },
