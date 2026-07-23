@@ -8,7 +8,11 @@ import type {
   MemorySense,
   MemorySetMember,
 } from '../domain/types';
-import { normalizeEnglishCitationForm, normalizeMemoryCardText } from '../domain/cardIntegrity';
+import {
+  isUsableEnglishMemoryText,
+  normalizeEnglishCitationForm,
+  normalizeMemoryCardText,
+} from '../domain/cardIntegrity';
 import { createMemoryId, MemoryRepository, type MemoryMutationOperation } from '../infrastructure/repositories';
 
 export interface MemoryAnswerDraft {
@@ -108,12 +112,13 @@ function resolveHiddenItemEnglishField(input: {
   nextFirstEnglish: string;
 }): string {
   const draftValue = input.draftValue?.trim() ?? '';
+  if (!isUsableEnglishMemoryText(draftValue)) return input.nextFirstEnglish;
   const draftStillMatchesOriginal = normalizeMemoryCardText(draftValue)
     === normalizeMemoryCardText(input.originalValue);
   if (draftStillMatchesOriginal && itemFieldWasAutoDerived(input.originalValue, input.originalFirstAnswer)) {
     return input.nextFirstEnglish;
   }
-  return draftValue || input.nextFirstEnglish;
+  return draftValue;
 }
 
 function revisionedEntity(

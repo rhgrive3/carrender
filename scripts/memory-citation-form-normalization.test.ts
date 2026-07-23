@@ -140,7 +140,7 @@ assert.equal(savedValue('item', 'item-appalled').lemma, 'appall', '自動生成l
 
 const customOriginal: MemoryContentBundle = {
   ...original,
-  items: [{ ...original.items[0], label: '医療英語', lemma: 'medical-vocabulary' }],
+  items: [{ ...original.items[0], label: 'medical vocabulary', lemma: 'medical-vocabulary' }],
 };
 saved = [];
 await saveMemoryItemDraft({
@@ -148,7 +148,7 @@ await saveMemoryItemDraft({
   original: customOriginal,
   draft: {
     ...editedDraft,
-    label: '医療英語',
+    label: 'medical vocabulary',
     lemma: 'medical-vocabulary',
     senses: [{
       ...editedDraft.senses[0],
@@ -156,8 +156,8 @@ await saveMemoryItemDraft({
     }],
   },
 });
-assert.equal(savedValue('item', 'item-appalled').label, '医療英語', '独自labelは英語編集で上書きしない');
-assert.equal(savedValue('item', 'item-appalled').lemma, 'medical-vocabulary', '独自lemmaも英語編集で上書きしない');
+assert.equal(savedValue('item', 'item-appalled').label, 'medical vocabulary', '有効な独自labelは英語編集で上書きしない');
+assert.equal(savedValue('item', 'item-appalled').lemma, 'medical-vocabulary', '有効な独自lemmaも英語編集で上書きしない');
 
 const unorderedOriginal: MemoryContentBundle = {
   ...original,
@@ -235,4 +235,4 @@ assert.equal(languageIssuesForMemoryEntity('answer', {
   citationForm: invalidEnglish,
 }).length, 2, '表示中の英語自体が日本語だけならvalidatorは従来どおり拒否する');
 
-console.log('✅ hidden citationForm and auto-derived Item headings follow visible English without overwriting custom metadata');
+console.log('✅ hidden citationForm and Item headings normalize to valid English without overwriting valid custom metadata');
