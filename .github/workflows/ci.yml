@@ -37,12 +37,12 @@ jobs:
           exec > >(tee capacity-apply.log) 2>&1
           python3 <<'BOOTSTRAP'
           from pathlib import Path
-          from textwrap import dedent
           workflow = Path('.github/workflows/agent-scheduler-capacity.yml').read_text(encoding='utf-8')
           marker = "          python3 <<'PY'\n"
           assert marker in workflow
-          embedded = workflow.split(marker, 1)[1].split("\n          PY", 1)[0]
-          exec(compile(dedent(embedded), 'capacity-patch.py', 'exec'))
+          raw = workflow.split(marker, 1)[1].split("\n          PY", 1)[0]
+          embedded = '\n'.join(line[10:] if line.startswith('          ') else line for line in raw.splitlines())
+          exec(compile(embedded, 'capacity-patch.py', 'exec'))
           Path('.github/workflows/agent-scheduler-capacity-push.yml').unlink(missing_ok=True)
           Path('.capacity-trigger').unlink(missing_ok=True)
           BOOTSTRAP
