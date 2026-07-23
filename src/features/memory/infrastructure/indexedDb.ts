@@ -1,4 +1,4 @@
-const MEMORY_DB_VERSION = 2;
+const MEMORY_DB_VERSION = 3;
 
 export const MEMORY_STORES = {
   items: 'memoryItems',
@@ -146,10 +146,16 @@ function createSchema(database: IDBDatabase): void {
   ensureIndex(attempts, 'exerciseId', 'exerciseId');
   ensureIndex(attempts, 'createdAt', 'createdAt');
   ensureIndex(attempts, 'syncedAt', 'syncedAt');
+  ensureIndex(attempts, 'sessionCreatedAt', ['sessionId', 'createdAt']);
+  ensureIndex(attempts, 'targetCreatedAt', ['targetId', 'createdAt']);
+  ensureIndex(attempts, 'senseCreatedAt', ['senseId', 'createdAt']);
+  ensureIndex(attempts, 'answerCreatedAt', ['answerId', 'createdAt']);
+  ensureIndex(attempts, 'exerciseCreatedAt', ['exerciseId', 'createdAt']);
 
   const sessions = database.createObjectStore(MEMORY_STORES.sessions, { keyPath: 'id' });
   ensureIndex(sessions, 'status', 'status');
   ensureIndex(sessions, 'updatedAt', 'updatedAt');
+  ensureIndex(sessions, 'statusUpdatedAt', ['status', 'updatedAt']);
 
   const pending = database.createObjectStore(MEMORY_STORES.pendingMutations, { keyPath: 'mutationId' });
   ensureIndex(pending, 'entityKey', 'entityKey');
@@ -176,6 +182,16 @@ function upgradeSchema(database: IDBDatabase, transaction: IDBTransaction, oldVe
     ensureIndex(attempts, 'exerciseId', 'exerciseId');
     const pending = transaction.objectStore(MEMORY_STORES.pendingMutations);
     ensureIndex(pending, 'localSequence', 'localSequence', { unique: true });
+  }
+  if (oldVersion < 3) {
+    const attempts = transaction.objectStore(MEMORY_STORES.attempts);
+    ensureIndex(attempts, 'sessionCreatedAt', ['sessionId', 'createdAt']);
+    ensureIndex(attempts, 'targetCreatedAt', ['targetId', 'createdAt']);
+    ensureIndex(attempts, 'senseCreatedAt', ['senseId', 'createdAt']);
+    ensureIndex(attempts, 'answerCreatedAt', ['answerId', 'createdAt']);
+    ensureIndex(attempts, 'exerciseCreatedAt', ['exerciseId', 'createdAt']);
+    const sessions = transaction.objectStore(MEMORY_STORES.sessions);
+    ensureIndex(sessions, 'statusUpdatedAt', ['status', 'updatedAt']);
   }
 }
 
@@ -252,6 +268,54 @@ export class IndexedDbMemoryStore {
     const result = await requestResult(request);
     await transactionComplete(transaction);
     return result as T[];
+  }
+
+  /**
+   * Streams rows through an IndexedDB cursor and stops as soon as `limit`
+   * matching rows have been collected. Unlike getAll(), this keeps memory
+   * proportional to the requested page size even when a store is very large.
+   */
+  async scan<T>(
+    storeName: MemoryStoreName,
+    options: {
+      indexName?: string;
+      query?: IDBValidKey | IDBKeyRange | null;
+      direction?: IDBCursorDirection;
+      limit?: number;
+      predicate?: (value: T) => boolean;
+    } = {},
+  ): Promise<T[]> {
+    const database = await this.database();
+    const transaction = database.transaction(storeName, 'readonly');
+    const source: IDBObjectStore | IDBIndex = options.indexName
+      ? transaction.objectStore(storeName).index(options.indexName)
+      : transaction.objectStore(storeName);
+    const limit = Math.max(0, Math.floor(options.limit ?? Number.MAX_SAFE_INTEGER));
+    if (limit === 0) {
+      await transactionComplete(transaction);
+      return [];
+    }
+    const rows = await new Promise<T[]>((resolve, reject) => {
+      const collected: T[] = [];
+      const request = source.openCursor(options.query ?? undefined, options.direction ?? 'next');
+      request.addEventListener('error', () => reject(request.error ?? new Error('IndexedDB cursor failed')), { once: true });
+      request.addEventListener('success', () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(collected);
+          return;
+        }
+        const value = cursor.value as T;
+        if (!options.predicate || options.predicate(value)) collected.push(value);
+        if (collected.length >= limit) {
+          resolve(collected);
+          return;
+        }
+        cursor.continue();
+      });
+    });
+    await transactionComplete(transaction);
+    return rows;
   }
 
   async count(storeName: MemoryStoreName, query?: IDBValidKey | IDBKeyRange | null): Promise<number> {
