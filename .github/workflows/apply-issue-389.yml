@@ -1,0 +1,29 @@
+name: Apply issue 389 implementation
+
+on:
+  push:
+    branches:
+      - fix/issue-389-cursor-pagination
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply reviewed patches
+        run: |
+          cat .automation/issue389/*.patch | git apply -
+          rm -rf .automation/issue389 .github/workflows/apply-issue-389.yml
+      - name: Commit implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "perf: page memory history with IndexedDB cursors"
+          git push
