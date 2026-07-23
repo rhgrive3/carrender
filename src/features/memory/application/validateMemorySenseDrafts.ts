@@ -38,6 +38,45 @@ function exerciseHasContent(exercise: NonNullable<MemorySenseDraft['exercises']>
   );
 }
 
+function rowError(
+  unitLabel: 'カード' | '意味',
+  senseIndex: number,
+  rowLabel: string,
+  existing: boolean,
+): Error {
+  const prefix = `${unitLabel}${senseIndex + 1}の${rowLabel}`;
+  return new Error(existing
+    ? `${prefix}が空です。削除する場合は削除ボタンを使ってください`
+    : `${prefix}を入力してください`);
+}
+
+function validateNestedRows(
+  sense: MemorySenseDraft,
+  senseIndex: number,
+  unitLabel: 'カード' | '意味',
+): void {
+  for (const [answerIndex, answer] of sense.answers.entries()) {
+    if (hasText(answer.displayForm)) continue;
+    if (answer.id || answerHasContent(answer)) {
+      throw rowError(unitLabel, senseIndex, `英語${answerIndex + 1}`, Boolean(answer.id));
+    }
+  }
+
+  for (const [exampleIndex, example] of sense.examples.entries()) {
+    if (hasText(example.english)) continue;
+    if (example.id || exampleHasContent(example)) {
+      throw rowError(unitLabel, senseIndex, `例文${exampleIndex + 1}の英語`, Boolean(example.id));
+    }
+  }
+
+  for (const [exerciseIndex, exercise] of (sense.exercises ?? []).entries()) {
+    if (hasText(exercise.prompt)) continue;
+    if (exercise.id || exerciseHasContent(exercise)) {
+      throw rowError(unitLabel, senseIndex, `問題${exerciseIndex + 1}の問題文`, Boolean(exercise.id));
+    }
+  }
+}
+
 export function memorySenseDraftHasUserContent(sense: MemorySenseDraft): boolean {
   return Boolean(
     hasText(sense.promptJa)
@@ -55,7 +94,10 @@ export function selectValidMemorySenseDrafts(
   unitLabel: 'カード' | '意味',
 ): MemorySenseDraft[] {
   for (const [index, sense] of senses.entries()) {
-    if (hasText(sense.promptJa)) continue;
+    if (hasText(sense.promptJa)) {
+      validateNestedRows(sense, index, unitLabel);
+      continue;
+    }
     if (sense.id) {
       throw new Error(`${unitLabel}${index + 1}の日本語が空です。削除する場合は削除ボタンを使ってください`);
     }
