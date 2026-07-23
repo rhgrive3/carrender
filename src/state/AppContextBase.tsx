@@ -157,6 +157,14 @@ function settingsAffectPlan(previous: AppSettings, next: AppSettings): boolean {
 }
 
 
+export function prepareImportedState(state: AppState, currentDate: ISODate = today()): AppState {
+  return state.lastPlannedDate === null
+    || state.lastPlannedDate < currentDate
+    || state.tasks.some((task) => task.status === 'planned' && task.scheduledDate < currentDate)
+    ? generatePlan(state, currentDate, '保存データ読込時の日付・未達成反映').state
+    : { ...state };
+}
+
 function applyPlannedSessionMutation(
   state: AppState,
   action: SessionMutationAction,
@@ -179,11 +187,7 @@ export function appReducer(state: AppState, action: Action): AppState {
       return emptyState();
 
     case 'IMPORT_STATE':
-      return action.state.lastPlannedDate === null
-        || action.state.lastPlannedDate < t
-        || action.state.tasks.some((task) => task.status === 'planned' && task.scheduledDate < t)
-        ? generatePlan(action.state, t, '保存データ読込時の日付・未達成反映').state
-        : { ...action.state };
+      return prepareImportedState(action.state, t);
 
     case 'COMPLETE_ONBOARDING': {
       const inp = action.input;
@@ -834,11 +838,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const applyCloudState = useCallback((remoteState: AppState, updatedAt: string) => {
+    const appliedState = prepareImportedState(remoteState);
     skipNextLocalDirty.current = true;
     skipNextRemotePush.current = true;
-    dispatch({ type: 'IMPORT_STATE', state: remoteState });
-    saveStateNow(stateRef.current);
-    lastLocallyTrackedState.current = stateRef.current;
+    // Persist and publish the exact same snapshot before marking the cloud
+    // generation clean. React dispatch does not update stateRef synchronously.
+    stateRef.current = appliedState;
+    saveStateNow(appliedState);
+    lastLocallyTrackedState.current = appliedState;
+    dispatch({ type: 'REPLACE_STATE', state: appliedState });
     remoteUpdatedAt.current = updatedAt;
     remoteKnown.current = true;
     pendingPush.current = false;
