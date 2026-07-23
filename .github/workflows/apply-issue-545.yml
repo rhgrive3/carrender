@@ -1,0 +1,188 @@
+name: Apply issue 545 patch
+on:
+  push:
+    branches: [fix/issue-545-sync-owner-generation]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-545-sync-owner-generation
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply owner-generation guard
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+
+          helper = Path('src/lib/asyncOwnerGeneration.ts')
+          helper.write_text('''export interface AsyncOwnerGenerationToken {
+            owner: string | null;
+            generation: number;
+          }
+
+          /**
+           * Invalidates asynchronous work as soon as the authenticated owner changes.
+           * AbortController remains useful for transport cancellation; this guard is the
+           * final boundary that prevents an already-settled request from mutating the
+           * next owner's refs, UI state, or durable sync metadata.
+           */
+          export class AsyncOwnerGenerationGuard {
+            private owner: string | null;
+            private generation = 0;
+
+            constructor(owner: string | null) {
+              this.owner = owner;
+            }
+
+            updateOwner(owner: string | null): void {
+              if (this.owner === owner) return;
+              this.owner = owner;
+              this.generation += 1;
+            }
+
+            capture(): AsyncOwnerGenerationToken {
+              return { owner: this.owner, generation: this.generation };
+            }
+
+            isCurrent(token: AsyncOwnerGenerationToken): boolean {
+              return token.owner === this.owner && token.generation === this.generation;
+            }
+          }
+          ''')
+
+          path = Path('src/state/AppContextBase.tsx')
+          text = path.read_text()
+
+          old = "import { canApplyDeferredPlan, createDeferredScheduler, type DeferredPlanningStatus, type DeferredScheduler } from '../lib/deferredScheduler';\n"
+          new = old + "import { AsyncOwnerGenerationGuard } from '../lib/asyncOwnerGeneration';\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "  const [syncAttempt, setSyncAttempt] = useState(0);\n"
+          new = old + "  const syncOwnerGeneration = useRef(new AsyncOwnerGenerationGuard(owner));\n  // Render-time invalidation closes the gap before owner-scoped effects clean up.\n  syncOwnerGeneration.current.updateOwner(owner);\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "  const pushToD1 = useCallback((nextState: AppState) => {\n    pushChain.current = pushChain.current.then(async () => {\n      if (syncConflict.current) return;\n"
+          new = "  const pushToD1 = useCallback((nextState: AppState) => {\n    const ownerToken = syncOwnerGeneration.current.capture();\n    pushChain.current = pushChain.current.then(async () => {\n      if (!syncOwnerGeneration.current.isCurrent(ownerToken) || syncConflict.current) return;\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "        const saved = await apiPutData(nextState, remoteUpdatedAt.current);\n        finishSuccessfulPush(nextState, saved.updatedAt);\n      } catch (caught) {\n        const error = caught as ApiError;\n"
+          new = "        const saved = await apiPutData(nextState, remoteUpdatedAt.current);\n        if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;\n        finishSuccessfulPush(nextState, saved.updatedAt);\n      } catch (caught) {\n        if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;\n        const error = caught as ApiError;\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "            const latest = await apiGetData();\n            const metadata = owner ? getMainSyncMetadata(owner) : null;\n"
+          new = "            const latest = await apiGetData();\n            if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;\n            const metadata = owner ? getMainSyncMetadata(owner) : null;\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "    let cancelled = false;\n    const controller = new AbortController();\n"
+          new = "    let cancelled = false;\n    const controller = new AbortController();\n    const ownerToken = syncOwnerGeneration.current.capture();\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "        const response = await apiGetData({ signal: controller.signal });\n        if (cancelled) return;\n"
+          new = "        const response = await apiGetData({ signal: controller.signal });\n        if (cancelled || !syncOwnerGeneration.current.isCurrent(ownerToken)) return;\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "            const saved = await apiPutData(localState, response.updatedAt, { signal: controller.signal });\n            finishSuccessfulPush(localState, saved.updatedAt);\n"
+          new = "            const saved = await apiPutData(localState, response.updatedAt, { signal: controller.signal });\n            if (cancelled || !syncOwnerGeneration.current.isCurrent(ownerToken)) return;\n            finishSuccessfulPush(localState, saved.updatedAt);\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "            const latest = await apiGetData({ signal: controller.signal });\n            const metadata = getMainSyncMetadata(owner);\n"
+          new = "            const latest = await apiGetData({ signal: controller.signal });\n            if (cancelled || !syncOwnerGeneration.current.isCurrent(ownerToken)) return;\n            const metadata = getMainSyncMetadata(owner);\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "      } finally {\n        if (!cancelled) setSyncReady(true);\n"
+          new = "      } finally {\n        if (!cancelled && syncOwnerGeneration.current.isCurrent(ownerToken)) setSyncReady(true);\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "  const resolveSyncConflict = useCallback(async (choice: 'local' | 'cloud') => {\n    const conflict = syncConflictInfo;\n    if (!owner || !conflict) return;\n"
+          new = "  const resolveSyncConflict = useCallback(async (choice: 'local' | 'cloud') => {\n    const conflict = syncConflictInfo;\n    if (!owner || !conflict) return;\n    const ownerToken = syncOwnerGeneration.current.capture();\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "      const saved = await apiPutData(snapshot, conflict.remoteUpdatedAt);\n      finishSuccessfulPush(snapshot, saved.updatedAt);\n    } catch (caught) {\n      const error = caught as ApiError;\n"
+          new = "      const saved = await apiPutData(snapshot, conflict.remoteUpdatedAt);\n      if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;\n      finishSuccessfulPush(snapshot, saved.updatedAt);\n    } catch (caught) {\n      if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;\n      const error = caught as ApiError;\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "        const latest = await apiGetData();\n        const metadata = getMainSyncMetadata(owner);\n"
+          new = "        const latest = await apiGetData();\n        if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;\n        const metadata = getMainSyncMetadata(owner);\n"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+          test = Path('scripts/main-sync-owner-generation.test.ts')
+          test.write_text('''import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { AsyncOwnerGenerationGuard } from '../src/lib/asyncOwnerGeneration';
+
+          const guard = new AsyncOwnerGenerationGuard('owner-a');
+          const ownerA = guard.capture();
+          assert.equal(guard.isCurrent(ownerA), true, 'same owner generation remains current');
+          guard.updateOwner('owner-a');
+          assert.equal(guard.isCurrent(ownerA), true, 'same owner does not invalidate in-flight work');
+          guard.updateOwner('owner-b');
+          assert.equal(guard.isCurrent(ownerA), false, 'owner switch invalidates old work immediately');
+          const ownerB = guard.capture();
+          assert.equal(guard.isCurrent(ownerB), true, 'new owner receives a current generation');
+          guard.updateOwner(null);
+          assert.equal(guard.isCurrent(ownerB), false, 'logout invalidates authenticated work');
+
+          const source = readFileSync('src/state/AppContextBase.tsx', 'utf8');
+          const required = [
+            'syncOwnerGeneration.current.updateOwner(owner)',
+            'const ownerToken = syncOwnerGeneration.current.capture()',
+            'if (!syncOwnerGeneration.current.isCurrent(ownerToken) || syncConflict.current) return',
+            'if (cancelled || !syncOwnerGeneration.current.isCurrent(ownerToken)) return',
+            'if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return',
+          ];
+          for (const contract of required) {
+            assert.ok(source.includes(contract), `missing owner-generation contract: ${contract}`);
+          }
+          assert.ok(
+            source.indexOf('if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;\\n        finishSuccessfulPush(nextState')
+              > source.indexOf('const saved = await apiPutData(nextState'),
+            'debounced push must validate owner after PUT before publishing success',
+          );
+          assert.ok(
+            source.includes('if (!cancelled && syncOwnerGeneration.current.isCurrent(ownerToken)) setSyncReady(true)'),
+            'stale startup reconciliation must not mark the next owner ready',
+          );
+          console.log('main sync owner-generation guards: ok');
+          ''')
+
+          package = Path('package.json')
+          data = json.loads(package.read_text())
+          marker = 'vite-node scripts/main-sync-owner-generation.test.ts'
+          if marker not in data['scripts']['test:unit']:
+            data['scripts']['test:unit'] += ' && ' + marker
+          package.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+          PY
+      - name: Verify targeted contracts
+        run: |
+          npm run typecheck
+          npx vite-node scripts/main-sync-owner-generation.test.ts
+      - name: Commit implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/lib/asyncOwnerGeneration.ts src/state/AppContextBase.tsx scripts/main-sync-owner-generation.test.ts package.json
+          git commit -m "fix: ignore stale sync results after owner switch"
+          git push origin HEAD:fix/issue-545-sync-owner-generation
