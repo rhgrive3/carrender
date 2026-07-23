@@ -9,6 +9,8 @@ type UpdateServiceWorker = (reloadPage?: boolean) => Promise<void>;
 
 let updateServiceWorker: UpdateServiceWorker | null = null;
 let updateAvailable = false;
+let updateApplying = false;
+let updateError: string | null = null;
 let observer: MutationObserver | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -39,6 +41,29 @@ function removeNotice(): void {
   document.getElementById(NOTICE_ID)?.remove();
 }
 
+function updateFailureMessage(caught: unknown): string {
+  if (caught instanceof Error && caught.message.trim()) return caught.message.trim();
+  return '更新処理に失敗しました';
+}
+
+async function applyWaitingUpdate(): Promise<void> {
+  const blockers = serviceWorkerUpdateBlockers();
+  if (blockers.length > 0 || !updateServiceWorker || updateApplying) {
+    renderNotice();
+    return;
+  }
+  updateApplying = true;
+  updateError = null;
+  renderNotice();
+  try {
+    await updateServiceWorker(true);
+  } catch (caught) {
+    updateApplying = false;
+    updateError = updateFailureMessage(caught);
+    renderNotice();
+  }
+}
+
 function renderNotice(): void {
   if (!updateAvailable || typeof document === 'undefined') {
     removeNotice();
@@ -46,40 +71,62 @@ function renderNotice(): void {
   }
 
   const blockers = serviceWorkerUpdateBlockers();
+  const blocked = blockers.length > 0;
+  const message = updateError
+    ? `更新を適用できませんでした。${updateError}`
+    : updateApplying
+      ? '新しいバージョンへ更新しています…'
+      : blocked
+        ? `更新を待機しています（${blockers.join('・')}）`
+        : '新しいバージョンを利用できます';
+  const buttonLabel = updateApplying
+    ? '更新中…'
+    : blocked
+      ? '操作終了後に更新'
+      : updateError
+        ? '更新を再試行'
+        : '今すぐ更新';
+  const disabled = updateApplying || blocked;
+  const ariaLabel = blocked
+    ? `${message}。操作終了後に更新できます`
+    : updateApplying
+      ? '新しいバージョンへ更新しています'
+      : updateError
+        ? '新しいバージョンへの更新を再試行'
+        : '新しいバージョンへ更新';
+  const role = updateError ? 'alert' : 'status';
+  const signature = JSON.stringify({ message, buttonLabel, disabled, ariaLabel, role });
+
   let notice = document.getElementById(NOTICE_ID) as HTMLDivElement | null;
+  if (notice?.dataset.renderSignature === signature) return;
   if (!notice) {
     notice = document.createElement('div');
     notice.id = NOTICE_ID;
     notice.className = 'toast undo-notice service-worker-update-notice';
-    notice.setAttribute('role', 'status');
     notice.setAttribute('aria-live', 'polite');
     document.body.appendChild(notice);
   }
+  notice.setAttribute('role', role);
+  notice.dataset.renderSignature = signature;
 
-  const message = blockers.length > 0
-    ? `更新を待機しています（${blockers.join('・')}）`
-    : '新しいバージョンを利用できます';
-  notice.replaceChildren();
   const text = document.createElement('span');
   text.textContent = message;
-  notice.appendChild(text);
-
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'btn btn-secondary';
-  button.textContent = blockers.length > 0 ? '操作終了後に更新' : '今すぐ更新';
-  button.disabled = blockers.length > 0;
-  button.setAttribute('aria-label', blockers.length > 0 ? `${message}。操作終了後に更新できます` : '新しいバージョンへ更新');
-  button.addEventListener('click', () => {
-    if (serviceWorkerUpdateBlockers().length > 0 || !updateServiceWorker) {
-      renderNotice();
-      return;
-    }
-    button.disabled = true;
-    button.textContent = '更新中…';
-    void updateServiceWorker(true);
-  });
-  notice.appendChild(button);
+  button.textContent = buttonLabel;
+  button.disabled = disabled;
+  button.setAttribute('aria-label', ariaLabel);
+  button.addEventListener('click', () => { void applyWaitingUpdate(); });
+  notice.replaceChildren(text, button);
+}
+
+function mutationTouchesOnlyNotice(mutation: MutationRecord, notice: HTMLElement | null): boolean {
+  if (!notice) return false;
+  if (mutation.target === notice || notice.contains(mutation.target)) return true;
+  if (mutation.type !== 'childList') return false;
+  const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
+  return changedNodes.length > 0 && changedNodes.every((node) => node === notice || notice.contains(node));
 }
 
 function watchSafeUpdateTiming(): void {
@@ -92,7 +139,11 @@ function watchSafeUpdateTiming(): void {
       renderNotice();
     });
   };
-  observer = new MutationObserver(schedule);
+  observer = new MutationObserver((mutations) => {
+    const notice = document.getElementById(NOTICE_ID);
+    if (mutations.every((mutation) => mutationTouchesOnlyNotice(mutation, notice))) return;
+    schedule();
+  });
   observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-busy', 'class'] });
   window.addEventListener('storage', schedule);
   document.addEventListener('visibilitychange', schedule);
@@ -109,6 +160,8 @@ export function registerSafeServiceWorkerUpdate(): void {
     immediate: true,
     onNeedRefresh() {
       updateAvailable = true;
+      updateApplying = false;
+      updateError = null;
       watchSafeUpdateTiming();
       renderNotice();
     },
