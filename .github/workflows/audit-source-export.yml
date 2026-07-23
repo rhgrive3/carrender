@@ -1,0 +1,20 @@
+name: Audit source export
+on:
+  push:
+    branches:
+      - automation/audit-export-20260723-2
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive source
+        run: |
+          git archive --format=zip --output=carrender-audit-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carrender-audit-source
+          path: carrender-audit-source.zip
+          retention-days: 1
