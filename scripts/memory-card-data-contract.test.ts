@@ -85,6 +85,68 @@ assert.equal(savedExercises.length, 2, '日本語だけの編集でも既存Exer
 assert.equal(savedExercises.some((entry) => entry.operation === 'delete'), false, '画面に表示されないExerciseをtombstone化しない');
 assert.deepEqual(savedExercises.map((entry) => entry.entityId).sort(), ['exercise-first', 'exercise-later']);
 
+const linkedExerciseContent: MemoryContentBundle = {
+  items: [{ id: 'item-links', kind: 'expression', label: 'be shocked', tags: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 1 }],
+  senses: [{ id: 'sense-links', itemId: 'item-links', promptJa: '驚く', meaningJa: '驚く', siblingGroupId: 'sibling-links', tags: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 1 }],
+  answers: [
+    { id: 'answer-a', senseId: 'sense-links', displayForm: 'be shocked', citationForm: 'shock', acceptedVariants: [], orthographicVariants: [], source: 'user', verificationStatus: 'verified', createdAt: '2026-07-21T00:00:01.000Z', updatedAt: now, revision: 1 },
+    { id: 'answer-b', senseId: 'sense-links', displayForm: 'be surprised', citationForm: 'surprise', acceptedVariants: [], orthographicVariants: [], source: 'user', verificationStatus: 'verified', createdAt: '2026-07-21T00:00:02.000Z', updatedAt: now, revision: 1 },
+  ],
+  examples: [],
+  exercises: [
+    { id: 'exercise-a', senseId: 'sense-links', answerId: 'answer-a', type: 'translation', prompt: '驚くを英訳せよ', acceptedAnswerIds: ['answer-a', 'answer-b'], requiredTokens: [], forbiddenTokens: [], siblingGroupId: 'sibling-links', source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 1 },
+    { id: 'exercise-b', senseId: 'sense-links', answerId: 'answer-b', type: 'translation', prompt: '別表現で英訳せよ', acceptedAnswerIds: ['answer-b'], requiredTokens: [], forbiddenTokens: [], siblingGroupId: 'sibling-links', source: 'user', verificationStatus: 'verified', createdAt: '2026-07-21T00:00:03.000Z', updatedAt: now, revision: 1 },
+  ],
+};
+const linkedDraft = draftFromContent(linkedExerciseContent, 'item-links');
+assert.ok(linkedDraft);
+assert.equal(linkedDraft.senses[0].exercises?.[0].answerIndex, 0);
+assert.equal(linkedDraft.senses[0].exercises?.[1].answerIndex, 1);
+
+saved = [];
+await saveMemoryItemDraft({
+  repository,
+  original: linkedExerciseContent,
+  draft: {
+    ...linkedDraft,
+    senses: [{ ...linkedDraft.senses[0], answers: [linkedDraft.senses[0].answers[1]] }],
+  },
+});
+const savedLinkedExercises = saved
+  .filter((entry) => entry.entityType === 'exercise' && entry.operation !== 'delete')
+  .map((entry) => entry.value as { id: string; answerId?: string; acceptedAnswerIds: string[] });
+const exerciseAfterDeletingA = savedLinkedExercises.find((exercise) => exercise.id === 'exercise-a');
+const exerciseAfterKeepingB = savedLinkedExercises.find((exercise) => exercise.id === 'exercise-b');
+assert.equal(exerciseAfterDeletingA?.answerId, undefined, '削除したAnswer Aの主回答を繰り上がったAnswer Bへ付け替えない');
+assert.deepEqual(exerciseAfterDeletingA?.acceptedAnswerIds, ['answer-b'], 'accepted answersは削除IDだけを除外する');
+assert.equal(exerciseAfterKeepingB?.answerId, 'answer-b', '先頭Answer削除後も既存のAnswer B参照をIDで維持する');
+assert.deepEqual(exerciseAfterKeepingB?.acceptedAnswerIds, ['answer-b']);
+
+saved = [];
+await saveMemoryItemDraft({
+  repository,
+  original: linkedExerciseContent,
+  draft: {
+    ...linkedDraft,
+    senses: [{
+      ...linkedDraft.senses[0],
+      answers: [...linkedDraft.senses[0].answers].reverse(),
+      exercises: [
+        ...(linkedDraft.senses[0].exercises ?? []),
+        { type: 'translation', prompt: '新しい問題', answerIndex: 0, acceptedAnswerIndexes: [0, 1] },
+      ],
+    }],
+  },
+});
+const reorderedExercises = saved
+  .filter((entry) => entry.entityType === 'exercise' && entry.operation !== 'delete')
+  .map((entry) => entry.value as { id: string; answerId?: string; acceptedAnswerIds: string[] });
+assert.equal(reorderedExercises.find((exercise) => exercise.id === 'exercise-a')?.answerId, 'answer-a', 'Answer配列の順序変更でも既存主回答をIDで維持する');
+assert.equal(reorderedExercises.find((exercise) => exercise.id === 'exercise-b')?.answerId, 'answer-b', '別Exerciseの既存参照も維持する');
+const newExercise = reorderedExercises.find((exercise) => !['exercise-a', 'exercise-b'].includes(exercise.id));
+assert.equal(newExercise?.answerId, 'answer-b', '新規Exerciseは現在のdraft indexをAnswer IDへ解決する');
+assert.deepEqual(newExercise?.acceptedAnswerIds, ['answer-b', 'answer-a'], '新規Exerciseのaccepted indexesも現在順で解決する');
+
 const bundle: MemorySetBundle = {
   ...content,
   sets: [{ id: 'set-1', name: '英語', tags: [], createdAt: now, updatedAt: now, revision: 1 }],
@@ -139,4 +201,4 @@ assert.match(studySource, /examplesForSense\(bundle, sense\.id, \{ verifiedOnly:
 assert.match(studySource, /memory-study-examples[\s\S]*examples\.map/u, '答え後の独立確認欄に複数例文を表示する');
 assert.match(studySource, /memory-question-example/u, '問題面でも方向に合う例文を使う');
 
-console.log('✅ memory cards preserve hidden exercises, language direction, stable editing order and multiple examples');
+console.log('✅ memory cards preserve stable hidden exercise answer links, language direction, editing order and multiple examples');

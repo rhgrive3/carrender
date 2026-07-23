@@ -268,12 +268,18 @@ export async function saveMemoryItemDraft(input: {
       const originalExercise = input.original?.exercises.find((exercise) => exercise.id === exerciseDraft.id);
       const exerciseId = originalExercise?.id ?? exerciseDraft.id ?? createMemoryId('exercise');
       retainedExerciseIds.add(exerciseId);
-      const answerId = exerciseDraft.answerIndex === undefined
-        ? undefined
-        : answerIdByDraftIndex.get(exerciseDraft.answerIndex);
-      const acceptedAnswerIds = [...new Set((exerciseDraft.acceptedAnswerIndexes ?? [])
-        .map((index) => answerIdByDraftIndex.get(index))
-        .filter((id): id is string => Boolean(id)))];
+      const answerId = originalExercise
+        ? originalExercise.answerId && retainedAnswerIds.has(originalExercise.answerId)
+          ? originalExercise.answerId
+          : undefined
+        : exerciseDraft.answerIndex === undefined
+          ? undefined
+          : answerIdByDraftIndex.get(exerciseDraft.answerIndex);
+      const acceptedAnswerIds = originalExercise
+        ? originalExercise.acceptedAnswerIds.filter((id) => retainedAnswerIds.has(id))
+        : [...new Set((exerciseDraft.acceptedAnswerIndexes ?? [])
+            .map((index) => answerIdByDraftIndex.get(index))
+            .filter((id): id is string => Boolean(id)))];
       if (answerId && !acceptedAnswerIds.includes(answerId)) acceptedAnswerIds.push(answerId);
       const exercise: MemoryExercise = {
         id: exerciseId,
