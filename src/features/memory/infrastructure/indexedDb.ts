@@ -75,7 +75,29 @@ export interface MemoryTransactionAccessor {
   clear(storeName: MemoryStoreName): void;
 }
 
-const openConnections = new Map<string, IDBDatabase>();
+interface MemoryConnectionEntry {
+  name: string;
+  promise: Promise<IDBDatabase>;
+  database?: IDBDatabase;
+  retainCount: number;
+  invalidated: boolean;
+}
+
+interface MemoryDatabaseLease {
+  promise: Promise<IDBDatabase>;
+  release: () => void;
+}
+
+export type MemoryDatabaseDeleteResult = 'deleted' | 'blocked';
+
+interface PendingDatabaseDelete {
+  request: IDBOpenDBRequest;
+  blocked: boolean;
+  firstResult: Promise<MemoryDatabaseDeleteResult>;
+}
+
+const openConnections = new Map<string, MemoryConnectionEntry>();
+const pendingDatabaseDeletes = new Map<string, PendingDatabaseDelete>();
 
 function databaseName(owner: string): string {
   // IndexedDB database names are origin-local and may contain arbitrary Unicode.
@@ -277,45 +299,132 @@ function upgradeSchema(database: IDBDatabase, transaction: IDBTransaction, oldVe
   }
 }
 
-export async function openMemoryDatabase(owner: string): Promise<IDBDatabase> {
-  if (!owner.trim()) throw new Error('Memory database owner is required');
-  if (typeof indexedDB === 'undefined') throw new Error('このブラウザではオフライン保存を利用できません');
-
+function createMemoryConnection(owner: string): MemoryConnectionEntry {
   const name = databaseName(owner);
-  const current = openConnections.get(name);
-  if (current) return current;
-
   const request = indexedDB.open(name, MEMORY_DB_VERSION);
+  const entry = {
+    name,
+    promise: Promise.resolve(undefined as unknown as IDBDatabase),
+    retainCount: 0,
+    invalidated: false,
+  } as MemoryConnectionEntry;
   request.addEventListener('upgradeneeded', (event) => {
     const transaction = request.transaction;
     if (!transaction) throw new Error('IndexedDB upgrade transaction is unavailable');
     upgradeSchema(request.result, transaction, (event as IDBVersionChangeEvent).oldVersion);
   });
-  const database = await requestResult(request);
-  database.addEventListener('versionchange', () => {
-    database.close();
-    openConnections.delete(name);
+  entry.promise = requestResult(request).then((database) => {
+    if (entry.invalidated || entry.retainCount === 0 || openConnections.get(name) !== entry) {
+      database.close();
+      throw new Error('IndexedDB connection was closed before opening completed');
+    }
+    entry.database = database;
+    database.addEventListener('versionchange', () => {
+      entry.invalidated = true;
+      database.close();
+      if (openConnections.get(name) === entry) openConnections.delete(name);
+    });
+    return database;
+  }).catch((error) => {
+    if (openConnections.get(name) === entry) openConnections.delete(name);
+    throw error;
   });
-  openConnections.set(name, database);
-  return database;
+  openConnections.set(name, entry);
+  return entry;
 }
 
-export async function deleteMemoryDatabase(owner: string): Promise<void> {
-  if (!owner.trim() || typeof indexedDB === 'undefined') return;
+function retainMemoryDatabase(owner: string): MemoryDatabaseLease {
+  if (!owner.trim()) throw new Error('Memory database owner is required');
+  if (typeof indexedDB === 'undefined') throw new Error('このブラウザではオフライン保存を利用できません');
   const name = databaseName(owner);
-  openConnections.get(name)?.close();
+  const entry = openConnections.get(name) ?? createMemoryConnection(owner);
+  entry.retainCount += 1;
+  let released = false;
+  return {
+    promise: entry.promise,
+    release: () => {
+      if (released) return;
+      released = true;
+      entry.retainCount = Math.max(0, entry.retainCount - 1);
+      if (entry.retainCount > 0) return;
+      entry.invalidated = true;
+      if (openConnections.get(name) === entry) openConnections.delete(name);
+      void entry.promise.then((database) => database.close()).catch(() => undefined);
+    },
+  };
+}
+
+function invalidateMemoryConnection(name: string): void {
+  const entry = openConnections.get(name);
+  if (!entry) return;
+  entry.invalidated = true;
+  entry.retainCount = 0;
   openConnections.delete(name);
-  await requestResult(indexedDB.deleteDatabase(name));
+  if (entry.database) entry.database.close();
+  else void entry.promise.then((database) => database.close()).catch(() => undefined);
+}
+
+/**
+ * Opens a process-wide cached connection. Long-lived callers should prefer
+ * IndexedDbMemoryStore, whose lease is released by close().
+ */
+export function openMemoryDatabase(owner: string): Promise<IDBDatabase> {
+  return retainMemoryDatabase(owner).promise;
+}
+
+export function memoryDatabaseCleanupPending(owner: string): boolean {
+  return owner.trim() ? pendingDatabaseDeletes.has(databaseName(owner)) : false;
+}
+
+export async function deleteMemoryDatabase(owner: string): Promise<MemoryDatabaseDeleteResult> {
+  if (!owner.trim() || typeof indexedDB === 'undefined') return 'deleted';
+  const name = databaseName(owner);
+  invalidateMemoryConnection(name);
+  const existing = pendingDatabaseDeletes.get(name);
+  if (existing) return existing.blocked ? 'blocked' : existing.firstResult;
+
+  const request = indexedDB.deleteDatabase(name);
+  let settleFirst!: (result: MemoryDatabaseDeleteResult) => void;
+  let rejectFirst!: (error: unknown) => void;
+  let firstSettled = false;
+  const firstResult = new Promise<MemoryDatabaseDeleteResult>((resolve, reject) => {
+    settleFirst = resolve;
+    rejectFirst = reject;
+  });
+  const pending: PendingDatabaseDelete = { request, blocked: false, firstResult };
+  pendingDatabaseDeletes.set(name, pending);
+  request.addEventListener('success', () => {
+    pendingDatabaseDeletes.delete(name);
+    if (!firstSettled) {
+      firstSettled = true;
+      settleFirst('deleted');
+    }
+  }, { once: true });
+  request.addEventListener('blocked', () => {
+    pending.blocked = true;
+    if (!firstSettled) {
+      firstSettled = true;
+      settleFirst('blocked');
+    }
+  }, { once: true });
+  request.addEventListener('error', () => {
+    pendingDatabaseDeletes.delete(name);
+    if (!firstSettled) {
+      firstSettled = true;
+      rejectFirst(request.error ?? new Error('IndexedDB database deletion failed'));
+    }
+  }, { once: true });
+  return firstResult;
 }
 
 export class IndexedDbMemoryStore {
-  private databasePromise: Promise<IDBDatabase> | null = null;
+  private databaseLease: MemoryDatabaseLease | null = null;
 
   constructor(private readonly owner: string) {}
 
   private database(): Promise<IDBDatabase> {
-    this.databasePromise ??= openMemoryDatabase(this.owner);
-    return this.databasePromise;
+    this.databaseLease ??= retainMemoryDatabase(this.owner);
+    return this.databaseLease.promise;
   }
 
   async get<T>(storeName: MemoryStoreName, key: IDBValidKey): Promise<T | undefined> {
@@ -580,9 +689,8 @@ export class IndexedDbMemoryStore {
   }
 
   close(): void {
-    void this.database().then((database) => database.close());
-    this.databasePromise = null;
-    openConnections.delete(databaseName(this.owner));
+    this.databaseLease?.release();
+    this.databaseLease = null;
   }
 }
 
