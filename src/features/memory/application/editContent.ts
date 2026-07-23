@@ -8,7 +8,7 @@ import type {
   MemorySense,
   MemorySetMember,
 } from '../domain/types';
-import { normalizeEnglishCitationForm } from '../domain/cardIntegrity';
+import { normalizeEnglishCitationForm, normalizeMemoryCardText } from '../domain/cardIntegrity';
 import { createMemoryId, MemoryRepository, type MemoryMutationOperation } from '../infrastructure/repositories';
 
 export interface MemoryAnswerDraft {
@@ -70,6 +70,52 @@ function splitList(value: string | undefined): string[] {
   return [...new Set((value ?? '').split(/[,、\n]/u).map((part) => part.trim()).filter(Boolean))];
 }
 
+function compareCreatedRecords(
+  left: { createdAt: string; id: string },
+  right: { createdAt: string; id: string },
+): number {
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+function firstOriginalAnswerForItem(
+  original: MemoryContentBundle | undefined,
+  itemId: string,
+): MemoryAnswer | undefined {
+  if (!original) return undefined;
+  const firstSense = original.senses
+    .filter((sense) => sense.itemId === itemId && !sense.deletedAt)
+    .sort(compareCreatedRecords)[0];
+  if (!firstSense) return undefined;
+  return original.answers
+    .filter((answer) => answer.senseId === firstSense.id && !answer.deletedAt)
+    .sort(compareCreatedRecords)[0];
+}
+
+function itemFieldWasAutoDerived(value: string | undefined, answer: MemoryAnswer | undefined): boolean {
+  const key = normalizeMemoryCardText(value);
+  if (!key || !answer) return false;
+  const displayKey = normalizeMemoryCardText(answer.displayForm);
+  const citationKey = normalizeMemoryCardText(
+    normalizeEnglishCitationForm(answer.displayForm, answer.citationForm),
+  );
+  return key === displayKey || key === citationKey;
+}
+
+function resolveHiddenItemEnglishField(input: {
+  draftValue: string | undefined;
+  originalValue: string | undefined;
+  originalFirstAnswer: MemoryAnswer | undefined;
+  nextFirstEnglish: string;
+}): string {
+  const draftValue = input.draftValue?.trim() ?? '';
+  const draftStillMatchesOriginal = normalizeMemoryCardText(draftValue)
+    === normalizeMemoryCardText(input.originalValue);
+  if (draftStillMatchesOriginal && itemFieldWasAutoDerived(input.originalValue, input.originalFirstAnswer)) {
+    return input.nextFirstEnglish;
+  }
+  return draftValue || input.nextFirstEnglish;
+}
+
 function revisionedEntity(
   entityType: 'item' | 'sense' | 'answer' | 'example' | 'exercise',
   value: { id: string; revision: number },
@@ -104,11 +150,28 @@ export async function saveMemoryItemDraft(input: {
   const firstCitationForm = firstAnswer
     ? normalizeEnglishCitationForm(firstAnswer.displayForm, firstAnswer.citationForm)
     : '';
+  const originalFirstAnswer = firstOriginalAnswerForItem(input.original, itemId);
+  const label = originalItem
+    ? resolveHiddenItemEnglishField({
+        draftValue: input.draft.label,
+        originalValue: originalItem.label,
+        originalFirstAnswer,
+        nextFirstEnglish: firstCitationForm || firstAnswer?.displayForm.trim() || '',
+      })
+    : input.draft.label?.trim() || firstCitationForm || firstAnswer?.displayForm.trim() || '';
+  const lemma = originalItem
+    ? resolveHiddenItemEnglishField({
+        draftValue: input.draft.lemma,
+        originalValue: originalItem.lemma,
+        originalFirstAnswer,
+        nextFirstEnglish: firstCitationForm || firstAnswer?.displayForm.trim() || '',
+      })
+    : input.draft.lemma?.trim() || firstCitationForm || firstAnswer?.displayForm.trim() || '';
   const item: MemoryItem = {
     id: itemId,
     kind: input.draft.kind,
-    label: input.draft.label?.trim() || firstCitationForm || firstAnswer?.displayForm.trim() || '',
-    lemma: input.draft.lemma?.trim() || firstCitationForm || firstAnswer?.displayForm.trim(),
+    label,
+    lemma: lemma || undefined,
     tags: splitList(input.draft.tags),
     source: originalItem?.source ?? 'user',
     verificationStatus: originalItem?.verificationStatus ?? 'verified',
