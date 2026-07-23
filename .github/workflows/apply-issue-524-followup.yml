@@ -1,0 +1,191 @@
+name: Apply issue 524 route identity follow-up
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/issue-524-route-bound-item-identity'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply route-bound identity fix and tests
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          editor = Path('src/features/memory/ui/MemoryEditor.tsx')
+          source = editor.read_text()
+          old_import = "import { saveMemoryItemDraft, type MemoryItemDraft, type MemorySenseDraft } from '../application/editContent';"
+          new_import = "import { type MemoryItemDraft, type MemorySenseDraft } from '../application/editContent';\nimport { saveRoutedMemoryItemDraft } from '../application/saveRoutedMemoryItemDraft';"
+          if old_import not in source:
+              raise SystemExit('MemoryEditor import anchor not found')
+          source = source.replace(old_import, new_import, 1)
+          old_call = """        await saveMemoryItemDraft({
+          repository: actionRepository,
+          draft: actionDraft,
+          original: actionOriginal,
+          setId: actionSetId,
+          setOrder: members.length,
+        });"""
+          new_call = """        await saveRoutedMemoryItemDraft({
+          repository: actionRepository,
+          expectedItemId: actionItemId,
+          draft: actionDraft,
+          original: actionOriginal,
+          setId: actionSetId,
+          setOrder: members.length,
+        });"""
+          if old_call not in source:
+              raise SystemExit('MemoryEditor save call anchor not found')
+          editor.write_text(source.replace(old_call, new_call, 1))
+
+          Path('src/features/memory/application/saveRoutedMemoryItemDraft.ts').write_text("""import type { MemoryContentBundle } from '../domain/types';
+import type { MemoryRepository } from '../infrastructure/repositories';
+import { saveMemoryItemDraft, type MemoryItemDraft } from './editContent';
+
+function routedItemIdentityError(): Error {
+  return new Error('編集中のカードが切り替わりました。画面を再読み込みしてから保存してください');
+}
+
+/**
+ * Binds an edit save to the Item selected by the current route. The generic
+ * draft saver validates descendant ownership; this boundary additionally
+ * prevents a stale draft from being committed after the editor route changes.
+ */
+export async function saveRoutedMemoryItemDraft(input: {
+  repository: MemoryRepository;
+  expectedItemId: string;
+  draft: MemoryItemDraft;
+  original: MemoryContentBundle;
+  setId?: string;
+  setOrder?: number;
+}): Promise<string> {
+  const expectedItemId = input.expectedItemId.trim();
+  const matchingItems = input.original.items.filter((item) => item.id === expectedItemId);
+  if (!expectedItemId || input.draft.id !== expectedItemId || matchingItems.length !== 1) {
+    throw routedItemIdentityError();
+  }
+  return saveMemoryItemDraft({
+    repository: input.repository,
+    draft: input.draft,
+    original: input.original,
+    setId: input.setId,
+    setOrder: input.setOrder,
+  });
+}
+""")
+
+          Path('scripts/memory-routed-item-identity.test.ts').write_text("""import assert from 'node:assert/strict';
+import { saveRoutedMemoryItemDraft } from '../src/features/memory/application/saveRoutedMemoryItemDraft';
+import type { MemoryItemDraft } from '../src/features/memory/application/editContent';
+import type { MemoryContentBundle } from '../src/features/memory/domain/types';
+import type { MemoryRepository } from '../src/features/memory/infrastructure/repositories';
+
+const now = '2026-07-23T17:20:00.000Z';
+const original: MemoryContentBundle = {
+  items: [
+    { id: 'item-a', kind: 'expression', label: 'answer a', lemma: 'answer a', tags: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 1 },
+    { id: 'item-b', kind: 'expression', label: 'answer b', lemma: 'answer b', tags: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 1 },
+  ],
+  senses: [
+    { id: 'sense-a', itemId: 'item-a', promptJa: '意味A', meaningJa: '意味A', siblingGroupId: 'sibling-a', tags: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 1 },
+  ],
+  answers: [
+    { id: 'answer-a', senseId: 'sense-a', displayForm: 'answer a', citationForm: 'answer a', acceptedVariants: [], orthographicVariants: [], source: 'user', verificationStatus: 'verified', createdAt: now, updatedAt: now, revision: 1 },
+  ],
+  examples: [],
+  exercises: [],
+};
+const draft: MemoryItemDraft = {
+  id: 'item-a',
+  kind: 'expression',
+  label: 'answer a',
+  lemma: 'answer a',
+  senses: [{
+    id: 'sense-a',
+    siblingGroupId: 'sibling-a',
+    promptJa: '意味A更新',
+    meaningJa: '意味A更新',
+    answers: [{ id: 'answer-a', displayForm: 'answer a updated' }],
+    examples: [],
+    exercises: [],
+  }],
+};
+
+let saveCalls = 0;
+let savedItemId: string | undefined;
+const repository = {
+  saveEntities: async (entities: Parameters<MemoryRepository['saveEntities']>[0]) => {
+    saveCalls += 1;
+    savedItemId = entities.find((entity) => entity.entityType === 'item')?.entityId;
+  },
+} as unknown as MemoryRepository;
+
+await assert.rejects(
+  saveRoutedMemoryItemDraft({ repository, expectedItemId: 'item-b', draft, original }),
+  /カードが切り替わりました/,
+  'routeがItem Bへ切り替わった後に残ったItem A draftを保存しない',
+);
+assert.equal(saveCalls, 0, 'route/draft不一致はtransaction開始前に拒否する');
+
+await assert.rejects(
+  saveRoutedMemoryItemDraft({
+    repository,
+    expectedItemId: 'missing-item',
+    draft: { ...draft, id: 'missing-item' },
+    original,
+  }),
+  /カードが切り替わりました/,
+  'route Itemが元snapshotに存在しない場合も新規Itemとして保存しない',
+);
+assert.equal(saveCalls, 0, '存在しないroute Itemでもwriteしない');
+
+await saveRoutedMemoryItemDraft({ repository, expectedItemId: 'item-a', draft, original });
+assert.equal(saveCalls, 1, '一致するroute/draftだけを1 transactionで保存する');
+assert.equal(savedItemId, 'item-a', 'routeで選択したItem identityを維持する');
+
+console.log('✅ memory edit saves are bound to the route Item identity');
+""")
+
+          package = Path('package.json')
+          package_source = package.read_text()
+          unit_anchor = 'vite-node scripts/memory-draft-ownership.test.ts && vite-node scripts/memory-selected-set.test.ts'
+          unit_replacement = 'vite-node scripts/memory-draft-ownership.test.ts && vite-node scripts/memory-routed-item-identity.test.ts && vite-node scripts/memory-selected-set.test.ts'
+          if unit_anchor not in package_source:
+              raise SystemExit('package unit anchor not found')
+          package.write_text(package_source.replace(unit_anchor, unit_replacement, 1))
+
+          resilience = Path('scripts/memory-editor-save-resilience.test.mjs')
+          resilience_source = resilience.read_text()
+          anchor = "assert.match(source, /if \\(actionItemId\\) \\{[\\s\\S]*saveMemoryItemDraft\\([\\s\\S]*\\} else \\{[\\s\\S]*saveNewMemoryItemCards\\(/u, '既存Item編集は複数Sense保存、新規追加は各カードを独立Item保存へ分ける');"
+          replacement = "assert.match(source, /if \\(actionItemId\\) \\{[\\s\\S]*saveRoutedMemoryItemDraft\\([\\s\\S]*expectedItemId: actionItemId[\\s\\S]*\\} else \\{[\\s\\S]*saveNewMemoryItemCards\\(/u, '既存Item編集はroute Item identityへ固定し、新規追加は各カードを独立Item保存へ分ける');"
+          if anchor not in resilience_source:
+              raise SystemExit('resilience test anchor not found')
+          resilience.write_text(resilience_source.replace(anchor, replacement, 1))
+
+          Path('.github/workflows/apply-issue-524-followup.yml').unlink()
+          PY
+          npm ci
+          npm run typecheck
+          npm run test:unit
+          node scripts/memory-editor-save-resilience.test.mjs
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: bind memory edits to route item identity"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
