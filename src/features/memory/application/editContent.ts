@@ -122,6 +122,58 @@ function resolveHiddenItemEnglishField(input: {
   return draftValue;
 }
 
+function draftOwnershipError(label: string): Error {
+  return new Error(`${label}の保存先が元データと一致しません。画面を再読み込みしてからやり直してください`);
+}
+
+/**
+ * Existing IDs are immutable identities. A stale/imported draft must never move
+ * an entity to another Item or Sense by reusing its revision and changing only
+ * the relation field.
+ */
+export function validateMemoryDraftOwnership(
+  draft: MemoryItemDraft,
+  original: MemoryContentBundle | undefined,
+  itemId: string,
+): void {
+  if (!original) return;
+  const sensesById = new Map(original.senses.map((sense) => [sense.id, sense]));
+  const answersById = new Map(original.answers.map((answer) => [answer.id, answer]));
+  const examplesById = new Map(original.examples.map((example) => [example.id, example]));
+  const exercisesById = new Map(original.exercises.map((exercise) => [exercise.id, exercise]));
+
+  for (const [senseIndex, senseDraft] of draft.senses.entries()) {
+    const senseLabel = `意味${senseIndex + 1}`;
+    const originalSense = senseDraft.id ? sensesById.get(senseDraft.id) : undefined;
+    if (senseDraft.id && (!originalSense || originalSense.itemId !== itemId)) {
+      throw draftOwnershipError(senseLabel);
+    }
+    const expectedSenseId = originalSense?.id;
+
+    for (const [answerIndex, answerDraft] of senseDraft.answers.entries()) {
+      if (!answerDraft.id) continue;
+      const originalAnswer = answersById.get(answerDraft.id);
+      if (!expectedSenseId || !originalAnswer || originalAnswer.senseId !== expectedSenseId) {
+        throw draftOwnershipError(`${senseLabel}の英語${answerIndex + 1}`);
+      }
+    }
+    for (const [exampleIndex, exampleDraft] of senseDraft.examples.entries()) {
+      if (!exampleDraft.id) continue;
+      const originalExample = examplesById.get(exampleDraft.id);
+      if (!expectedSenseId || !originalExample || originalExample.senseId !== expectedSenseId) {
+        throw draftOwnershipError(`${senseLabel}の例文${exampleIndex + 1}`);
+      }
+    }
+    for (const [exerciseIndex, exerciseDraft] of (senseDraft.exercises ?? []).entries()) {
+      if (!exerciseDraft.id) continue;
+      const originalExercise = exercisesById.get(exerciseDraft.id);
+      if (!expectedSenseId || !originalExercise || originalExercise.senseId !== expectedSenseId) {
+        throw draftOwnershipError(`${senseLabel}の問題${exerciseIndex + 1}`);
+      }
+    }
+  }
+}
+
 function revisionedEntity(
   entityType: 'item' | 'sense' | 'answer' | 'example' | 'exercise',
   value: { id: string; revision: number },
@@ -148,9 +200,10 @@ export async function saveMemoryItemDraft(input: {
   if (validSenses.some((sense) => !sense.answers.some((answer) => answer.displayForm.trim()))) {
     throw new Error('各意味に英語表現を1つ以上入力してください');
   }
-  const now = new Date().toISOString();
   const originalItem = input.original?.items.find((item) => item.id === input.draft.id);
   const itemId = originalItem?.id ?? input.draft.id ?? createMemoryId('item');
+  validateMemoryDraftOwnership(input.draft, input.original, itemId);
+  const now = new Date().toISOString();
   const isNewItem = !originalItem;
   const firstAnswer = validSenses[0].answers.find((answer) => answer.displayForm.trim());
   const firstCitationForm = firstAnswer
