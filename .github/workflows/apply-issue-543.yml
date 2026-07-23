@@ -1,0 +1,60 @@
+name: Apply issue 543 fix
+on:
+  push:
+    branches: [fix/issue-543-cloud-state-durable-apply]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-543-cloud-state-durable-apply
+      - name: Apply fix and tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/state/AppContextBase.tsx')
+          text = path.read_text()
+          old = """function applyPlannedSessionMutation(\n  state: AppState,\n  action: SessionMutationAction,\n): AppState {\n"""
+          helper = """export function prepareImportedState(state: AppState, currentDate: ISODate = today()): AppState {\n  return state.lastPlannedDate === null\n    || state.lastPlannedDate < currentDate\n    || state.tasks.some((task) => task.status === 'planned' && task.scheduledDate < currentDate)\n    ? generatePlan(state, currentDate, '保存データ読込時の日付・未達成反映').state\n    : { ...state };\n}\n\nfunction applyPlannedSessionMutation(\n  state: AppState,\n  action: SessionMutationAction,\n): AppState {\n"""
+          if old not in text:
+              raise SystemExit('helper insertion point not found')
+          text = text.replace(old, helper, 1)
+
+          old_import = """    case 'IMPORT_STATE':\n      return action.state.lastPlannedDate === null\n        || action.state.lastPlannedDate < t\n        || action.state.tasks.some((task) => task.status === 'planned' && task.scheduledDate < t)\n        ? generatePlan(action.state, t, '保存データ読込時の日付・未達成反映').state\n        : { ...action.state };\n"""
+          new_import = """    case 'IMPORT_STATE':\n      return prepareImportedState(action.state, t);\n"""
+          if old_import not in text:
+              raise SystemExit('IMPORT_STATE block not found')
+          text = text.replace(old_import, new_import, 1)
+
+          old_apply = """  const applyCloudState = useCallback((remoteState: AppState, updatedAt: string) => {\n    skipNextLocalDirty.current = true;\n    skipNextRemotePush.current = true;\n    dispatch({ type: 'IMPORT_STATE', state: remoteState });\n    saveStateNow(stateRef.current);\n    lastLocallyTrackedState.current = stateRef.current;\n"""
+          new_apply = """  const applyCloudState = useCallback((remoteState: AppState, updatedAt: string) => {\n    const appliedState = prepareImportedState(remoteState);\n    skipNextLocalDirty.current = true;\n    skipNextRemotePush.current = true;\n    // Persist and publish the exact same snapshot before marking the cloud\n    // generation clean. React dispatch does not update stateRef synchronously.\n    stateRef.current = appliedState;\n    saveStateNow(appliedState);\n    lastLocallyTrackedState.current = appliedState;\n    dispatch({ type: 'REPLACE_STATE', state: appliedState });\n"""
+          if old_apply not in text:
+              raise SystemExit('applyCloudState block not found')
+          text = text.replace(old_apply, new_apply, 1)
+          path.write_text(text)
+
+          test = Path('scripts/main-cloud-state-application.test.ts')
+          test.write_text("""import assert from 'node:assert/strict';\nimport { readFileSync } from 'node:fs';\nimport { prepareImportedState, emptyState } from '../src/state/AppContextBase';\nimport { addDays, today } from '../src/lib/date';\n\nconst currentDate = today();\nconst alreadyCurrent = {\n  ...emptyState(),\n  onboarded: true,\n  lastPlannedDate: currentDate,\n};\nconst preparedCurrent = prepareImportedState(alreadyCurrent, currentDate);\nassert.deepEqual(preparedCurrent, alreadyCurrent, 'current cloud snapshots remain semantically unchanged');\nassert.notEqual(preparedCurrent, alreadyCurrent, 'the applied snapshot is an owned copy');\n\nconst stale = {\n  ...alreadyCurrent,\n  lastPlannedDate: addDays(currentDate, -1),\n};\nconst preparedStale = prepareImportedState(stale, currentDate);\nassert.equal(preparedStale.lastPlannedDate, currentDate, 'stale cloud snapshots are planned before durable adoption');\n\nconst source = readFileSync('src/state/AppContextBase.tsx', 'utf8');\nassert.match(source, /const appliedState = prepareImportedState\(remoteState\)[\\s\\S]*stateRef\.current = appliedState[\\s\\S]*saveStateNow\(appliedState\)[\\s\\S]*lastLocallyTrackedState\.current = appliedState[\\s\\S]*dispatch\(\{ type: 'REPLACE_STATE', state: appliedState \}\)/u, 'cloud adoption persists and renders one identical snapshot');\nassert.doesNotMatch(source, /dispatch\(\{ type: 'IMPORT_STATE', state: remoteState \}\);[\\s\\S]{0,100}saveStateNow\(stateRef\.current\)/u, 'cloud adoption never persists the pre-dispatch local snapshot');\n\nconsole.log('✅ cloud state adoption is durable before sync is marked clean');\n""")
+
+          package = Path('package.json')
+          package_text = package.read_text()
+          needle = 'vite-node scripts/main-state-persistence.test.ts'
+          replacement = needle + ' && vite-node scripts/main-cloud-state-application.test.ts'
+          if needle not in package_text:
+              raise SystemExit('package test insertion point not found')
+          package.write_text(package_text.replace(needle, replacement, 1))
+
+          Path('.github/workflows/apply-issue-543.yml').unlink()
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: persist adopted cloud state before marking sync clean"
+          git push origin HEAD:fix/issue-543-cloud-state-durable-apply
