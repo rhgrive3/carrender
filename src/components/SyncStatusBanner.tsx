@@ -5,23 +5,10 @@ import './SyncStatusBanner.css';
 export function SyncStatusBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { syncStatus, hasUnsyncedChanges, retrySync, localSaveError, planningStatus, planningErrorMessage, retryPlanning } = useApp();
 
-  const notice = planningStatus === 'error'
-    ? {
-        tone: 'error' as const,
-        title: '記録は保存しましたが、計画を再計算できませんでした',
-        detail: planningErrorMessage ?? '記録データは端末に保持されています。再試行できます。',
-        icon: ShieldAlert,
-        action: 'planning' as const,
-      }
-    : planningStatus === 'planning'
-      ? {
-          tone: 'warning' as const,
-          title: '記録を保存し、計画を再計算しています',
-          detail: 'この画面はそのまま操作できます。新しい計画だけを後から反映します。',
-          icon: RefreshCw,
-          action: 'none' as const,
-        }
-      : localSaveError
+  // Durability and conflict failures must remain visible while background
+  // planning is running or has failed. Otherwise a transient planner status can
+  // hide the only warning that local/cloud data needs attention.
+  const notice = localSaveError
     ? {
         tone: 'warning' as const,
         title: '緊急バックアップを更新できません',
@@ -45,15 +32,31 @@ export function SyncStatusBanner({ onOpenSettings }: { onOpenSettings: () => voi
             icon: CloudOff,
             action: 'sync' as const,
           }
-        : syncStatus === 'offline' && hasUnsyncedChanges
+        : planningStatus === 'error'
           ? {
-              tone: 'warning' as const,
-              title: 'オフラインで保存中です',
-              detail: '変更内容は端末に保存し、オンライン復帰後に自動同期します。',
-              icon: WifiOff,
-              action: 'sync' as const,
+              tone: 'error' as const,
+              title: '記録は保存しましたが、計画を再計算できませんでした',
+              detail: planningErrorMessage ?? '記録データは端末に保持されています。再試行できます。',
+              icon: ShieldAlert,
+              action: 'planning' as const,
             }
-          : null;
+          : planningStatus === 'planning'
+            ? {
+                tone: 'warning' as const,
+                title: '記録を保存し、計画を再計算しています',
+                detail: 'この画面はそのまま操作できます。新しい計画だけを後から反映します。',
+                icon: RefreshCw,
+                action: 'none' as const,
+              }
+            : syncStatus === 'offline' && hasUnsyncedChanges
+              ? {
+                  tone: 'warning' as const,
+                  title: 'オフラインで保存中です',
+                  detail: '変更内容は端末に保存し、オンライン復帰後に自動同期します。',
+                  icon: WifiOff,
+                  action: 'sync' as const,
+                }
+              : null;
 
   if (!notice) return null;
   const Icon = notice.icon;
