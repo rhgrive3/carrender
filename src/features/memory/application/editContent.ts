@@ -246,12 +246,17 @@ export async function saveMemoryItemDraft(input: {
       const originalExample = input.original?.examples.find((example) => example.id === exampleDraft.id);
       const exampleId = originalExample?.id ?? exampleDraft.id ?? createMemoryId('example');
       retainedExampleIds.add(exampleId);
+      const answerId = originalExample
+        ? originalExample.answerId && retainedAnswerIds.has(originalExample.answerId)
+          ? originalExample.answerId
+          : undefined
+        : exampleDraft.answerId && retainedAnswerIds.has(exampleDraft.answerId)
+          ? exampleDraft.answerId
+          : answerIdByDraftIndex.size === 1 ? [...answerIdByDraftIndex.values()][0] : undefined;
       const example: MemoryExample = {
         id: exampleId,
         senseId,
-        answerId: exampleDraft.answerId && retainedAnswerIds.has(exampleDraft.answerId)
-          ? exampleDraft.answerId
-          : answerIdByDraftIndex.size === 1 ? [...answerIdByDraftIndex.values()][0] : undefined,
+        answerId,
         english: exampleDraft.english.trim(),
         japanese: exampleDraft.japanese?.trim() || undefined,
         note: exampleDraft.note?.trim() || undefined,
