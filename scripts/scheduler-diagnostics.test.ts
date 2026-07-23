@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { classifyUnscheduledReason, createSchedulerDiagnostics, requirePositiveSchedulerValue } from '../src/lib/schedulerDiagnostics';
+
+assert.equal(classifyUnscheduledReason({ workItemId: 'a', sourceId: 'a', minutes: 10, reason: '指定日の空き時間が不足しています' }), 'fixedSlot');
+assert.equal(classifyUnscheduledReason({ workItemId: 'b', sourceId: 'b', minutes: 10, reason: '具体計画期間内の余剰容量が不足しています' }), 'capacity');
+assert.equal(classifyUnscheduledReason({ workItemId: 'c', sourceId: 'c', minutes: 10, reason: '期限までに配置できません' }), 'deadline');
+assert.equal(classifyUnscheduledReason({ workItemId: 'd', sourceId: 'd', minutes: 10, reason: '指定頻度を満たせません' }), 'cadence');
+assert.equal(classifyUnscheduledReason({ workItemId: 'e', sourceId: 'e', minutes: 10, reason: '探索上限により判定できません' }), 'solverLimit');
+assert.equal(classifyUnscheduledReason({ workItemId: 'f', sourceId: 'f', minutes: 10, reason: '分類未定の理由です' }), 'unknown');
+assert.throws(() => requirePositiveSchedulerValue(0, 'minutesPerUnit'), /SCHEDULER_INVARIANT/);
+assert.throws(() => requirePositiveSchedulerValue(Number.NaN, 'minutesPerUnit'), /SCHEDULER_INVARIANT/);
+assert.throws(() => requirePositiveSchedulerValue(Number.POSITIVE_INFINITY, 'minutesPerUnit'), /SCHEDULER_INVARIANT/);
+assert.equal(requirePositiveSchedulerValue(0.1, 'minutesPerUnit'), 0.1);
+const diagnostics = createSchedulerDiagnostics([{ targetId: 'm1', field: 'minutesPerUnit', value: 0, reason: '0より大きい有限値が必要です', suggestion: '正の値を入力してください' }]);
+assert.deepEqual(diagnostics.inputGuards, [{ targetId: 'm1', field: 'minutesPerUnit', reason: '0より大きい有限値が必要です' }]);
+const source = await readFile(new URL('../src/lib/schedulerV2.ts', import.meta.url), 'utf8');
+assert.equal(source.includes('Math.max(totalWeighted, 0.0001)'), false);
+assert.equal(source.includes('Math.max(curve.material.minutesPerUnit, 0.0001)'), false);
+assert.equal(source.includes('Math.max(material.minutesPerUnit, 0.0001)'), false);
+assert.match(source, /diagnostics\.capRelaxations\.push/);
+assert.match(source, /termination: canRelax \? 'relaxed'/);
+assert.match(source, /diagnostics\.unscheduledReasons = unscheduled\.map/);
+console.log('✅ scheduler diagnostics contracts passed');
