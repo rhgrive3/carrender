@@ -77,7 +77,7 @@ export function SyncStatusBanner({ onOpenSettings }: { onOpenSettings: () => voi
           <b id={titleId}>{notice.title}</b>
           <small id={detailId}>{notice.detail}</small>
         </span>
-        <span className="sync-status-actions" role="group" aria-label="保存状態の操作">
+        <span className="sync-status-actions" role="group" aria-label="同期状態の操作">
           {canRetry && (
             <button type="button" onClick={notice.action === 'planning' ? retryPlanning : retrySync} aria-label={notice.action === 'planning' ? '計画の再計算を再試行' : 'クラウド同期を再試行'}>
               <RefreshCw size={14} strokeWidth={2.4} aria-hidden="true" /> 再試行
