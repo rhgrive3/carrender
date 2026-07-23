@@ -31,7 +31,10 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply and verify optimization
+        shell: bash
         run: |
+          set -o pipefail
+          exec > >(tee capacity-apply.log) 2>&1
           python3 <<'BOOTSTRAP'
           from pathlib import Path
           from textwrap import dedent
@@ -61,6 +64,13 @@ jobs:
           git add -A
           git commit -m "容量計算をprefix sumと二分探索へ最適化する"
           git push origin HEAD:fix/scheduler-capacity-search
+      - name: Upload capacity apply log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capacity-apply-log
+          path: capacity-apply.log
+          if-no-files-found: error
 
   verify:
     runs-on: ubuntu-latest
