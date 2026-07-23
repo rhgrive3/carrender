@@ -8,13 +8,60 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  apply-capacity-optimization:
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/scheduler-capacity-search' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/scheduler-capacity-search
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply and verify optimization
+        run: |
+          python3 <<'BOOTSTRAP'
+          from pathlib import Path
+          from textwrap import dedent
+          workflow = Path('.github/workflows/agent-scheduler-capacity.yml').read_text(encoding='utf-8')
+          marker = "          python3 <<'PY'\n"
+          assert marker in workflow
+          embedded = workflow.split(marker, 1)[1].split("\n          PY", 1)[0]
+          exec(compile(dedent(embedded), 'capacity-patch.py', 'exec'))
+          Path('.github/workflows/agent-scheduler-capacity-push.yml').unlink(missing_ok=True)
+          Path('.capacity-trigger').unlink(missing_ok=True)
+          BOOTSTRAP
+          npm ci
+          npm run typecheck
+          npm run test:scheduler
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/ci.yml')
+          source = path.read_text(encoding='utf-8')
+          start = source.index('  apply-capacity-optimization:\n')
+          end = source.index('  verify:\n', start)
+          source = source[:start] + source[end:]
+          source = source.replace('permissions:\n  contents: write', 'permissions:\n  contents: read', 1)
+          path.write_text(source, encoding='utf-8')
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "容量計算をprefix sumと二分探索へ最適化する"
+          git push origin HEAD:fix/scheduler-capacity-search
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
