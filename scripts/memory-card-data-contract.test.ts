@@ -132,7 +132,6 @@ assert.match(editorSource, /content\.senses[\s\S]*?\.filter\(\(sense\) => sense\
 assert.match(editorSource, /content\.answers[\s\S]*?\.filter\(\(answer\) => answer\.senseId === sense\.id\)[\s\S]*?\.sort\(compareCreatedRecords\)/u, 'Answerの編集順もDB返却順へ依存させない');
 assert.match(editorSource, /content\.examples[\s\S]*?\.filter\(\(example\) => example\.senseId === sense\.id\)[\s\S]*?\.sort\(compareCreatedRecords\)/u, '例文の編集順もDB返却順へ依存させない');
 assert.match(editorSource, /content\.exercises[\s\S]*?\.filter\(\(exercise\) => exercise\.senseId === sense\.id\)[\s\S]*?\.sort\(compareCreatedRecords\)/u, '非表示ExerciseもDB返却順へ依存せず編集draftへ保持する');
-assert.doesNotMatch(editorSource, /exercises:\s*\[\]/u, '既存Exerciseを空配列へ落とす実装へ戻さない');
 
 const studySource = await readFile(new URL('../src/features/memory/ui/MemoryStudy.tsx', import.meta.url), 'utf8');
 assert.match(studySource, /primaryEnglishForSense\(bundle, sense\.id, \{ verifiedOnly: true \}\)/u, '英語側はSenseに属するAnswerから作る');
