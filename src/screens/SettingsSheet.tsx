@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '../state/AppContext';
+import { prepareImportedState } from '../state/AppContextBase';
 import { useAuth } from '../state/AuthContext';
 import { Sheet } from '../components/ui/Sheet';
 import { Segmented, Rating, NumericInput, Disclosure } from '../components/ui/bits';
@@ -451,8 +452,9 @@ export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean;
     reader.onload = () => {
       try {
         const imported = importJSON(String(reader.result));
-        dispatch({ type: 'IMPORT_STATE', state: imported });
-        saveStateNow(imported);
+        const appliedState = prepareImportedState(imported);
+        dispatch({ type: 'REPLACE_STATE', state: appliedState });
+        saveStateNow(appliedState);
         toast('データをインポートしました');
         onClose();
       } catch {
