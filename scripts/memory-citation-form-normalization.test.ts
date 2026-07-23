@@ -108,6 +108,26 @@ await saveMemoryItemDraft({
       ...editedDraft.senses[0],
       answers: [{
         id: 'answer-appalled',
+        displayForm: 'horrified',
+        citationForm: '唖然とした',
+      }],
+    }],
+  },
+});
+assert.equal(savedValue('answer', 'answer-appalled').citationForm, 'horrified');
+assert.equal(savedValue('item', 'item-appalled').label, 'horrified', '旧Answer由来のhidden labelは新しい英語へ追従する');
+assert.equal(savedValue('item', 'item-appalled').lemma, 'horrified', '旧Answer由来のhidden lemmaも新しい英語へ追従する');
+
+saved = [];
+await saveMemoryItemDraft({
+  repository,
+  original,
+  draft: {
+    ...editedDraft,
+    senses: [{
+      ...editedDraft.senses[0],
+      answers: [{
+        id: 'answer-appalled',
         displayForm: 'be appalled at A',
         citationForm: 'appall',
       }],
@@ -115,6 +135,72 @@ await saveMemoryItemDraft({
   },
 });
 assert.equal(savedValue('answer', 'answer-appalled').citationForm, 'appall', '有効なcitationFormを上書きしない');
+assert.equal(savedValue('item', 'item-appalled').label, 'appall', '自動生成labelは新しい有効citationFormへ追従する');
+assert.equal(savedValue('item', 'item-appalled').lemma, 'appall', '自動生成lemmaも新しい有効citationFormへ追従する');
+
+const customOriginal: MemoryContentBundle = {
+  ...original,
+  items: [{ ...original.items[0], label: '医療英語', lemma: 'medical-vocabulary' }],
+};
+saved = [];
+await saveMemoryItemDraft({
+  repository,
+  original: customOriginal,
+  draft: {
+    ...editedDraft,
+    label: '医療英語',
+    lemma: 'medical-vocabulary',
+    senses: [{
+      ...editedDraft.senses[0],
+      answers: [{ id: 'answer-appalled', displayForm: 'horrified', citationForm: 'horrify' }],
+    }],
+  },
+});
+assert.equal(savedValue('item', 'item-appalled').label, '医療英語', '独自labelは英語編集で上書きしない');
+assert.equal(savedValue('item', 'item-appalled').lemma, 'medical-vocabulary', '独自lemmaも英語編集で上書きしない');
+
+const unorderedOriginal: MemoryContentBundle = {
+  ...original,
+  senses: [
+    {
+      ...original.senses[0],
+      id: 'sense-later',
+      promptJa: '後の意味',
+      createdAt: '2026-07-23T00:00:02.000Z',
+    },
+    original.senses[0],
+  ],
+  answers: [
+    {
+      ...original.answers[0],
+      id: 'answer-later',
+      senseId: 'sense-later',
+      displayForm: 'later answer',
+      citationForm: 'later answer',
+      createdAt: '2026-07-23T00:00:02.000Z',
+    },
+    original.answers[0],
+  ],
+};
+saved = [];
+await saveMemoryItemDraft({
+  repository,
+  original: unorderedOriginal,
+  draft: {
+    ...editedDraft,
+    senses: [
+      editedDraft.senses[0],
+      {
+        id: 'sense-later',
+        siblingGroupId: 'sibling-appalled',
+        promptJa: '後の意味',
+        answers: [{ id: 'answer-later', displayForm: 'later updated', citationForm: 'later updated' }],
+        examples: [],
+      },
+    ],
+  },
+});
+assert.equal(savedValue('item', 'item-appalled').label, 'appalled', 'DB返却順ではなく作成日時順の最初のAnswerを基準にする');
 
 saved = [];
 await saveNewMemoryItemCards({
@@ -149,4 +235,4 @@ assert.equal(languageIssuesForMemoryEntity('answer', {
   citationForm: invalidEnglish,
 }).length, 2, '表示中の英語自体が日本語だけならvalidatorは従来どおり拒否する');
 
-console.log('✅ hidden invalid citationForm falls back to visible English without weakening language validation');
+console.log('✅ hidden citationForm and auto-derived Item headings follow visible English without overwriting custom metadata');
