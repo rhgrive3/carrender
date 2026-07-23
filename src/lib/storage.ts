@@ -1,4 +1,5 @@
-import type { AppState, ValidationIssue } from '../types';
+import type { AppState, StudySession, ValidationIssue } from '../types';
+import { revertSessionEffects } from './sessionEffects';
 import {
   validateAppStatePayload,
   type AppStateValidationResult,
@@ -84,9 +85,30 @@ function malformedShapeIssue(): ValidationIssue {
   };
 }
 
-function removeNonPositiveLegacySessions(state: AppState): AppState {
-  const sessions = state.sessions.filter((session) => Number.isFinite(session.minutes) && session.minutes > 0);
-  return sessions.length === state.sessions.length ? state : { ...state, sessions };
+function isValidSessionMinutes(session: StudySession): boolean {
+  return Number.isFinite(session.minutes) && session.minutes > 0;
+}
+
+function sessionRepairOrder(left: StudySession, right: StudySession): number {
+  const leftTime = left.updatedAt ?? left.startedAt ?? '';
+  const rightTime = right.updatedAt ?? right.startedAt ?? '';
+  const byTime = rightTime.localeCompare(leftTime);
+  return byTime === 0 ? right.id.localeCompare(left.id) : byTime;
+}
+
+/**
+ * Legacy invalid sessions may already have changed progress, task completion,
+ * replacement tasks, review tasks, and estimate observations. Remove them in
+ * reverse chronological order through the same pure rollback boundary used by
+ * record editing instead of dropping only the log row.
+ */
+export function repairNonPositiveLegacySessions(state: AppState): AppState {
+  const invalid = state.sessions.filter((session) => !isValidSessionMinutes(session));
+  if (invalid.length === 0) return state;
+  return [...invalid].sort(sessionRepairOrder).reduce(
+    (current, session) => revertSessionEffects(current, session),
+    state,
+  );
 }
 
 /**
@@ -105,7 +127,7 @@ export function migrateState(input: AppState): MigrationResult {
   // 旧版・過去不具合で残った0分以下の記録は、分析・進捗へ寄与しない。
   // 1件の無効ログで教材・計画・設定を含むstate全体を復元不能にせず、
   // 現行APIでは引き続き新規の非正数minutesを厳密に拒否する。
-  const state = removeNonPositiveLegacySessions(migrated.state);
+  const state = repairNonPositiveLegacySessions(migrated.state);
   const validation = validateAppStatePayload(state);
   if (!validation.ok) {
     return { ok: false, state, errors: [validationIssue(validation)] };

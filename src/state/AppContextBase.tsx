@@ -16,6 +16,7 @@ import type {
 import { loadState, saveState, saveStateNow, getStateOwner, setStateOwner, isAppStateShape, migrateState, STATE_VERSION, subscribeStateSaveFailure } from '../lib/storage';
 import { generatePlan, normalizeUnitRanges, remainingUnitRanges, sumRangeLengths, updateMinutesPerUnitEstimate } from '../lib/scheduler';
 import { generateReviewTasks } from '../lib/review';
+import { revertSessionEffects } from '../lib/sessionEffects';
 import { addDays, genId, hmToMinutes, localDateTimeToISOString, minutesToHM, today } from '../lib/date';
 import { buildDemoState } from '../data/demo';
 import { defaultSettings, defaultAvailability } from '../data/defaults';
@@ -323,56 +324,6 @@ function settingsAffectPlan(previous: AppSettings, next: AppSettings): boolean {
     || JSON.stringify(previous.reviewRule) !== JSON.stringify(next.reviewRule);
 }
 
-function subtractRanges(ranges: { start: number; end: number }[], removals: { start: number; end: number }[]) {
-  let current = normalizeUnitRanges(ranges, Number.MAX_SAFE_INTEGER);
-  for (const removal of normalizeUnitRanges(removals, Number.MAX_SAFE_INTEGER)) {
-    current = current.flatMap((range) => {
-      if (removal.end < range.start || removal.start > range.end) return [range];
-      return [
-        ...(removal.start > range.start ? [{ start: range.start, end: removal.start - 1 }] : []),
-        ...(removal.end < range.end ? [{ start: removal.end + 1, end: range.end }] : []),
-      ];
-    });
-  }
-  return current;
-}
-
-/**
- * 旧記録には由来範囲がないため、現在進捗から新形式記録の寄与だけを除いた値を
- * 互換基準として扱う。これにより旧進捗を推測で消さず、新記録は何度でも再構築できる。
- */
-function rebuildMaterialProgress(material: Material, beforeSessions: StudySession[], nextSessions: StudySession[]): Material {
-  const current = material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
-  const beforeContributions = beforeSessions
-    .filter((session) => session.materialId === material.id)
-    .flatMap((session) => session.progressRangesAdded ?? []);
-  const baseline = subtractRanges(current, beforeContributions);
-  const nextContributions = nextSessions
-    .filter((session) => session.materialId === material.id)
-    .flatMap((session) => session.progressRangesAdded ?? []);
-  const completedRanges = normalizeUnitRanges([...baseline, ...nextContributions], material.totalAmount);
-  return { ...material, completedRanges, doneAmount: sumRangeLengths(completedRanges) };
-}
-
-function revertSessionEffects(state: AppState, session: StudySession): AppState {
-  const sessions = state.sessions.filter((entry) => entry.id !== session.id);
-  let tasks = state.tasks.filter((task) =>
-    !(session.generatedReviewTaskIds ?? []).includes(task.id)
-    && !(session.replacementTaskIds ?? []).includes(task.id),
-  );
-  if (session.taskSnapshotBefore) {
-    tasks = [
-      ...tasks.filter((task) => task.id !== session.taskSnapshotBefore!.id),
-      session.taskSnapshotBefore,
-    ];
-  }
-  let materials = state.materials.map((material) => rebuildMaterialProgress(material, state.sessions, sessions));
-  materials = materials.map((material) => {
-    const estimate = updateMinutesPerUnitEstimate(material, sessions, state.settings.estimateAlpha ?? 0.2);
-    return { ...material, minutesPerUnit: estimate.appliedEstimate, estimatedMinutesPerUnit: estimate.suggestedEstimate ?? material.estimatedMinutesPerUnit };
-  });
-  return { ...state, sessions, materials, tasks };
-}
 
 function recordSession(state: AppState, inp: SessionInput, sessionId = genId('sess')): AppState {
   const t = today();

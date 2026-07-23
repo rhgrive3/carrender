@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { AppState } from '../src/types';
-import { importJSON, isAppStateShape, migrateState } from '../src/lib/storage';
+import { importJSON, isAppStateShape, migrateState, repairNonPositiveLegacySessions } from '../src/lib/storage';
 import { validateAppStatePayload } from '../functions/_shared/appState';
 
 const now = '2026-07-23T00:00:00.000Z';
@@ -89,6 +89,51 @@ if (!repairedSessions.ok) throw new Error('legacy session migration failed');
 assert.deepEqual(repairedSessions.state.sessions, [normalizedValidSession], '正常sessionの意味内容と順序を既存正規化後も維持する');
 assert.equal(validateAppStatePayload(repairedSessions.state).ok, true, '移行後stateは共有validatorを通る');
 
+
+const originalTask = {
+  id: 'task-original', subjectId: 'subject-1', materialId: 'material-progress',
+  title: '問題1〜2', rangeLabel: '1〜2', rangeStart: 1, rangeEnd: 2,
+  amount: 2, estimatedMinutes: 20, priority: 1, dueDate: '2026-07-30',
+  type: 'new', status: 'planned', scheduledDate: '2026-07-23',
+  scheduledStart: '18:00', scheduledEnd: '18:20', generatedBy: 'auto',
+  reviewStage: null, createdAt: now, updatedAt: now, completedAt: null,
+} as const;
+const invalidWithSideEffects = {
+  ...validSession,
+  id: 'session-zero-effects',
+  taskId: originalTask.id,
+  materialId: 'material-progress',
+  minutes: 0,
+  amountDone: 2,
+  progressRangesAdded: [{ start: 1, end: 2 }],
+  taskSnapshotBefore: originalTask,
+  replacementTaskIds: ['task-replacement'],
+  generatedReviewTaskIds: ['task-review'],
+  updatedAt: '2026-07-23T01:00:00.000Z',
+};
+const sideEffectState = {
+  ...valid,
+  materials: [{
+    id: 'material-progress', subjectId: 'subject-1', name: '数学問題集', unit: '問題',
+    totalAmount: 10, doneAmount: 2, completedRanges: [{ start: 1, end: 2 }],
+    totalUnits: 10, startDate: '2026-07-01', targetDate: '2026-08-01', priority: 3,
+    difficulty: 3, minutesPerUnit: 10, splittable: true, dailyTarget: null,
+    weeklyTarget: null, deadlinePolicy: 'normal', examRelevance: 3, reviewEnabled: false,
+    reviewIntervals: [], paused: false, round: 1, archived: false, createdAt: now,
+  }],
+  tasks: [
+    { ...originalTask, id: 'task-replacement', status: 'planned' },
+    { ...originalTask, id: 'task-review', type: 'review', status: 'planned' },
+  ],
+  sessions: [validSession, invalidWithSideEffects],
+} as unknown as AppState;
+const repairedSideEffects = repairNonPositiveLegacySessions(sideEffectState);
+assert.deepEqual(repairedSideEffects.sessions.map((session) => session.id), ['session-valid'], '不正sessionだけを除外する');
+assert.deepEqual(repairedSideEffects.materials[0].completedRanges, [], '不正sessionが加えた進捗範囲を戻す');
+assert.equal(repairedSideEffects.materials[0].doneAmount, 0, '不正sessionの進捗量を戻す');
+assert.deepEqual(repairedSideEffects.tasks.map((task) => task.id), ['task-original'], 'replacement・復習を除去して元タスクを復元する');
+assert.equal(repairedSideEffects.tasks[0].status, 'planned', '不正session前のタスク状態を復元する');
+
 const importedZeroMinute = importJSON(JSON.stringify({
   ...valid,
   sessions: [validSession, { ...validSession, id: 'session-zero', minutes: 0 }],
@@ -111,8 +156,8 @@ const storageSource = readFileSync('src/lib/storage.ts', 'utf8');
 const apiSource = readFileSync('functions/api/data/v2.ts', 'utf8');
 const bootstrapSource = readFileSync('src/state/MainStatePersistence.tsx', 'utf8');
 assert.match(storageSource, /from '\.\.\/\.\.\/functions\/_shared\/appState'/u, '端末とAPIで同じvalidator moduleを参照する');
-assert.match(storageSource, /removeNonPositiveLegacySessions[\s\S]*Number\.isFinite\(session\.minutes\) && session\.minutes > 0/u, '旧sessionの非正数minutesだけを共有検証前に除外する');
-assert.match(storageSource, /const migrated = migrateLegacyState\(input\)[\s\S]*const state = removeNonPositiveLegacySessions\(migrated\.state\)[\s\S]*validateAppStatePayload\(state\)/u, '旧stateをmigration・互換修復後に現行schemaで共有検証する');
+assert.match(storageSource, /repairNonPositiveLegacySessions[\s\S]*revertSessionEffects/u, '旧sessionの非正数minutesと記録副作用を共有検証前に巻き戻す');
+assert.match(storageSource, /const migrated = migrateLegacyState\(input\)[\s\S]*const state = repairNonPositiveLegacySessions\(migrated\.state\)[\s\S]*validateAppStatePayload\(state\)/u, '旧stateをmigration・互換修復後に現行schemaで共有検証する');
 assert.match(apiSource, /validateAppStatePayload/u, 'chunk commit APIも共有validatorを維持する');
 assert.match(bootstrapSource, /migrateState\(storedState\)/u, 'IndexedDB復元も共有検証を含むmigration境界を通る');
 
