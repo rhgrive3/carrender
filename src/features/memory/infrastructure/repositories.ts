@@ -794,7 +794,7 @@ export class MemoryRepository {
       direction: 'prev',
       limit: pageLimit,
     });
-    const last = rows.at(-1);
+    const last = rows[rows.length - 1];
     return {
       rows,
       ...(last && rows.length === pageLimit ? { nextCursor: encodeDateIdCursor(last.updatedAt, last.id) } : {}),
@@ -825,7 +825,7 @@ export class MemoryRepository {
       limit: pageLimit,
       accept: (attempt) => !attempt.undoneAt,
     });
-    const last = rows.at(-1);
+    const last = rows[rows.length - 1];
     return {
       rows,
       ...(last && rows.length === pageLimit ? { nextCursor: encodeDateIdCursor(last.createdAt, last.attemptId) } : {}),
@@ -984,7 +984,7 @@ export class MemoryRepository {
       limit: pageLimit,
       accept: (conflict) => !conflict.resolvedAt,
     });
-    const last = rows.at(-1);
+    const last = rows[rows.length - 1];
     return {
       rows,
       ...(last && rows.length === pageLimit ? { nextCursor: encodeDateIdCursor(last.createdAt, last.id) } : {}),
