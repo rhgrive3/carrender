@@ -1,5 +1,6 @@
 import { buildMemoryCard } from './content';
 import type { MemoryItemDraft } from './editContent';
+import { selectValidMemorySenseDrafts } from './validateMemorySenseDrafts';
 import { normalizeEnglishCitationForm } from '../domain/cardIntegrity';
 import type { MemoryRepository } from '../infrastructure/repositories';
 
@@ -17,7 +18,7 @@ export async function saveNewMemoryItemCards(input: {
   setId?: string;
   setOrder?: number;
 }): Promise<string[]> {
-  const validSenses = input.draft.senses.filter((sense) => sense.promptJa.trim());
+  const validSenses = selectValidMemorySenseDrafts(input.draft.senses, 'カード');
   if (validSenses.length === 0) throw new Error('日本語を1つ以上入力してください');
   if (validSenses.some((sense) => !sense.answers.some((answer) => answer.displayForm.trim()))) {
     throw new Error('各カードに英語表現を1つ以上入力してください');
