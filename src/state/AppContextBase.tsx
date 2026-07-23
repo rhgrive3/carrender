@@ -8,16 +8,15 @@ import type {
   FixedEvent,
   ISODate,
   Material,
-  StudySession,
   StudyTask,
   Subject,
   UserGoal,
 } from '../types';
 import { loadState, saveState, saveStateNow, getStateOwner, setStateOwner, isAppStateShape, migrateState, STATE_VERSION, subscribeStateSaveFailure } from '../lib/storage';
-import { generatePlan, normalizeUnitRanges, remainingUnitRanges, sumRangeLengths, updateMinutesPerUnitEstimate } from '../lib/scheduler';
-import { generateReviewTasks } from '../lib/review';
-import { revertSessionEffects } from '../lib/sessionEffects';
-import { addDays, genId, hmToMinutes, localDateTimeToISOString, minutesToHM, today } from '../lib/date';
+import { generatePlan } from '../lib/scheduler';
+import { prepareSessionMutation, type SessionInput, type SessionMutationAction } from '../lib/sessionMutation';
+import { canApplyDeferredPlan, createDeferredScheduler, type DeferredPlanningStatus, type DeferredScheduler } from '../lib/deferredScheduler';
+import { addDays, genId, hmToMinutes, minutesToHM, today } from '../lib/date';
 import { buildDemoState } from '../data/demo';
 import { defaultSettings, defaultAvailability } from '../data/defaults';
 import { useAuth } from './AuthContext';
@@ -36,23 +35,7 @@ import {
 // アクション定義
 // ============================================================
 
-export interface SessionInput {
-  taskId: string | null;
-  subjectId: string;
-  materialId: string | null;
-  minutes: number;
-  amountDone: number;
-  focus: 1 | 2 | 3 | 4 | 5 | null;
-  memo: string;
-  source: 'timer' | 'manual';
-  rangeLabel: string;
-  completedTask: boolean; // タスクを完了扱いにするか
-  /** 手入力は過去日を指定できる。タイマー記録は省略して現在日時を使う。 */
-  date?: ISODate;
-  startTime?: string;
-  /** 再計算で表示用IDが変わった時に、開始した作業を再解決するための手掛かり */
-  taskLocator?: { sourceId?: string; range?: { start: number; end: number }; type?: StudyTask['type'] };
-}
+export type { SessionInput } from '../lib/sessionMutation';
 
 export interface OnboardingInput {
   goalName: string;
@@ -110,106 +93,7 @@ export type Action =
 // Reducer
 // ============================================================
 
-function takeFirstRanges(ranges: { start: number; end: number }[], amount: number) {
-  const result: { start: number; end: number }[] = [];
-  let left = amount;
-  for (const range of ranges) {
-    if (left <= 0) break;
-    const take = Math.min(left, range.end - range.start + 1);
-    result.push({ start: range.start, end: range.start + take - 1 });
-    left -= take;
-  }
-  return result;
-}
-
-function intersectRanges(
-  ranges: { start: number; end: number }[],
-  limit: { start: number; end: number },
-): { start: number; end: number }[] {
-  return ranges.flatMap((range) => {
-    const start = Math.max(range.start, limit.start);
-    const end = Math.min(range.end, limit.end);
-    return start <= end ? [{ start, end }] : [];
-  });
-}
-
-/** 進捗量の編集時も既存の飛び飛び範囲を保ち、増減分だけを調整する。 */
-export function adjustCompletedRanges(
-  totalAmount: number,
-  ranges: { start: number; end: number }[],
-  requestedDoneAmount: number,
-) {
-  const total = Math.max(0, Math.floor(totalAmount));
-  const desired = Math.max(0, Math.min(total, Math.floor(requestedDoneAmount)));
-  let adjusted = normalizeUnitRanges(
-    ranges.flatMap((range) => {
-      const start = Math.max(1, Math.floor(range.start));
-      const end = Math.min(total, Math.floor(range.end));
-      return start <= end ? [{ start, end }] : [];
-    }),
-    total,
-  );
-  const current = sumRangeLengths(adjusted);
-  if (desired > current) {
-    const additions = takeFirstRanges(remainingUnitRanges(total, adjusted), desired - current);
-    return normalizeUnitRanges([...adjusted, ...additions], total);
-  }
-  let remove = current - desired;
-  if (remove <= 0) return adjusted;
-  adjusted = adjusted.map((range) => ({ ...range }));
-  for (let index = adjusted.length - 1; index >= 0 && remove > 0; index -= 1) {
-    const range = adjusted[index];
-    const length = range.end - range.start + 1;
-    if (remove >= length) {
-      adjusted.splice(index, 1);
-      remove -= length;
-    } else {
-      range.end -= remove;
-      remove = 0;
-    }
-  }
-  return adjusted;
-}
-
-/** 入力値を、対象教材・対象タスクで実際に完了可能な量へ正規化する。 */
-export function resolveSessionProgress(state: AppState, input: SessionInput) {
-  const requested = Math.max(0, Math.floor(Number.isFinite(input.amountDone) ? input.amountDone : 0));
-  const material = input.materialId ? state.materials.find((item) => item.id === input.materialId) : undefined;
-  if (!material) return { amountDone: requested, addedRanges: [] as { start: number; end: number }[] };
-
-  const completed = normalizeUnitRanges(
-    material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []),
-    material.totalAmount,
-  );
-  const task = findCurrentTask(state, input);
-  const explicit = task?.materialRange
-    ?? (task?.rangeStart !== null && task?.rangeStart !== undefined && task.rangeEnd !== null
-      ? { start: task.rangeStart, end: task.rangeEnd }
-      : undefined);
-  let eligible = remainingUnitRanges(material.totalAmount, completed);
-  if (explicit) eligible = intersectRanges(eligible, explicit);
-
-  let remaining = sumRangeLengths(eligible);
-  if (task && !explicit) remaining = Math.min(remaining, Math.max(0, task.amount));
-  const amountDone = Math.min(input.completedTask && task ? remaining : requested, remaining);
-  return { amountDone, addedRanges: takeFirstRanges(eligible, amountDone) };
-}
-
-/** タイマー開始後の再計算でIDが変わっても、同一の教材範囲・作業系列へ記録する。 */
-function findCurrentTask(state: AppState, input: Pick<SessionInput, 'taskId' | 'taskLocator' | 'materialId'>): StudyTask | undefined {
-  const exact = input.taskId ? state.tasks.find((item) => item.id === input.taskId) : undefined;
-  if (exact) return exact;
-  const locator = input.taskLocator;
-  if (!locator?.sourceId) return undefined;
-  return state.tasks.find((task) => {
-    if (task.status === 'done' || task.sourceId !== locator.sourceId || task.materialId !== input.materialId) return false;
-    if (locator.type && task.type !== locator.type) return false;
-    if (!locator.range) return true;
-    const range = task.materialRange
-      ?? (Number.isFinite(task.rangeStart) && Number.isFinite(task.rangeEnd) ? { start: task.rangeStart!, end: task.rangeEnd! } : undefined);
-    return range?.start === locator.range.start && range.end === locator.range.end;
-  });
-}
+export { adjustCompletedRanges, resolveSessionProgress } from '../lib/sessionMutation';
 
 function deferTask(task: StudyTask, date: ISODate): StudyTask {
   let manualScheduling = task.manualScheduling;
@@ -264,58 +148,6 @@ function unlockManualScheduling(task: StudyTask) {
   };
 }
 
-/** 途中記録後の元タスクを、実際に未完了の範囲と時間へ縮める。 */
-function shrinkTaskAfterProgress(task: StudyTask, material: Material | undefined, completedRanges: { start: number; end: number }[]) {
-  const explicit = task.materialRange
-    ?? (task.rangeStart !== null && task.rangeStart !== undefined && task.rangeEnd !== null && task.rangeEnd !== undefined
-      ? { start: task.rangeStart, end: task.rangeEnd }
-      : undefined);
-  const originalAmount = Math.max(1, task.amount);
-  const minutesPerAmount = task.estimatedMinutes / originalAmount;
-  const now = new Date().toISOString();
-
-  if (!material || !explicit) {
-    const completed = Math.min(task.amount, sumRangeLengths(completedRanges));
-    const amount = Math.max(0, task.amount - completed);
-    if (amount <= 0) return [{ ...task, status: 'done' as const, completedAt: now }];
-    return [{
-      ...task,
-      amount,
-      estimatedMinutes: Math.max(1, Math.round(amount * minutesPerAmount)),
-      scheduledEnd: task.scheduledStart
-        ? minutesToHM(hmToMinutes(task.scheduledStart) + Math.max(1, Math.round(amount * minutesPerAmount)))
-        : task.scheduledEnd,
-      updatedAt: now,
-    }];
-  }
-
-  const remaining = intersectRanges(remainingUnitRanges(material.totalAmount, completedRanges), explicit);
-  if (remaining.length === 0) return [{ ...task, status: 'done' as const, completedAt: now }];
-  let cursor = task.scheduledStart ? hmToMinutes(task.scheduledStart) : null;
-  return remaining.map((range, index) => {
-    const amount = range.end - range.start + 1;
-    const estimatedMinutes = Math.max(1, Math.round(amount * minutesPerAmount));
-    const scheduledStart = cursor === null ? task.scheduledStart : minutesToHM(cursor);
-    const scheduledEnd = cursor === null ? task.scheduledEnd : minutesToHM(cursor + estimatedMinutes);
-    if (cursor !== null) cursor += estimatedMinutes;
-    return {
-      ...task,
-      id: index === 0 ? task.id : `${task.id}_remaining_${range.start}_${range.end}`,
-      rangeStart: range.start,
-      rangeEnd: range.end,
-      materialRange: range,
-      rangeLabel: range.start === range.end ? `${range.start}` : `${range.start}〜${range.end}`,
-      amount,
-      estimatedMinutes,
-      scheduledStart,
-      scheduledEnd,
-      status: 'planned' as const,
-      completedAt: null,
-      updatedAt: now,
-    };
-  });
-}
-
 function settingsAffectPlan(previous: AppSettings, next: AppSettings): boolean {
   return previous.maxDailyMinutes !== next.maxDailyMinutes
     || previous.sessionMinMinutes !== next.sessionMinMinutes
@@ -325,63 +157,16 @@ function settingsAffectPlan(previous: AppSettings, next: AppSettings): boolean {
 }
 
 
-function recordSession(state: AppState, inp: SessionInput, sessionId = genId('sess')): AppState {
-  const t = today();
-  const progress = resolveSessionProgress(state, inp);
-  const currentTask = findCurrentTask(state, inp);
-  const now = new Date().toISOString();
-  let materials = state.materials;
-  if (inp.materialId && progress.amountDone > 0) {
-    materials = materials.map((material) => {
-      if (material.id !== inp.materialId) return material;
-      const completed = material.completedRanges ?? (material.doneAmount > 0 ? [{ start: 1, end: material.doneAmount }] : []);
-      const merged = normalizeUnitRanges([...completed, ...progress.addedRanges], material.totalAmount);
-      return { ...material, completedRanges: merged, doneAmount: sumRangeLengths(merged) };
-    });
-  }
-  let tasks = state.tasks;
-  let newReviews: StudyTask[] = [];
-  let replacementTaskIds: string[] = [];
-  if (currentTask && inp.completedTask && currentTask.status !== 'done') {
-    tasks = tasks.map((task) => task.id === currentTask.id ? { ...task, status: 'done' as const, completedAt: now } : task);
-    newReviews = generateReviewTasks({ ...state, materials }, currentTask, inp.date ?? t);
-  } else if (currentTask && progress.amountDone > 0 && currentTask.status !== 'done') {
-    const material = currentTask.materialId ? materials.find((item) => item.id === currentTask.materialId) : undefined;
-    const completedRanges = material?.completedRanges ?? [];
-    const replacements = shrinkTaskAfterProgress(currentTask, material, progress.addedRanges.length > 0 ? completedRanges : [{ start: 1, end: progress.amountDone }]);
-    replacementTaskIds = replacements.map((task) => task.id);
-    tasks = tasks.flatMap((task) => task.id === currentTask.id ? replacements : [task]);
-  }
-  const session: StudySession = {
-    id: sessionId,
-    taskId: currentTask?.id ?? inp.taskId,
-    subjectId: inp.subjectId,
-    materialId: inp.materialId,
-    date: inp.date ?? t,
-    startedAt: inp.date && inp.startTime ? localDateTimeToISOString(inp.date, inp.startTime) : now,
-    minutes: inp.minutes,
-    amountDone: progress.amountDone,
-    rangeLabel: inp.rangeLabel,
-    focus: inp.focus,
-    memo: inp.memo,
-    source: inp.source,
-    progressRangesAdded: progress.addedRanges,
-    taskSnapshotBefore: currentTask ? { ...currentTask } : undefined,
-    generatedReviewTaskIds: newReviews.map((task) => task.id),
-    replacementTaskIds,
-    completedTask: Boolean(currentTask && inp.completedTask),
-    updatedAt: now,
-  };
-  const sessions = [...state.sessions, session];
-  materials = materials.map((material) => {
-    if (material.id !== inp.materialId) return material;
-    const estimate = updateMinutesPerUnitEstimate(material, sessions, state.settings.estimateAlpha ?? 0.2);
-    return { ...material, minutesPerUnit: estimate.appliedEstimate, estimatedMinutesPerUnit: estimate.suggestedEstimate ?? material.estimatedMinutesPerUnit };
-  });
-  const replanned = generatePlan({ ...state, materials, tasks: [...tasks, ...newReviews], sessions }, addDays(t, 1), '学習実績の反映');
-  return newReviews.length > 0 || (currentTask && !inp.completedTask)
-    ? replanned.state
-    : { ...replanned.state, lastReschedule: null };
+function applyPlannedSessionMutation(
+  state: AppState,
+  action: SessionMutationAction,
+): AppState {
+  const prepared = prepareSessionMutation(state, action, today());
+  if (!prepared) return state;
+  const planned = generatePlan(prepared.state, prepared.replanFrom, prepared.reason).state;
+  return prepared.clearLastRescheduleOnSuccess
+    ? { ...planned, lastReschedule: null }
+    : planned;
 }
 
 export function appReducer(state: AppState, action: Action): AppState {
@@ -590,19 +375,14 @@ export function appReducer(state: AppState, action: Action): AppState {
       };
     }
 
-    case 'RECORD_SESSION': {
-      return recordSession(state, action.input);
-    }
+    case 'RECORD_SESSION':
+      return applyPlannedSessionMutation(state, action);
 
-    case 'UPDATE_SESSION': {
-      const previous = state.sessions.find((session) => session.id === action.sessionId);
-      return previous ? recordSession(revertSessionEffects(state, previous), action.input, action.sessionId) : state;
-    }
+    case 'UPDATE_SESSION':
+      return applyPlannedSessionMutation(state, action);
 
-    case 'DELETE_SESSION': {
-      const previous = state.sessions.find((session) => session.id === action.sessionId);
-      return previous ? generatePlan(revertSessionEffects(state, previous), t, '学習記録の削除').state : state;
-    }
+    case 'DELETE_SESSION':
+      return applyPlannedSessionMutation(state, action);
 
     case 'POSTPONE_TASK': {
       const task = state.tasks.find((x) => x.id === action.taskId);
@@ -787,6 +567,10 @@ interface AppContextValue {
   state: AppState;
   dispatch: (action: Action) => void;
   execute: (action: Action) => AppCommandResult;
+  executeSession: (action: SessionMutationAction) => AppCommandResult;
+  planningStatus: DeferredPlanningStatus;
+  planningErrorMessage: string | null;
+  retryPlanning: () => void;
   syncStatus: SyncStatus;
   syncConflict: MainSyncConflict | null;
   hasUnsyncedChanges: boolean;
@@ -834,6 +618,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const stateRef = useRef(state);
   stateRef.current = state;
+  const deferredSchedulerRef = useRef<DeferredScheduler | null>(null);
+  const lastPlanRequestRef = useRef<{ fromDate: ISODate; reason: string; clearLastRescheduleOnSuccess: boolean } | null>(null);
+  const [planningStatus, setPlanningStatus] = useState<DeferredPlanningStatus>('idle');
+  const [planningErrorMessage, setPlanningErrorMessage] = useState<string | null>(null);
+  const deferredScheduler = useCallback(() => {
+    if (!deferredSchedulerRef.current) deferredSchedulerRef.current = createDeferredScheduler();
+    return deferredSchedulerRef.current;
+  }, []);
+  const cancelDeferredPlanning = useCallback(() => {
+    deferredSchedulerRef.current?.cancel();
+    setPlanningStatus('idle');
+    setPlanningErrorMessage(null);
+  }, []);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [undoEntry, setUndoEntry] = useState<UndoEntry | null>(null);
   const [undoNotice, setUndoNotice] = useState<string | null>(null);
@@ -853,11 +650,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const previous = stateRef.current;
     const next = appReducer(previous, action);
     if (next === previous) return;
+    cancelDeferredPlanning();
     rememberUndo(action, previous);
     // 同一イベント内で複数コマンドが続いても、2件目が古いReact stateを基準にしない。
     stateRef.current = next;
     reducerDispatch({ type: 'REPLACE_STATE', state: next });
-  }, [rememberUndo]);
+  }, [cancelDeferredPlanning, rememberUndo]);
   const execute = useCallback((action: Action): AppCommandResult => {
     const previous = stateRef.current;
     const next = appReducer(previous, action);
@@ -865,6 +663,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const schedule = next.lastScheduleResult !== previous.lastScheduleResult ? next.lastScheduleResult : undefined;
     const rejected = schedule?.status === 'invalidInput';
     if (changed && !rejected) {
+      cancelDeferredPlanning();
       rememberUndo(action, previous);
       stateRef.current = next;
       reducerDispatch({ type: 'REPLACE_STATE', state: next });
@@ -879,8 +678,89 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...(status === 'infeasible' ? { message: '保存しましたが、期限内に全量を配置できません' } : {}),
       ...(status === 'indeterminate' ? { message: '保存しましたが、配置可能性を確定できませんでした' } : {}),
     };
-  }, [rememberUndo]);
-  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
+  }, [cancelDeferredPlanning, rememberUndo]);
+
+  const scheduleDeferredPlan = useCallback((
+    committedState: AppState,
+    fromDate: ISODate,
+    reason: string,
+    clearLastRescheduleOnSuccess: boolean,
+  ) => {
+    lastPlanRequestRef.current = { fromDate, reason, clearLastRescheduleOnSuccess };
+    setPlanningStatus('planning');
+    setPlanningErrorMessage(null);
+    let handle: ReturnType<DeferredScheduler['request']>;
+    try {
+      handle = deferredScheduler().request({ state: committedState, fromDate, reason });
+    } catch (caught) {
+      setPlanningStatus('error');
+      setPlanningErrorMessage(caught instanceof Error ? caught.message : '計画を再計算できませんでした');
+      return;
+    }
+    void handle.promise.then((planned) => {
+      const scheduler = deferredSchedulerRef.current;
+      if (!scheduler || !canApplyDeferredPlan(
+        handle.generation,
+        scheduler.generation(),
+        committedState,
+        stateRef.current,
+      )) return;
+      const status = planned.lastScheduleResult?.status;
+      if (status === 'invalidInput') {
+        setPlanningStatus('error');
+        setPlanningErrorMessage(planned.lastScheduleResult?.validationErrors?.[0]?.reason ?? '記録は保存しましたが、計画を再計算できませんでした');
+        return;
+      }
+      const next = clearLastRescheduleOnSuccess ? { ...planned, lastReschedule: null } : planned;
+      stateRef.current = next;
+      reducerDispatch({ type: 'REPLACE_STATE', state: next });
+      setPlanningStatus('idle');
+      setPlanningErrorMessage(null);
+    }).catch((caught: unknown) => {
+      const scheduler = deferredSchedulerRef.current;
+      if (!scheduler || handle.generation !== scheduler.generation()) return;
+      setPlanningStatus('error');
+      setPlanningErrorMessage(caught instanceof Error ? caught.message : '記録は保存しましたが、計画を再計算できませんでした');
+    });
+  }, [deferredScheduler]);
+
+  const executeSession = useCallback((action: SessionMutationAction): AppCommandResult => {
+    const previous = stateRef.current;
+    const prepared = prepareSessionMutation(previous, action, today());
+    if (!prepared || prepared.state === previous) return { changed: false, errorCode: 'noChange' };
+    deferredSchedulerRef.current?.cancel();
+    rememberUndo(action, previous);
+    stateRef.current = prepared.state;
+    reducerDispatch({ type: 'REPLACE_STATE', state: prepared.state });
+    // 記録本体はscheduler workerの成否より先に永続化する。
+    // これにより計画生成の失敗・timeout・タブ終了でも記録を失わない。
+    saveStateNow(prepared.state);
+    scheduleDeferredPlan(
+      prepared.state,
+      prepared.replanFrom,
+      prepared.reason,
+      prepared.clearLastRescheduleOnSuccess,
+    );
+    return {
+      changed: true,
+      message: action.type === 'DELETE_SESSION'
+        ? '記録を削除しました。計画を再計算中です'
+        : action.type === 'UPDATE_SESSION'
+          ? '記録を更新しました。計画を再計算中です'
+          : '記録を保存しました。計画を再計算中です',
+    };
+  }, [rememberUndo, scheduleDeferredPlan]);
+
+  const retryPlanning = useCallback(() => {
+    const request = lastPlanRequestRef.current;
+    if (!request) return;
+    scheduleDeferredPlan(stateRef.current, request.fromDate, request.reason, request.clearLastRescheduleOnSuccess);
+  }, [scheduleDeferredPlan]);
+
+  useEffect(() => () => {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    deferredSchedulerRef.current?.dispose();
+  }, []);
   const skipInitialLocalWrite = useRef(true);
   const lastLocallyTrackedState = useRef(state);
   const [syncReady, setSyncReady] = useState(false);
@@ -1216,7 +1096,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSyncAttempt((attempt) => attempt + 1);
   }, []);
 
-  const value = useMemo(() => ({ state, dispatch, execute, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError }), [state, dispatch, execute, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError]);
+  const value = useMemo(() => ({ state, dispatch, execute, executeSession, planningStatus, planningErrorMessage, retryPlanning, syncStatus, syncConflict: syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError }), [state, dispatch, execute, executeSession, planningStatus, planningErrorMessage, retryPlanning, syncStatus, syncConflictInfo, hasUnsyncedChanges, resolveSyncConflict, retrySync, syncErrorMessage, localSaveError]);
   // 端末内データがある場合は即座に操作可能にする。新しい端末でデータが空の時だけ、
   // オンボーディングを誤表示しないよう初回クラウド取得を待つ。
   const shouldWaitForInitialCloudState = Boolean(owner && !syncReady && !state.onboarded);
@@ -1234,6 +1114,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         <span>{undoEntry.label}</span>
         <button type="button" onClick={() => {
           if (!isUndoEntryValid(undoEntry)) { setUndoEntry(null); setUndoNotice('元に戻せる時間が過ぎています'); return; }
+          cancelDeferredPlanning();
           stateRef.current = undoEntry.state;
           reducerDispatch({ type: 'REPLACE_STATE', state: undoEntry.state });
           setUndoEntry(null);

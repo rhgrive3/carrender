@@ -7,7 +7,6 @@ import { useToast } from '../ui/Toast';
 import { todayQuotaFor } from '../../lib/analytics';
 import { APP_TIME_ZONE, localDateTimeToISOString, minutesInTimeZone, minutesToHM, today } from '../../lib/date';
 import { missingRecordMaterialOption, missingRecordSubjectOption } from '../../lib/recordReferences';
-import { applyRecordSessionTransaction } from '../../lib/recordSessionTransaction';
 import { recordAmountInputLimit, recordTaskCompletionAmount } from '../../lib/recordEditCapacity';
 import type { StudySession, StudyTask } from '../../types';
 import { useTimer } from '../timer/TimerContext';
@@ -66,7 +65,7 @@ function matchesPresetLocator(task: StudyTask, preset?: RecordPreset): boolean {
 }
 
 export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSheetProps) {
-  const { state, execute } = useApp();
+  const { state, executeSession } = useApp();
   const timer = useTimer();
   const toast = useToast();
   const timerStartedAt = preset?.source === 'timer' ? timer.startedAt : null;
@@ -224,17 +223,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     const action = session
       ? ({ type: 'UPDATE_SESSION' as const, sessionId: session.id, input })
       : ({ type: 'RECORD_SESSION' as const, input });
-    const tasklessMaterialRecord = Boolean(input.materialId && !input.taskId && !input.taskLocator?.sourceId);
-    const taskOverrunRecord = Boolean(
-      input.materialId
-      && (input.taskId || input.taskLocator?.sourceId)
-      && input.completedTask
-      && taskCompletionAmount > 0
-      && input.amountDone > taskCompletionAmount,
-    );
-    const result = tasklessMaterialRecord || taskOverrunRecord
-      ? execute({ type: 'REPLACE_STATE', state: applyRecordSessionTransaction(state, action, today()) })
-      : execute(action);
+    const result = executeSession(action, { suppressNotification: true });
     if (!result.changed) {
       release();
       toast(result.message ?? '記録を保存できませんでした');
@@ -249,7 +238,7 @@ export function RecordSheet({ open, onClose, preset, onDone, session }: RecordSh
     if (!session || actionInFlightRef.current) return;
     if (!window.confirm('この学習記録を削除しますか？教材進捗と復習タスクも再計算されます。')) return;
     actionInFlightRef.current = true;
-    const result = execute({ type: 'DELETE_SESSION', sessionId: session.id });
+    const result = executeSession({ type: 'DELETE_SESSION', sessionId: session.id }, { suppressNotification: true });
     if (!result.changed) {
       actionInFlightRef.current = false;
       toast(result.message ?? '記録を削除できませんでした');
