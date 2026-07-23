@@ -1,0 +1,34 @@
+name: Apply issue 403
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.ref == 'agent/issue-403-scheduler-diagnostics' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/issue-403-scheduler-diagnostics
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply and verify
+        run: |
+          set -euo pipefail
+          python3 .github/apply_issue_403_scheduler.py
+          npm ci
+          npm run typecheck
+          npm run test:scheduler
+          rm -f .github/apply_issue_403_scheduler.py .github/workflows/apply-issue-403.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "スケジューラ診断をproduction計画へ接続する"
+          git push origin HEAD:agent/issue-403-scheduler-diagnostics
