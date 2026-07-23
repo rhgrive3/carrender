@@ -897,6 +897,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               setSyncStatus('error');
             }
           } catch (refreshError) {
+            if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
             const refresh = refreshError as ApiError;
             setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
             setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');
@@ -1019,7 +1020,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setSyncStatus('synced');
         }
       } catch (caught) {
-        if (cancelled) return;
+        if (cancelled || !syncOwnerGeneration.current.isCurrent(ownerToken)) return;
         const error = caught as ApiError;
         if (error.status === 409) {
           try {
@@ -1032,6 +1033,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               setSyncStatus('error');
             }
           } catch (refreshError) {
+            if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
             const refresh = refreshError as ApiError;
             setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
             setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');

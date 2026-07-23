@@ -34,4 +34,5 @@ assert.ok(
   source.includes('if (!cancelled && syncOwnerGeneration.current.isCurrent(ownerToken)) setSyncReady(true)'),
   'stale startup reconciliation must not mark the next owner ready',
 );
+assert.equal((source.match(/catch \(refreshError\) \{\n            if \(!syncOwnerGeneration\.current\.isCurrent\(ownerToken\)\) return;/g) ?? []).length, 2, 'both 409 refresh failures are generation guarded');
 console.log('main sync owner-generation guards: ok');
