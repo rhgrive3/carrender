@@ -34,7 +34,8 @@ const postponed = appReducer(state, postponeAction);
 assert.notStrictEqual(postponed, state, 'Reducer直接実行でもUI commandと同じstale doing復旧を行う');
 assert.equal(postponed.tasks[0]?.status, 'planned');
 assert.equal(postponed.tasks[0]?.scheduledDate, addDays(date, 1));
-assert.notEqual(postponed.tasks[0]?.scheduledStart, '09:00', '古い固定時刻を維持しない');
+assert.equal(postponed.tasks[0]?.placementLock, 'date', '時刻固定を解除して日付固定へ移す');
+assert.equal(postponed.tasks[0]?.manualScheduling?.fixedStartTime, undefined, '古い固定開始時刻metadataを維持しない');
 
 const moveDate = addDays(date, 2);
 const moveAction = { type: 'MOVE_TASK' as const, taskId: doingTask.id, date: moveDate };
