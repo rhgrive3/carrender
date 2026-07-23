@@ -63,6 +63,18 @@ await assert.rejects(
 );
 assert.equal(saveCalls, 0, '存在しないroute Itemでもwriteしない');
 
+await assert.rejects(
+  saveRoutedMemoryItemDraft({
+    repository,
+    expectedItemId: 'item-a',
+    draft,
+    original: { ...original, items: [...original.items, { ...original.items[0] }] },
+  }),
+  /カードが切り替わりました/,
+  '同一Item IDが重複した破損snapshotを曖昧なまま保存しない',
+);
+assert.equal(saveCalls, 0, '重複Item identityでもwriteしない');
+
 await saveRoutedMemoryItemDraft({ repository, expectedItemId: 'item-a', draft, original });
 assert.equal(saveCalls, 1, '一致するroute/draftだけを1 transactionで保存する');
 assert.equal(savedItemId, 'item-a', 'routeで選択したItem identityを維持する');
