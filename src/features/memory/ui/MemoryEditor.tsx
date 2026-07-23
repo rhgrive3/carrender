@@ -22,23 +22,25 @@ function compareCreatedRecords(
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
-function draftFromContent(content: MemoryContentBundle, itemId: string): MemoryItemDraft | null {
+export function draftFromContent(content: MemoryContentBundle, itemId: string): MemoryItemDraft | null {
   const item = content.items.find((value) => value.id === itemId);
   if (!item) return null;
   const senses = content.senses
     .filter((sense) => sense.itemId === item.id)
     .sort(compareCreatedRecords)
-    .map((sense): MemorySenseDraft => ({
-      id: sense.id,
-      siblingGroupId: sense.siblingGroupId,
-      promptJa: sense.promptJa,
-      meaningJa: sense.meaningJa,
-      explanation: sense.explanation,
-      tags: sense.tags.join(', '),
-      answers: content.answers
+    .map((sense): MemorySenseDraft => {
+      const answers = content.answers
         .filter((answer) => answer.senseId === sense.id)
-        .sort(compareCreatedRecords)
-        .map((answer) => ({
+        .sort(compareCreatedRecords);
+      const answerIndexById = new Map(answers.map((answer, index) => [answer.id, index]));
+      return {
+        id: sense.id,
+        siblingGroupId: sense.siblingGroupId,
+        promptJa: sense.promptJa,
+        meaningJa: sense.meaningJa,
+        explanation: sense.explanation,
+        tags: sense.tags.join(', '),
+        answers: answers.map((answer) => ({
           id: answer.id,
           displayForm: answer.displayForm,
           citationForm: answer.citationForm,
@@ -49,18 +51,35 @@ function draftFromContent(content: MemoryContentBundle, itemId: string): MemoryI
           nuance: answer.nuance,
           note: answer.note,
         })),
-      examples: content.examples
-        .filter((example) => example.senseId === sense.id)
-        .sort(compareCreatedRecords)
-        .map((example) => ({
-          id: example.id,
-          english: example.english,
-          japanese: example.japanese,
-          note: example.note,
-          answerId: example.answerId,
-        })),
-      exercises: [],
-    }));
+        examples: content.examples
+          .filter((example) => example.senseId === sense.id)
+          .sort(compareCreatedRecords)
+          .map((example) => ({
+            id: example.id,
+            english: example.english,
+            japanese: example.japanese,
+            note: example.note,
+            answerId: example.answerId,
+          })),
+        exercises: content.exercises
+          .filter((exercise) => exercise.senseId === sense.id)
+          .sort(compareCreatedRecords)
+          .map((exercise) => ({
+            id: exercise.id,
+            type: exercise.type,
+            prompt: exercise.prompt,
+            context: exercise.context,
+            answerIndex: exercise.answerId ? answerIndexById.get(exercise.answerId) : undefined,
+            acceptedAnswerIndexes: exercise.acceptedAnswerIds
+              .map((answerId) => answerIndexById.get(answerId))
+              .filter((index): index is number => index !== undefined),
+            requiredTokens: exercise.requiredTokens.join(', '),
+            forbiddenTokens: exercise.forbiddenTokens.join(', '),
+            explanation: exercise.explanation,
+            hint: exercise.hint,
+          })),
+      };
+    });
   return { id: item.id, kind: item.kind, label: item.label, lemma: item.lemma, tags: item.tags.join(', '), senses: senses.length ? senses : [blankSense()] };
 }
 
