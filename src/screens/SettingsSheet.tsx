@@ -103,6 +103,14 @@ export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean;
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
+  const importReaderRef = useRef<FileReader | null>(null);
+  const importGenerationRef = useRef(0);
+  const importOwnerRef = useRef(user?.id ?? null);
+  const importOpenRef = useRef(open);
+  const [importBusy, setImportBusy] = useState(false);
+  const ownerId = user?.id ?? null;
+  importOwnerRef.current = ownerId;
+  importOpenRef.current = open;
   const syncInfo = SYNC_STATUS_LABEL[syncStatus] ?? SYNC_STATUS_LABEL.synced;
   const [page, setPage] = useState<SettingsPage>('home');
 
@@ -126,6 +134,18 @@ export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean;
   const remoteSnapshot = useRef({ study: '', timer: '', weekly: '', goal: '', availability: '', events: '' });
   const [newEvent, setNewEvent] = useState<NewEventDraft>(createNewEventDraft);
   const [dayException, setDayException] = useState<DayExceptionDraft>(createDayExceptionDraft);
+
+  useEffect(() => {
+    importGenerationRef.current += 1;
+    importReaderRef.current?.abort();
+    importReaderRef.current = null;
+    setImportBusy(false);
+    return () => {
+      importGenerationRef.current += 1;
+      importReaderRef.current?.abort();
+      importReaderRef.current = null;
+    };
+  }, [open, ownerId]);
 
   useEffect(() => {
     const signatures = {
@@ -448,19 +468,46 @@ export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean;
   };
 
   const doImport = (file: File) => {
+    importReaderRef.current?.abort();
+    const generation = importGenerationRef.current + 1;
+    importGenerationRef.current = generation;
+    const capturedOwnerId = ownerId;
     const reader = new FileReader();
+    importReaderRef.current = reader;
+    setImportBusy(true);
+
+    const isCurrentImport = () => importGenerationRef.current === generation
+      && importOwnerRef.current === capturedOwnerId
+      && importOpenRef.current;
+    const finishCurrentImport = () => {
+      if (!isCurrentImport()) return;
+      importReaderRef.current = null;
+      setImportBusy(false);
+    };
+
     reader.onload = () => {
+      if (!isCurrentImport()) return;
       try {
         const imported = importJSON(String(reader.result));
         const appliedState = prepareImportedState(imported);
+        if (!isCurrentImport()) return;
         dispatch({ type: 'REPLACE_STATE', state: appliedState });
         saveStateNow(appliedState);
+        finishCurrentImport();
         toast('データをインポートしました');
         onClose();
       } catch {
+        if (!isCurrentImport()) return;
+        finishCurrentImport();
         toast('インポートに失敗しました。ファイルを確認してください');
       }
     };
+    reader.onerror = () => {
+      if (!isCurrentImport()) return;
+      finishCurrentImport();
+      toast('インポートに失敗しました。ファイルを読み込めませんでした');
+    };
+    reader.onabort = () => finishCurrentImport();
     reader.readAsText(file);
   };
 
@@ -1169,8 +1216,14 @@ export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean;
         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={doExport}>
           <Download size={14} strokeWidth={2.4} aria-hidden="true" /> バックアップを書き出す
         </button>
-        <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => fileRef.current?.click()}>
-          <Upload size={14} strokeWidth={2.4} aria-hidden="true" /> インポート
+        <button
+          className="btn btn-secondary btn-sm"
+          style={{ flex: 1 }}
+          onClick={() => fileRef.current?.click()}
+          disabled={importBusy}
+          aria-describedby="main-import-status"
+        >
+          <Upload size={14} strokeWidth={2.4} aria-hidden="true" /> {importBusy ? '読み込み中…' : 'インポート'}
         </button>
       </div>
       <button className="btn btn-secondary btn-sm btn-block mt-8" onClick={doExportCSV}>
@@ -1181,6 +1234,7 @@ export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean;
         type="file"
         accept="application/json"
         hidden
+        disabled={importBusy}
         aria-label="バックアップJSONを選択"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -1188,7 +1242,10 @@ export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean;
           e.target.value = '';
         }}
       />
-      <button className="btn btn-danger btn-block mt-8" onClick={doReset}>
+      <p id="main-import-status" role="status" aria-live="polite" className="faint mt-8">
+        {importBusy ? 'バックアップJSONを読み込んでいます。画面を閉じずにお待ちください。' : ''}
+      </p>
+      <button className="btn btn-danger btn-block mt-8" onClick={doReset} disabled={importBusy}>
         すべてのデータを初期化
       </button>
       </Disclosure>
