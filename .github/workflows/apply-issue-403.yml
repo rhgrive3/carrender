@@ -21,19 +21,29 @@ jobs:
           node-version: 22
       - name: Apply prepared refactor
         run: |
-          python3 <<'PY'
+          set +e
+          {
+            python3 <<'PY'
           from pathlib import Path
           from textwrap import dedent
           workflow = Path('.github/workflows/ci.yml').read_text()
           payload = workflow.split("python3 <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
           exec(dedent(payload), {})
           PY
-          npm ci
-          npm run typecheck
-          npm run test:scheduler
-          rm -f .github/workflows/apply-issue-403.yml .issue-403-apply-trigger
+            npm ci
+            npm run typecheck
+            npm run test:scheduler
+          } > issue-403-apply.log 2>&1
+          status=$?
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          if [ "$status" -ne 0 ]; then
+            git add issue-403-apply.log
+            git commit -m "Issue #403適用失敗ログを保存する"
+            git push origin HEAD:agent/issue-403-scheduler-diagnostics
+            exit "$status"
+          fi
+          rm -f issue-403-apply.log .github/workflows/apply-issue-403.yml .issue-403-apply-trigger
           git add -A
           git commit -m "スケジューラ診断へ緩和試行と未配置分類を記録する"
           git push origin HEAD:agent/issue-403-scheduler-diagnostics
