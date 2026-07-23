@@ -1,0 +1,22 @@
+name: Temporary audit source export
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carrender-audit-source
+          path: |
+            .
+            !node_modules
+            !.git
+          retention-days: 1
