@@ -12,6 +12,7 @@ import type {
   ScheduleGenerationResult,
   ScheduleWarning,
   SchedulerContext,
+  SchedulerDiagnostics,
   StudyTask,
   StudySession,
   TimeRange,
@@ -24,6 +25,7 @@ import type { SlotAllocation, SolverDayInput, SolverItem } from './strictSolver'
 import { compareItemsForSearch, countItemPlacements, minutesForUnits, solveStrict } from './strictSolver';
 import { ESTIMATE_POLICY, SCHEDULER_POLICY } from './schedulerPolicy';
 import { earliestDateMeetingCapacity, minimumFeasibleSteppedValue } from './capacitySearch';
+import { classifyUnscheduledReason, createSchedulerDiagnostics, requirePositiveSchedulerValue } from './schedulerDiagnostics';
 
 interface MinuteRange {
   start: number;
@@ -1079,6 +1081,7 @@ function emptyResult(context: SchedulerContext, start: ISODate, status: Schedule
     capacityReport: { horizonStart: start, horizonEnd: start, requiredMinutes: 0, availableMinutes: 0, shortages: [] },
     deadlineReports: [],
     objectiveReport: { ...EMPTY_OBJECTIVE },
+    diagnostics: createSchedulerDiagnostics(errors),
     validationErrors: errors,
     generatedAt: context.now.toISOString(),
     generationId: context.generationId,
@@ -1180,6 +1183,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
   const totalAvailable = [...calendar.values()].reduce((sum, day) => sum + day.originalBudget, 0);
   const fixed = placeFixedTasks(state, calendar, context);
   const warnings: ScheduleWarning[] = [...fixed.warnings];
+  const diagnostics: SchedulerDiagnostics = createSchedulerDiagnostics();
   for (const material of activeMaterials) {
     if (material.preferredFinishDate && (material.preferredFinishDate < material.startDate || material.preferredFinishDate > material.targetDate)) {
       warnings.push({
@@ -1397,8 +1401,19 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       let balanced = runSolve(balancedItems, balancedDays, false);
       // 大きな分割不可チャンク等で均等な総日負荷上限だけが狭すぎる場合は、
       // 教材別の分散上限を維持したまま総日負荷だけを一度緩める。
-      if (balanced.status !== 'feasible' && remainingNodes > 0 && Date.now() < searchDeadline) {
-        balanced = runSolve(balancedItems, balancedDaysBase, false);
+      if (balanced.status !== 'feasible') {
+        const trigger = balanced.status;
+        const canRelax = remainingNodes > 0 && Date.now() < searchDeadline;
+        if (canRelax) balanced = runSolve(balancedItems, balancedDaysBase, false);
+        diagnostics.capRelaxations.push({
+          phase: 'strictDailyLoad',
+          attempt: 1,
+          fromCap: perDayTarget,
+          toCap: maxAvailableBudget,
+          trigger,
+          outcome: canRelax ? balanced.status : trigger,
+          termination: canRelax ? 'relaxed' : remainingNodes <= 0 ? 'nodeBudget' : 'timeBudget',
+        });
       }
       if (balanced.status === 'feasible' && cumulativeNotBehind(balanced.allocations, full.allocations)) {
         finalAllocations = balanced.allocations;
@@ -1672,7 +1687,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     const totalRate = rated.reduce((sum, item) => sum + item.rate, 0);
     const totalWeighted = rated.reduce((sum, item) => sum + item.rate * item.curve.weight, 0);
     for (const { curve, rate } of rated) {
-      const share = totalRate > 1 ? (rate * curve.weight) / Math.max(totalWeighted, 0.0001) : rate;
+      const share = totalRate > 1 ? (rate * curve.weight) / requirePositiveSchedulerValue(totalWeighted, 'totalWeighted') : rate;
       const alloc = Math.min(capacity * share, curve.perDayCap, curve.needMinutes);
       curve.cumTarget += alloc;
       curve.needMinutes -= alloc;
@@ -1710,7 +1725,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
             curve,
             debt: Math.max(0, curveTargetAt(curve, date) - curve.scheduledMinutes),
             debtUnits: Math.max(0, curveTargetAt(curve, date) - curve.scheduledMinutes)
-              / Math.max(curve.material.minutesPerUnit, 0.0001),
+              / requirePositiveSchedulerValue(curve.material.minutesPerUnit, `material:${curve.material.id}.minutesPerUnit`),
             mandatoryUnits: Math.max(0, remainingUnits - futureUnits),
             slackUnits: futureUnits - remainingUnits,
             repeatsPrevious: curve.material.id === previousMaterialId ? 1 : 0,
@@ -1732,10 +1747,10 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
         const material = curve.material;
         const remainingUnits = sumRangeLengths(curve.ranges);
         const remainingGoal = Math.max(0, (candidate.mandatoryUnits > 0 ? dailyLimit : dailyPackingCeiling) - placedToday);
-        const unitsByGoal = Math.floor(remainingGoal / Math.max(material.minutesPerUnit, 0.0001));
+        const unitsByGoal = Math.floor(remainingGoal / requirePositiveSchedulerValue(material.minutesPerUnit, `material:${material.id}.minutesPerUnit`));
         const unitStep = material.unitStep ?? 1;
         const oneChunkUnits = material.maximumChunkUnits
-          ?? Math.max(unitStep, Math.floor(sessionMax / Math.max(material.minutesPerUnit, 0.0001)));
+          ?? Math.max(unitStep, Math.floor(sessionMax / requirePositiveSchedulerValue(material.minutesPerUnit, `material:${material.id}.minutesPerUnit`)));
         const wantedUnits = Math.min(
           remainingUnits,
           unitsByGoal,
@@ -1770,7 +1785,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       if (!day) continue;
       const currentLoad = day.originalBudget - day.budget;
       const smoothMinutes = Math.max(0, Math.min(day.budget, normalLoadCap - currentLoad));
-      const wantedUnits = Math.floor(smoothMinutes / Math.max(curve.material.minutesPerUnit, 0.0001));
+      const wantedUnits = Math.floor(smoothMinutes / requirePositiveSchedulerValue(curve.material.minutesPerUnit, `material:${curve.material.id}.minutesPerUnit`));
       if (wantedUnits <= 0) continue;
       const placed = allocateMaterial(curve.material, curve.ranges, calendar, date, date, wantedUnits, 65, sessionMin, sessionMax, assignments, fixed.valid);
       const placedMinutes = placed.reduce((sum, item) => sum + item.end - item.start, 0);
@@ -1919,6 +1934,11 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     sameMaterialStreak: countMaterialStreaks(scheduledTasks),
     ...computeLoadBalanceMetrics(state, scheduledTasks, safetyFinishByMaterial),
   };
+  diagnostics.unscheduledReasons = unscheduled.map((item) => ({
+    workItemId: item.workItemId,
+    code: classifyUnscheduledReason(item),
+    detail: item.reason,
+  }));
   const result: ScheduleGenerationResult = {
     status: fixed.conflicts.length > 0
       ? 'conflict'
@@ -1935,6 +1955,7 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
     capacityReport,
     deadlineReports,
     objectiveReport,
+    diagnostics,
     generatedAt: context.now.toISOString(),
     generationId: context.generationId,
   };
