@@ -1,0 +1,48 @@
+name: Multi-device sync E2E
+
+on:
+  push:
+    branches:
+      - main
+      - 'agent/**'
+      - 'fix/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: multi-device-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Multi-tab and two-device sync convergence
+        shell: bash
+        run: set -o pipefail; node scripts/multi-device-sync-browser.mjs 2>&1 | tee multi-device-sync.log
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-device-sync-failure-log
+          path: multi-device-sync.log
+          if-no-files-found: ignore
