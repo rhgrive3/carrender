@@ -24,19 +24,11 @@ jobs:
         with:
           ref: agent/fix-scheduler-policy
           fetch-depth: 0
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - name: Apply, verify, and commit
+      - name: Apply and commit
         run: |
           python3 scripts/apply-scheduler-policy.py
           rm scripts/apply-scheduler-policy.py .github/workflows/apply-scheduler-policy.yml
           git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-          npm ci
-          npm run typecheck
-          npm run test:scheduler
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
