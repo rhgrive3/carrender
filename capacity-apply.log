@@ -1,0 +1,109 @@
+npm warn deprecated source-map@0.8.0-beta.0: The work that was done in this beta branch won't be included in future versions
+npm warn deprecated glob@11.1.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
+added 453 packages, and audited 454 packages in 6s
+
+118 packages are looking for funding
+  run `npm fund` for details
+
+4 high severity vulnerabilities
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> studycommander@1.0.0 typecheck
+> tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.functions.json
+
+
+> studycommander@1.0.0 test:scheduler
+> vite-node scripts/schedulerV2.test.ts && vite-node scripts/fixed-event-range.test.ts && vite-node scripts/scheduler-recovery.test.ts && vite-node scripts/material-schedule-smoothing.test.ts && vite-node scripts/strict-plan-quality-real-data.test.ts && vite-node scripts/strict-solver-deterministic-budget.test.ts && vite-node scripts/scheduler-policy.test.ts && vite-node scripts/scheduler-capacity-search.test.ts
+
+--- 13. 貪欲配置では失敗するが解が存在するケース ---
+  ✅ status: success
+  ✅ 教材Bが1日目
+  ✅ 教材Aが2日目
+  ✅ 分割不可の作業が唯一の連続枠(1日目)を確保して全体が成功する
+--- 14. 複数のreleaseDateとdeadline ---
+  ✅ 解がある場合は必ず配置する(status success)
+  ✅ Bはrelease=期限の3日目に配置
+  ✅ 全教材がrelease〜期限内に配置
+--- 15. ロールバック後の不足量 ---
+  ✅ status: infeasible
+  ✅ 最終配置0分
+  ✅ 不足300分(仮配置分を差し引かない)
+  ✅ 教材のタスクが1つも採用されない
+--- 16. 固定条件誤判定 ---
+  ✅ 日付固定タスクはconflictにならない
+  ✅ 指定日内の空き時刻(10:00〜)へ配置される
+  ✅ 予算超過だけではconflictにしない
+  ✅ 時刻固定タスクは維持される
+  ✅ EXCEEDS_DAILY_BUDGET警告を出す
+  ✅ その日の自動タスクは0分に減らされる
+  ✅ 完了済み未来タスクを固定衝突にしない
+  ✅ 完了済みタスクはscheduledTasksへ入らない(履歴のまま)
+  ✅ 完了済みタスクの時間帯(09:00〜)が未来容量として使える
+  ✅ 旧データ移行で時刻ありでもplacementLock=none
+  ✅ 旧データ移行で時刻なしもplacementLock=none
+  ✅ 明示ロックの無い手動タスクは固定扱いせずconflictも出さない
+  ✅ 明示ロックの無い手動タスクは空き時間へ再配置される
+  ✅ 未固定の自動タスクを保護時にtime固定へ昇格しない
+  ✅ 未固定の自動タスクはPAST_TIME衝突にならない
+  ✅ strictの実時刻区間を保持する
+  ✅ 通常タスクはstrict実区間を避ける
+  ✅ strictソルバーが正確なstart/endを返す
+  ✅ 分断30分+30分を連続60分の架空予約として保証しない
+  ✅ 分割手動タスクのamountは各チャンクへ比例配分
+  ✅ 分割後amountの合計は元タスク全量と一致
+  ✅ 旧JSONのundefined範囲からmaterialRangeを生成しない
+--- 17. 完全探索比較(小規模ランダムケース) ---
+  ✅ 完全探索と500ケース一致(解あり137件, indeterminate 0件)
+  ✅ 比較ケースに解あり・解なしの両方が含まれる
+--- 18. ランダムAppStateのプロパティテスト(10,000ケース) ---
+  ✅ ランダム10000ケースで全プロパティ成立(invalidInput 648件は入力起因)
+--- 復習・小数時間・将来手動タスクの回帰 ---
+  ✅ 完了済み範囲を使う復習はinvalidInputにしない
+  ✅ 復習は予定日より前へ置かれない
+  ✅ 小数分教材でも0分タスクを生成しない
+--- 19. 負荷平準化・安全完了日・頻度目標 ---
+  ✅ 通常教材は初日180分へ集中しない
+  ✅ 通常教材の最大日負荷は必要平均から大きく外れない
+  ✅ 通常教材の安全予備を侵食しない
+  ✅ strictは期限直前だけへ集中しない
+  ✅ strictは期限前の安全予備を残す
+  ✅ strictは期限保証を維持する
+  ✅ 40分単位strictも安全完了日までへ分散する
+  ✅ 40分単位strictが期限前の安全予備を残す
+  ✅ 40分単位strictの期限保証を維持する
+  ✅ 複数strictでも化学特講を期限日に固めず安全完了日までへ分散する
+  ✅ 複数strictでも数学特講を期限直前へ戻さない
+  ✅ 複数strictの期限保証と安全予備を維持する
+  ✅ 具体計画の最低日数を超えても目標日までタスク化する
+  ✅ 週3回指定は1週へ過剰集中しない
+  ✅ 週3回指定の超過は結果指標から分かる
+  ✅ dailyTargetがある通常日は目標量へ近づく
+  ✅ weeklyTargetが週内で前半だけへ偏らない
+  ✅ 期限上必要なら目標より期限を優先できる
+  ✅ 後半固定予定を見越して必要量を前半へ置く
+  ✅ 後半固定予定でも通常期限を守る
+  ✅ 単位幅の異なる複数教材も未配置を出さない
+  ✅ 複数教材の合計日負荷を必要平均付近へ平準化する
+  ✅ 期限が遅い教材も計画末尾へ一括せず前半から混ぜる
+  ✅ 安全完了日までの単位端数は未配置にせず実期限までに回収する
+  ✅ 予備期間を使った量を警告で明示する
+--- 日別負荷評価は空白日を含む ---
+  ✅ 予定のない中間日を0分として分散へ含める
+  ✅ 予定のない中間日との隣接差を評価する
+
+🎉 ALL PASS (schedulerV2 spec)
+fixed event range test passed
+✅ overdue scheduler recovery regressions passed
+✅ material schedule smoothing regressions passed
+✅ strict real-data app-path plan quality regressions passed
+✅ strict solver deterministic budget contracts passed
+✅ scheduler named policy contracts passed
+✅ scheduler capacity prefix sum and monotonic binary search contracts passed

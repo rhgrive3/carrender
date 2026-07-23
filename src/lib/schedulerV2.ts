@@ -23,6 +23,7 @@ import { addDays, diffDays, hmToMinutes, minutesInTimeZone, minutesToHM, toISODa
 import type { SlotAllocation, SolverDayInput, SolverItem } from './strictSolver';
 import { compareItemsForSearch, countItemPlacements, minutesForUnits, solveStrict } from './strictSolver';
 import { ESTIMATE_POLICY, SCHEDULER_POLICY } from './schedulerPolicy';
+import { earliestDateMeetingCapacity, minimumFeasibleSteppedValue } from './capacitySearch';
 
 interface MinuteRange {
   start: number;
@@ -253,11 +254,13 @@ function computeSafetyFinishDate(input: SafetyFinishInput): ISODate {
     ? (input.preferredFinishDate < input.start ? input.start : input.preferredFinishDate > input.deadline ? input.deadline : input.preferredFinishDate)
     : addDays(input.deadline, -reserve);
   if (finish < input.start) finish = input.start;
-  const capacityThrough = (end: ISODate) => input.capacityByDate
-    .filter((day) => day.date >= input.start && day.date <= end)
-    .reduce((sum, day) => sum + Math.max(0, day.minutes), 0);
-  while (finish < input.deadline && capacityThrough(finish) < input.requiredMinutes) finish = addDays(finish, 1);
-  return finish;
+  return earliestDateMeetingCapacity(
+    input.capacityByDate,
+    input.start,
+    finish,
+    input.deadline,
+    input.requiredMinutes,
+  );
 }
 
 function mondayKey(date: ISODate): ISODate {
@@ -1382,8 +1385,14 @@ export function generatePlanV2(state: AppState, context: SchedulerContext): Sche
       // solver explored that impossible cap until its limit and then fell back
       // to the latest-deadline solution. Raise the cap only until these cheap
       // necessary capacity bounds say the balanced solve can physically fit.
-      let perDayTarget = Math.max(sessionMin, Math.ceil(averageStrictMinutes / 5) * 5);
-      while (perDayTarget < maxAvailableBudget && !capCouldPossiblyFit(perDayTarget)) perDayTarget += 5;
+      const loadStep = SCHEDULER_POLICY.balancedLoadStepMinutes;
+      const initialPerDayTarget = Math.max(sessionMin, Math.ceil(averageStrictMinutes / loadStep) * loadStep);
+      const perDayTarget = minimumFeasibleSteppedValue(
+        initialPerDayTarget,
+        maxAvailableBudget,
+        loadStep,
+        capCouldPossiblyFit,
+      );
       const balancedDays = balancedDaysBase.map((day) => ({ ...day, budget: Math.min(day.budget, perDayTarget) }));
       let balanced = runSolve(balancedItems, balancedDays, false);
       // 大きな分割不可チャンク等で均等な総日負荷上限だけが狭すぎる場合は、
