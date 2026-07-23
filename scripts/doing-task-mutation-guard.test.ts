@@ -34,7 +34,9 @@ const postponed = appReducer(state, postponeAction);
 assert.notStrictEqual(postponed, state, 'Reducer直接実行でもUI commandと同じstale doing復旧を行う');
 assert.equal(postponed.tasks[0]?.status, 'planned');
 assert.equal(postponed.tasks[0]?.scheduledDate, addDays(date, 1));
-assert.notEqual(postponed.tasks[0]?.scheduledStart, '09:00', '古い固定時刻を維持しない');
+assert.equal(postponed.tasks[0]?.placementLock, 'date', '時刻固定を解除して日付固定へ移す');
+assert.equal(postponed.tasks[0]?.manualScheduling?.placementPolicy, 'fixedDateFlexibleTime', '延期後は日付固定・時刻可変へ移行する');
+assert.equal(postponed.tasks[0]?.manualScheduling?.fixedStartTime, undefined, '古い固定開始時刻metadataを維持しない');
 
 const moveDate = addDays(date, 2);
 const moveAction = { type: 'MOVE_TASK' as const, taskId: doingTask.id, date: moveDate };
@@ -87,7 +89,7 @@ const dueTodayResolved = resolveAppAction(dueTodayState, dueTodayAction, { nowIs
 assert.equal(dueTodayResolved.status, 'rejected', '今日期限のタスクを期限翌日へ延期しない');
 assert.equal(dueTodayResolved.status === 'rejected' ? dueTodayResolved.errorCode : undefined, 'pastDueDate');
 assert.equal(dueTodayResolved.status === 'rejected' ? dueTodayResolved.message : undefined, '期限を過ぎる日には移動できません');
-assert.strictEqual(appReducer(dueTodayState, dueTodayAction), dueTodayState, '拒否時はtask・履歴・updatedAtを一切変更しない');
+assert.strictEqual(appReducer(dueTodayState, { type: 'POSTPONE_TASK', taskId: dueTodayTask.id }), dueTodayState, '拒否時はtask・履歴・updatedAtを一切変更しない');
 
 const staleDoingDueTodayState: AppState = { ...state, tasks: [{ ...doingTask, dueDate: date }] };
 const staleDoingDueToday = resolveAppAction(staleDoingDueTodayState, postponeAction, { nowIso: now, todayDate: date });

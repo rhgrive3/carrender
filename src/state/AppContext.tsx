@@ -23,6 +23,7 @@ import type {
   AppCommandResult as BaseAppCommandResult,
   SessionInput,
 } from './AppContextBase';
+import type { SessionMutationAction } from '../lib/sessionMutation';
 
 export * from './AppContextBase';
 
@@ -44,8 +45,9 @@ export type AppCommandResult =
       changed: false;
     });
 
-type AppContextValue = Omit<ReturnType<typeof useBaseApp>, 'execute'> & {
+type AppContextValue = Omit<ReturnType<typeof useBaseApp>, 'execute' | 'executeSession'> & {
   execute: (action: Action, options?: AppCommandExecutionOptions) => AppCommandResult;
+  executeSession: (action: SessionMutationAction, options?: AppCommandExecutionOptions) => AppCommandResult;
 };
 
 const GuardedAppContext = createContext<AppContextValue | null>(null);
@@ -419,7 +421,27 @@ function GuardedAppBridge({ children }: { children: ReactNode }) {
     return finish(normalizeBaseCommandResult(base.execute(resolved.action)));
   }, [base, owner]);
 
-  const value = useMemo<AppContextValue>(() => ({ ...base, dispatch, execute }), [base, dispatch, execute]);
+  const executeSession = useCallback((
+    action: SessionMutationAction,
+    options: AppCommandExecutionOptions = {},
+  ): AppCommandResult => {
+    const finish = (result: AppCommandResult) => notifyAppCommandResult(result, options);
+    const resolved = resolveAppAction(base.state, action, {
+      activeTimerTarget: persistedTimerTarget(owner),
+    });
+    if (resolved.status === 'rejected') {
+      return finish(createRejectedAppCommandResult(resolved.message, resolved.errorCode));
+    }
+    if (resolved.status === 'noChange') return createNoChangeAppCommandResult(resolved.message);
+    if (resolved.action.type !== 'RECORD_SESSION'
+      && resolved.action.type !== 'UPDATE_SESSION'
+      && resolved.action.type !== 'DELETE_SESSION') {
+      return finish(createRejectedAppCommandResult('記録操作を確認できません', 'invalidSessionAction'));
+    }
+    return finish(normalizeBaseCommandResult(base.executeSession(resolved.action)));
+  }, [base, owner]);
+
+  const value = useMemo<AppContextValue>(() => ({ ...base, dispatch, execute, executeSession }), [base, dispatch, execute, executeSession]);
   return <GuardedAppContext.Provider value={value}>{children}</GuardedAppContext.Provider>;
 }
 
