@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - automation/audit-export-20260723-2
+  pull_request:
+    branches:
+      - main
 jobs:
   export:
     runs-on: ubuntu-latest
