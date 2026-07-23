@@ -14,6 +14,13 @@ type ScanCall = {
   };
 };
 
+Object.defineProperty(globalThis, 'IDBKeyRange', {
+  configurable: true,
+  value: {
+    bound: (lower: IDBValidKey, upper: IDBValidKey) => ({ lower, upper }),
+  },
+});
+
 const repository = new MemoryRepository('cursor-test-owner');
 const scanCalls: ScanCall[] = [];
 const attempts: LocalMemoryAttempt[] = [
