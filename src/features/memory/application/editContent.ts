@@ -216,11 +216,13 @@ export async function saveMemoryItemDraft(input: {
     entities.push(revisionedEntity('sense', sense, !originalSense));
 
     const answerIdByDraftIndex = new Map<number, string>();
+    const retainedAnswerIdsForSense = new Set<string>();
     for (const [answerIndex, answerDraft] of senseDraft.answers.entries()) {
       if (!answerDraft.displayForm.trim()) continue;
       const originalAnswer = input.original?.answers.find((answer) => answer.id === answerDraft.id);
       const answerId = originalAnswer?.id ?? answerDraft.id ?? createMemoryId('answer');
       retainedAnswerIds.add(answerId);
+      retainedAnswerIdsForSense.add(answerId);
       answerIdByDraftIndex.set(answerIndex, answerId);
       const answer: MemoryAnswer = {
         id: answerId,
@@ -247,10 +249,10 @@ export async function saveMemoryItemDraft(input: {
       const exampleId = originalExample?.id ?? exampleDraft.id ?? createMemoryId('example');
       retainedExampleIds.add(exampleId);
       const answerId = originalExample
-        ? originalExample.answerId && retainedAnswerIds.has(originalExample.answerId)
+        ? originalExample.answerId && retainedAnswerIdsForSense.has(originalExample.answerId)
           ? originalExample.answerId
           : undefined
-        : exampleDraft.answerId && retainedAnswerIds.has(exampleDraft.answerId)
+        : exampleDraft.answerId && retainedAnswerIdsForSense.has(exampleDraft.answerId)
           ? exampleDraft.answerId
           : answerIdByDraftIndex.size === 1 ? [...answerIdByDraftIndex.values()][0] : undefined;
       const example: MemoryExample = {
@@ -274,14 +276,14 @@ export async function saveMemoryItemDraft(input: {
       const exerciseId = originalExercise?.id ?? exerciseDraft.id ?? createMemoryId('exercise');
       retainedExerciseIds.add(exerciseId);
       const answerId = originalExercise
-        ? originalExercise.answerId && retainedAnswerIds.has(originalExercise.answerId)
+        ? originalExercise.answerId && retainedAnswerIdsForSense.has(originalExercise.answerId)
           ? originalExercise.answerId
           : undefined
         : exerciseDraft.answerIndex === undefined
           ? undefined
           : answerIdByDraftIndex.get(exerciseDraft.answerIndex);
       const acceptedAnswerIds = originalExercise
-        ? originalExercise.acceptedAnswerIds.filter((id) => retainedAnswerIds.has(id))
+        ? originalExercise.acceptedAnswerIds.filter((id) => retainedAnswerIdsForSense.has(id))
         : [...new Set((exerciseDraft.acceptedAnswerIndexes ?? [])
             .map((index) => answerIdByDraftIndex.get(index))
             .filter((id): id is string => Boolean(id)))];
