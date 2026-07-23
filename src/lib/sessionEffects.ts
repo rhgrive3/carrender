@@ -18,6 +18,10 @@ function subtractRanges(
   return current;
 }
 
+/**
+ * Keeps legacy progress without provenance as a baseline and rebuilds only the
+ * exact ranges contributed by current-format sessions.
+ */
 export function rebuildMaterialProgress(
   material: Material,
   beforeSessions: StudySession[],
@@ -39,6 +43,7 @@ export function rebuildMaterialProgress(
   return { ...material, completedRanges, doneAmount: sumRangeLengths(completedRanges) };
 }
 
+/** Reverses every durable side effect represented by one study session. */
 export function revertSessionEffects(state: AppState, session: StudySession): AppState {
   const sessions = state.sessions.filter((entry) => entry.id !== session.id);
   let tasks = state.tasks.filter((task) =>
