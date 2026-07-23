@@ -73,8 +73,8 @@ export function draftFromContent(content: MemoryContentBundle, itemId: string): 
             acceptedAnswerIndexes: exercise.acceptedAnswerIds
               .map((answerId) => answerIndexById.get(answerId))
               .filter((index): index is number => index !== undefined),
-            requiredTokens: exercise.requiredTokens.join(', '),
-            forbiddenTokens: exercise.forbiddenTokens.join(', '),
+            requiredTokens: exercise.requiredTokens?.join(', '),
+            forbiddenTokens: exercise.forbiddenTokens?.join(', '),
             explanation: exercise.explanation,
             hint: exercise.hint,
           })),
