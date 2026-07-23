@@ -528,6 +528,40 @@ export interface FullMemoryBackup extends MemorySetBundle {
   settings: Record<string, unknown>;
 }
 
+
+export const FULL_MEMORY_BACKUP_MAX_BYTES = 50_000_000;
+export const FULL_MEMORY_BACKUP_MAX_VALUES = 3_000_000;
+
+export interface SerializedFullMemoryBackup {
+  text: string;
+  byteLength: number;
+}
+
+export function fullMemoryBackupSizeLabel(maxBytes = FULL_MEMORY_BACKUP_MAX_BYTES): string {
+  const megabytes = maxBytes / 1_000_000;
+  return `${Number.isInteger(megabytes) ? megabytes : megabytes.toFixed(1)}MB`;
+}
+
+/**
+ * Full backups use compact JSON so the application never creates a pretty-
+ * printed file that its own restore boundary rejects. The shared byte policy
+ * is checked before a download is offered.
+ */
+export function serializeFullMemoryBackup(
+  backup: FullMemoryBackup,
+  options: { maxJsonBytes?: number } = {},
+): SerializedFullMemoryBackup {
+  const text = JSON.stringify(backup);
+  const byteLength = new TextEncoder().encode(text).byteLength;
+  const maxJsonBytes = options.maxJsonBytes ?? FULL_MEMORY_BACKUP_MAX_BYTES;
+  if (byteLength > maxJsonBytes) {
+    throw new Error(
+      `完全バックアップが${fullMemoryBackupSizeLabel(maxJsonBytes)}を超えています。履歴を整理してから再度作成してください`,
+    );
+  }
+  return { text, byteLength };
+}
+
 export interface MemoryBackupAttempt extends MemoryAttempt {
   /** Append-only cancellation metadata; the original Attempt remains intact. */
   undoneAt?: string;
@@ -1067,7 +1101,7 @@ export function parseFullMemoryBackup(
   options: FullMemoryBackupParseOptions = {},
 ): FullMemoryBackupParseResult {
   const issues: BackupValidationIssue[] = [];
-  const maxJsonBytes = options.maxJsonBytes ?? 25_000_000;
+  const maxJsonBytes = options.maxJsonBytes ?? FULL_MEMORY_BACKUP_MAX_BYTES;
   let value: unknown = input;
   if (typeof input === 'string') {
     if (new TextEncoder().encode(input).byteLength > maxJsonBytes) {
@@ -1084,7 +1118,7 @@ export function parseFullMemoryBackup(
   scanBackupValue(value, {
     maxDepth: options.maxDepth ?? 12,
     maxStringLength: options.maxStringLength ?? 20_000,
-    maxValues: options.maxValues ?? 500_000,
+    maxValues: options.maxValues ?? FULL_MEMORY_BACKUP_MAX_VALUES,
   }, issues);
   if (!backupRecord(value)) {
     backupIssue(issues, '$', 'invalid_type', '完全バックアップはオブジェクトである必要があります');

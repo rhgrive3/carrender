@@ -7,6 +7,7 @@ import {
   createSelectedSetExport,
   parseImportText,
   parseSelectedSetExport,
+  serializeFullMemoryBackup,
   type ParsedImportRow,
   type SelectedSetExport,
 } from '../domain/importExport';
@@ -45,8 +46,8 @@ function confirmImportColumnOrder(
     : row);
 }
 
-function downloadJson(filename: string, value: unknown): void {
-  const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json;charset=utf-8' });
+function downloadJsonText(filename: string, text: string): void {
+  const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -55,6 +56,10 @@ function downloadJson(filename: string, value: unknown): void {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+function downloadJson(filename: string, value: unknown): void {
+  downloadJsonText(filename, JSON.stringify(value, null, 2));
 }
 
 const RESOLUTION_LABEL: Record<DuplicateResolution, string> = {
@@ -400,7 +405,8 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
         exportedAt: new Date().toISOString(),
         settings: {},
       });
-      downloadJson(`carrender-memory-backup-${today()}.json`, document);
+      const serialized = serializeFullMemoryBackup(document);
+      downloadJsonText(`carrender-memory-backup-${today()}.json`, serialized.text);
     } catch (caught) {
       if (isCurrentRepository(actionRepository)) toast(caught instanceof Error ? caught.message : 'バックアップを作成できませんでした');
     } finally {

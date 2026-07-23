@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AlertTriangle, RotateCcw, Upload } from 'lucide-react';
 import {
+  FULL_MEMORY_BACKUP_MAX_BYTES,
+  fullMemoryBackupSizeLabel,
   parseFullMemoryBackup,
   type FullMemoryBackupParseResult,
 } from '../domain/importExport';
@@ -12,7 +14,6 @@ import { useToast } from '../../../components/ui/Toast';
 import { APP_TIME_ZONE } from '../../../lib/date';
 import { useMemory } from './MemoryContext';
 
-const MAX_BACKUP_BYTES = 25_000_000;
 
 interface RestoreProgress {
   checked: number;
@@ -67,14 +68,14 @@ export function MemoryBackupRestore() {
     setUnderstood(false);
     setReading(Boolean(file));
     if (!file) return;
-    if (file.size > MAX_BACKUP_BYTES) {
+    if (file.size > FULL_MEMORY_BACKUP_MAX_BYTES) {
       if (inspectTokenRef.current !== token) return;
       setResult({
         valid: false,
         issues: [{
           path: '$',
           code: 'document_too_large',
-          message: 'バックアップは25MB以内にしてください',
+          message: `バックアップは${fullMemoryBackupSizeLabel()}以内にしてください`,
         }],
       });
       setReading(false);
@@ -83,7 +84,7 @@ export function MemoryBackupRestore() {
     try {
       const text = await file.text();
       if (!mountedRef.current || inspectTokenRef.current !== token) return;
-      setResult(parseFullMemoryBackup(text, { maxJsonBytes: MAX_BACKUP_BYTES }));
+      setResult(parseFullMemoryBackup(text));
     } catch {
       if (!mountedRef.current || inspectTokenRef.current !== token) return;
       setResult({

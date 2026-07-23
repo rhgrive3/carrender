@@ -605,6 +605,7 @@ try {
       && backupCursor === '0'
       && backupPending.some((mutation) =>
         mutation.entityType === 'item'
+        && mutation.operation === 'upsert'
         && mutation.baseRevision === item.revision
         && mutation.payload?.revision === item.revision + 1
       )
