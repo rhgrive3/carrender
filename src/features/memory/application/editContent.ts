@@ -14,6 +14,7 @@ import {
   normalizeMemoryCardText,
 } from '../domain/cardIntegrity';
 import { createMemoryId, MemoryRepository, type MemoryMutationOperation } from '../infrastructure/repositories';
+import { selectValidMemorySenseDrafts } from './validateMemorySenseDrafts';
 
 export interface MemoryAnswerDraft {
   id?: string;
@@ -142,7 +143,7 @@ export async function saveMemoryItemDraft(input: {
   setId?: string;
   setOrder?: number;
 }): Promise<string> {
-  const validSenses = input.draft.senses.filter((sense) => sense.promptJa.trim());
+  const validSenses = selectValidMemorySenseDrafts(input.draft.senses, '意味');
   if (validSenses.length === 0) throw new Error('日本語の意味を1つ以上入力してください');
   if (validSenses.some((sense) => !sense.answers.some((answer) => answer.displayForm.trim()))) {
     throw new Error('各意味に英語表現を1つ以上入力してください');
