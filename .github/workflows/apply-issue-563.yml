@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/issue-563-conflict-refresh-failure
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
