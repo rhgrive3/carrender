@@ -1,0 +1,105 @@
+name: Issue 557 patch runner
+
+on:
+  push:
+    branches: [fix/issue-557-memory-import-owner-guard]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-557-memory-import-owner-guard
+      - name: Patch imports
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/features/memory/ui/MemoryImportExport.tsx')
+          s = p.read_text()
+          replacements = [
+            ("""    const actionSetId = targetSetId;
+    try {
+      const result = await importParsedRows({
+        repository,
+""", """    const actionRepository = repository;
+    const actionSetId = targetSetId;
+    try {
+      const result = await importParsedRows({
+        repository: actionRepository,
+"""),
+            ("""      });
+      await refreshAfterSave();
+      requestSyncSafely();
+      if (!mountedRef.current) return;
+      toast(`${result.imported}件を保存しました""", """      });
+      if (!isCurrentRepository(actionRepository)) return;
+      await refreshAfterSave();
+      if (!isCurrentRepository(actionRepository)) return;
+      requestSyncSafely();
+      toast(`${result.imported}件を保存しました"""),
+            ("""    } catch (caught) {
+      if (mountedRef.current) toast(caught instanceof Error ? caught.message : '取込に失敗しました');
+""", """    } catch (caught) {
+      if (isCurrentRepository(actionRepository)) toast(caught instanceof Error ? caught.message : '取込に失敗しました');
+"""),
+            ("""    if (!beginSave()) return;
+    const actionDocument = selectedSetDocument;
+""", """    if (!beginSave()) return;
+    const actionRepository = repository;
+    const actionDocument = selectedSetDocument;
+"""),
+            ("""      const result = await importSelectedSetExport({
+        repository,
+""", """      const result = await importSelectedSetExport({
+        repository: actionRepository,
+"""),
+            ("""      });
+      await refreshAfterSave();
+      requestSyncSafely();
+      if (!mountedRef.current) return;
+      toast(`${result.imported}件を取り込みました""", """      });
+      if (!isCurrentRepository(actionRepository)) return;
+      await refreshAfterSave();
+      if (!isCurrentRepository(actionRepository)) return;
+      requestSyncSafely();
+      toast(`${result.imported}件を取り込みました"""),
+            ("""    } catch (caught) {
+      if (mountedRef.current) toast(caught instanceof Error ? caught.message : '選択セットJSONを取り込めませんでした');
+""", """    } catch (caught) {
+      if (isCurrentRepository(actionRepository)) toast(caught instanceof Error ? caught.message : '選択セットJSONを取り込めませんでした');
+"""),
+          ]
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit(f'missing replacement: {old[:50]!r}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          t = Path('scripts/memory-import-save-resilience.test.mjs')
+          x = t.read_text()
+          x = x.replace(
+            "assert.match(source, /if \\(!mountedRef\\.current\\) return;[\\s\\S]*navigate/u, '離脱後の古い保存完了で画面遷移しない');",
+            "assert.match(source, /if \\(!isCurrentRepository\\(actionRepository\\)\\) return;[\\s\\S]*navigate/u, '離脱・owner切替後の古い保存完了で画面遷移しない');",
+            1,
+          )
+          anchor = "assert.doesNotMatch(source, /await refresh\\(\\);\\s*void requestSync\\(true\\);/u, '保存後処理を旧構造へ戻さない');\n"
+          checks = """assert.match(source, /const saveImport = async[\\s\\S]*const actionRepository = repository;[\\s\\S]*repository: actionRepository[\\s\\S]*if \\(!isCurrentRepository\\(actionRepository\\)\\) return;[\\s\\S]*await refreshAfterSave\\(\\);[\\s\\S]*if \\(!isCurrentRepository\\(actionRepository\\)\\) return;[\\s\\S]*requestSyncSafely\\(\\)/u, '通常取込は旧repository完了後の副作用を止める');
+assert.match(source, /const saveSelectedSetImport = async[\\s\\S]*const actionRepository = repository;[\\s\\S]*repository: actionRepository[\\s\\S]*if \\(!isCurrentRepository\\(actionRepository\\)\\) return;[\\s\\S]*await refreshAfterSave\\(\\);[\\s\\S]*if \\(!isCurrentRepository\\(actionRepository\\)\\) return;[\\s\\S]*requestSyncSafely\\(\\)/u, '選択セット取込も旧repository完了後の副作用を止める');
+assert.match(source, /catch \\(caught\\) \\{\\s*if \\(isCurrentRepository\\(actionRepository\\)\\) toast/u, '旧repository由来の取込失敗を現在画面へ通知しない');
+"""
+          if checks not in x:
+              if anchor not in x: raise SystemExit('test anchor missing')
+              x = x.replace(anchor, anchor + checks, 1)
+          t.write_text(x)
+          PY
+          node scripts/memory-import-save-resilience.test.mjs
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/features/memory/ui/MemoryImportExport.tsx scripts/memory-import-save-resilience.test.mjs
+          git commit -m 'fix: guard memory imports across owner changes'
+          git push origin HEAD:fix/issue-557-memory-import-owner-guard
