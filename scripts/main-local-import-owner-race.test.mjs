@@ -12,4 +12,7 @@ assert.match(source, /reader\.onerror = \(\) => \{[\s\S]{0,100}if \(!isCurrentIm
 assert.match(source, /reader\.onabort = \(\) => finishCurrentImport\(\)/u);
 assert.match(source, /disabled=\{importBusy\}[\s\S]{0,180}aria-describedby="main-import-status"/u);
 assert.match(source, /id="main-import-status" role="status" aria-live="polite"/u);
-console.log('main local import owner race guard: ok');
+assert.match(source, /学習計画・記録を初期化/u);
+assert.match(source, /暗記カードと暗記履歴は削除されません/u);
+assert.doesNotMatch(source, />\s*すべてのデータを初期化\s*</u);
+console.log('main local import owner race guard and reset scope copy: ok');
