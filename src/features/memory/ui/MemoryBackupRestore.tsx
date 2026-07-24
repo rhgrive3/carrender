@@ -176,21 +176,26 @@ export function MemoryBackupRestore() {
         }
       }
       if (!isCurrentAction()) return;
+      let refreshWarning = false;
       try {
         await refresh();
       } catch (caught) {
-        console.error('暗記バックアップ復元後の一覧更新に失敗しました', caught);
+        if (!isCurrentAction()) return;
+        refreshWarning = true;
+        console.error('暗記バックアップは復元済みですが一覧を更新できませんでした', caught);
       }
       if (!isCurrentAction()) return;
       void requestSync(true).catch((caught) => {
         console.error('暗記バックアップ復元後の同期要求に失敗しました', caught);
       });
       const skipped = confirmedAttemptIds.size;
-      toast(receiptCommitWarning
-        ? '完全バックアップを復元しました。回答履歴の同期状態を再確認しています'
-        : skipped > 0
-          ? `完全バックアップを復元しました（既存の回答${skipped}件は再送を省略）`
-          : '完全バックアップを復元しました');
+      toast(refreshWarning
+        ? '完全バックアップを復元しましたが、画面を更新できませんでした。アプリを再読み込みしてください'
+        : receiptCommitWarning
+          ? '完全バックアップを復元しました。回答履歴の同期状態を再確認しています'
+          : skipped > 0
+            ? `完全バックアップを復元しました（既存の回答${skipped}件は再送を省略）`
+            : '完全バックアップを復元しました');
       navigate({ name: 'home' });
     } catch (caught) {
       if (isCurrentAction()) toast(caught instanceof Error ? caught.message : 'バックアップを復元できませんでした');
