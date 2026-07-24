@@ -218,14 +218,20 @@ export function MemoryEditor({ setId, itemId, bulk = false }: { setId?: string; 
         savedCount = savedItemIds.length;
       }
       if (!isCurrentAction()) return;
+      let refreshWarning = false;
       try {
         await refresh();
       } catch (caught) {
         console.warn('暗記カード保存後に一覧を更新できませんでした', caught);
+        refreshWarning = true;
       }
       if (!isCurrentAction()) return;
       void requestSync(true).catch(() => undefined);
-      toast(actionItemId ? 'カードを更新しました' : savedCount > 1 ? `${savedCount}枚のカードを保存しました` : 'カードを保存しました');
+      toast(refreshWarning
+        ? actionItemId
+          ? 'カードは更新済みですが、一覧を更新できませんでした。アプリを再読み込みしてください'
+          : `${savedCount > 1 ? `${savedCount}枚のカード` : 'カード'}は保存済みですが、一覧を更新できませんでした。アプリを再読み込みしてください`
+        : actionItemId ? 'カードを更新しました' : savedCount > 1 ? `${savedCount}枚のカードを保存しました` : 'カードを保存しました');
       if (continueNext && !actionItemId) {
         const nextBlank = blankDraft();
         savedDraftSnapshotRef.current = JSON.stringify(nextBlank);

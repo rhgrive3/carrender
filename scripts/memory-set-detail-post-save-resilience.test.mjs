@@ -33,8 +33,8 @@ assert.doesNotMatch(
 );
 assert.match(
   source,
-  /await deleteMemorySet[\s\S]*try \{[\s\S]*await refresh\(\);[\s\S]*\} catch \(caught\)[\s\S]*requestSyncSafely\(\);[\s\S]*if \(isCurrent\(\)\) navigate\(\{ name: 'home' \}\)/u,
-  'セット削除後の一覧更新失敗でも同期を続け、現在のセットだけホームへ遷移する',
+  /await deleteMemorySet[\s\S]*let refreshWarning = false;[\s\S]*await refresh\(\);[\s\S]*refreshWarning = true;[\s\S]*requestSyncSafely\(\);[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*セットは削除済みですが、一覧を更新できませんでした。アプリを再読み込みしてください[\s\S]*navigate\(\{ name: 'home' \}\)/u,
+  'セット削除後の一覧更新失敗を部分成功として通知し、同期とホーム遷移を維持する',
 );
 assert.match(
   source,

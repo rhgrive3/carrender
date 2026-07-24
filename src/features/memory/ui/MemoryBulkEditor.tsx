@@ -281,14 +281,18 @@ export function MemoryBulkEditor({ setId }: { setId?: string }) {
         reviewedDuplicates: actionDuplicatePreview ?? [],
       });
       if (!isCurrentAction()) return;
+      let refreshWarning = false;
       try {
         await refresh();
       } catch (caught) {
         console.warn('暗記カード一括保存後に一覧を更新できませんでした', caught);
+        refreshWarning = true;
       }
       if (!isCurrentAction()) return;
       void requestSync(true).catch(() => undefined);
-      toast(`${result.imported}件を一括保存しました${result.skipped ? `（${result.skipped}件スキップ）` : ''}`);
+      toast(refreshWarning
+        ? `${result.imported}件は保存済みですが、一覧を更新できませんでした。アプリを再読み込みしてください`
+        : `${result.imported}件を一括保存しました${result.skipped ? `（${result.skipped}件スキップ）` : ''}`);
       navigate(actionSetId ? { name: 'set', setId: actionSetId } : { name: 'home' });
     } catch (caught) {
       if (isCurrentAction()) {
