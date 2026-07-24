@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - audit/final-source-export-20260724
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
