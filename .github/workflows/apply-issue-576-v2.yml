@@ -16,50 +16,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/issue-576-memory-refresh-warnings-v2
-      - name: Apply focused refresh warning fixes
+      - name: Apply remaining refresh warning fixes
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-
-          def replace_once(path: str, old: str, new: str) -> None:
-              target = Path(path)
-              source = target.read_text()
-              if old not in source:
-                  raise SystemExit(f'pattern not found in {path}')
-              target.write_text(source.replace(old, new, 1))
-
-          replace_once(
-              'src/features/memory/ui/MemoryEditor.tsx',
-              """      try {
-                await refresh();
-              } catch (caught) {
-                console.warn('暗記カード保存後に一覧を更新できませんでした', caught);
-              }
-              if (!isCurrentAction()) return;
-              void requestSync(true).catch(() => undefined);
-              toast(actionItemId ? 'カードを更新しました' : savedCount > 1 ? `${savedCount}枚のカードを保存しました` : 'カードを保存しました');
-          """,
-              """      let refreshWarning = false;
-              try {
-                await refresh();
-              } catch (caught) {
-                console.warn('暗記カード保存後に一覧を更新できませんでした', caught);
-                refreshWarning = true;
-              }
-              if (!isCurrentAction()) return;
-              void requestSync(true).catch(() => undefined);
-              toast(refreshWarning
-                ? actionItemId
-                  ? 'カードは更新済みですが、一覧を更新できませんでした。アプリを再読み込みしてください'
-                  : `${savedCount > 1 ? `${savedCount}枚のカード` : 'カード'}は保存済みですが、一覧を更新できませんでした。アプリを再読み込みしてください`
-                : actionItemId ? 'カードを更新しました' : savedCount > 1 ? `${savedCount}枚のカードを保存しました` : 'カードを保存しました');
-          """,
-          )
-
-          replace_once(
-              'src/features/memory/ui/MemoryBulkEditor.tsx',
-              """      try {
+          def replace_once(path, old, new):
+              p=Path(path); s=p.read_text()
+              if old not in s: raise SystemExit(f'pattern not found in {path}')
+              p.write_text(s.replace(old,new,1))
+          replace_once('src/features/memory/ui/MemoryBulkEditor.tsx', """      try {
                 await refresh();
               } catch (caught) {
                 console.warn('暗記カード一括保存後に一覧を更新できませんでした', caught);
@@ -67,8 +33,7 @@ jobs:
               if (!isCurrentAction()) return;
               void requestSync(true).catch(() => undefined);
               toast(`${result.imported}件を一括保存しました${result.skipped ? `（${result.skipped}件スキップ）` : ''}`);
-          """,
-              """      let refreshWarning = false;
+          """, """      let refreshWarning = false;
               try {
                 await refresh();
               } catch (caught) {
@@ -80,12 +45,8 @@ jobs:
               toast(refreshWarning
                 ? `${result.imported}件は保存済みですが、一覧を更新できませんでした。アプリを再読み込みしてください`
                 : `${result.imported}件を一括保存しました${result.skipped ? `（${result.skipped}件スキップ）` : ''}`);
-          """,
-          )
-
-          replace_once(
-              'src/features/memory/ui/MemorySetDetail.tsx',
-              """      await deleteMemorySet(repository, set);
+          """)
+          replace_once('src/features/memory/ui/MemorySetDetail.tsx', """      await deleteMemorySet(repository, set);
               try {
                 await refresh();
               } catch (caught) {
@@ -93,8 +54,7 @@ jobs:
               }
               requestSyncSafely();
               if (isCurrent()) navigate({ name: 'home' });
-          """,
-              """      await deleteMemorySet(repository, set);
+          """, """      await deleteMemorySet(repository, set);
               let refreshWarning = false;
               try {
                 await refresh();
@@ -107,38 +67,27 @@ jobs:
                 if (refreshWarning) toast('セットは削除済みですが、一覧を更新できませんでした。アプリを再読み込みしてください');
                 navigate({ name: 'home' });
               }
-          """,
-          )
-
-          test = Path('scripts/memory-resilience-contract.test.mjs')
-          source = test.read_text()
-          source = source.replace(
-              "const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource, materialsSource, conflictsSource, backupRestoreSource] = await Promise.all([",
-              "const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource, materialsSource, conflictsSource, backupRestoreSource, editorSource, bulkEditorSource] = await Promise.all([",
-              1,
-          )
-          source = source.replace(
-              "  readFile(new URL('../src/features/memory/ui/MemoryBackupRestore.tsx', import.meta.url), 'utf8'),\n]);",
-              "  readFile(new URL('../src/features/memory/ui/MemoryBackupRestore.tsx', import.meta.url), 'utf8'),\n  readFile(new URL('../src/features/memory/ui/MemoryEditor.tsx', import.meta.url), 'utf8'),\n  readFile(new URL('../src/features/memory/ui/MemoryBulkEditor.tsx', import.meta.url), 'utf8'),\n]);",
-              1,
-          )
-          marker = "assert.match(detailSource, /role=\"alert\"[\\s\\S]*?暗記セットを開けませんでした[\\s\\S]*?再読み込み/, 'セット詳細に読込失敗と再試行を表示する');\n"
-          assertions = marker + """
+          """)
+          test=Path('scripts/memory-resilience-contract.test.mjs')
+          s=test.read_text()
+          s=s.replace("const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource, materialsSource, conflictsSource, backupRestoreSource] = await Promise.all([", "const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource, materialsSource, conflictsSource, backupRestoreSource, editorSource, bulkEditorSource] = await Promise.all([",1)
+          s=s.replace("  readFile(new URL('../src/features/memory/ui/MemoryBackupRestore.tsx', import.meta.url), 'utf8'),\n]);", "  readFile(new URL('../src/features/memory/ui/MemoryBackupRestore.tsx', import.meta.url), 'utf8'),\n  readFile(new URL('../src/features/memory/ui/MemoryEditor.tsx', import.meta.url), 'utf8'),\n  readFile(new URL('../src/features/memory/ui/MemoryBulkEditor.tsx', import.meta.url), 'utf8'),\n]);",1)
+          marker="assert.match(detailSource, /role=\"alert\"[\\s\\S]*?暗記セットを開けませんでした[\\s\\S]*?再読み込み/, 'セット詳細に読込失敗と再試行を表示する');\n"
+          extra=marker+"""
 assert.match(editorSource, /let refreshWarning = false;[\s\S]*?await refresh\(\);[\s\S]*?refreshWarning = true;/, 'カード保存後の一覧更新失敗を部分成功として保持する');
-assert.match(editorSource, /refreshWarning[\s\S]*?カードは更新済みですが、一覧を更新できませんでした。アプリを再読み込みしてください[\s\S]*?requestSync\(true\)/, 'カード保存済み・再読込必要を通知し同期要求を維持する');
+assert.match(editorSource, /requestSync\(true\)[\s\S]*?refreshWarning[\s\S]*?カードは更新済みですが、一覧を更新できませんでした。アプリを再読み込みしてください/, 'カード保存済みwarning後も同期要求を維持する');
 assert.match(bulkEditorSource, /let refreshWarning = false;[\s\S]*?await refresh\(\);[\s\S]*?refreshWarning = true;/, '一括保存後の一覧更新失敗を部分成功として保持する');
-assert.match(bulkEditorSource, /refreshWarning[\s\S]*?件は保存済みですが、一覧を更新できませんでした。アプリを再読み込みしてください[\s\S]*?requestSync\(true\)[\s\S]*?navigate/, '一括保存済みwarning後も同期要求と遷移を維持する');
+assert.match(bulkEditorSource, /requestSync\(true\)[\s\S]*?refreshWarning[\s\S]*?件は保存済みですが、一覧を更新できませんでした。アプリを再読み込みしてください[\s\S]*?navigate/, '一括保存済みwarning後も同期要求と遷移を維持する');
 assert.match(detailSource, /deleteMemorySet[\s\S]*?let refreshWarning = false;[\s\S]*?refreshWarning = true;[\s\S]*?セットは削除済みですが、一覧を更新できませんでした。アプリを再読み込みしてください[\s\S]*?navigate\(\{ name: 'home' \}\)/, 'セット削除済みwarningを通知してhome遷移を維持する');
 """
-          if marker not in source:
-              raise SystemExit('test insertion marker not found')
-          test.write_text(source.replace(marker, assertions, 1))
+          if marker not in s: raise SystemExit('test marker not found')
+          test.write_text(s.replace(marker,extra,1))
           PY
           git diff --check
           node scripts/memory-resilience-contract.test.mjs
           git rm .github/workflows/apply-issue-576-v2.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/features/memory/ui/MemoryEditor.tsx src/features/memory/ui/MemoryBulkEditor.tsx src/features/memory/ui/MemorySetDetail.tsx scripts/memory-resilience-contract.test.mjs
-          git commit -m "fix: report memory refresh partial successes"
+          git add src/features/memory/ui/MemoryBulkEditor.tsx src/features/memory/ui/MemorySetDetail.tsx scripts/memory-resilience-contract.test.mjs
+          git commit -m "fix: finish memory refresh partial-success warnings"
           git push origin HEAD:fix/issue-576-memory-refresh-warnings-v2
