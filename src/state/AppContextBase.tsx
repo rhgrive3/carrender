@@ -1103,10 +1103,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
       const error = caught as ApiError;
       if (error.status === 409) {
-        const latest = await apiGetData();
-        if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
-        const metadata = getMainSyncMetadata(owner);
-        if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
+        try {
+          const latest = await apiGetData();
+          if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
+          const metadata = getMainSyncMetadata(owner);
+          if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
+          else {
+            setSyncErrorMessage(error.message);
+            setSyncStatus('error');
+          }
+        } catch (refreshError) {
+          if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
+          const refresh = refreshError as ApiError;
+          setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
+          setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');
+          throw refreshError;
+        }
       } else {
         setSyncErrorMessage(error.isNetworkError ? null : error.message);
         setSyncStatus(error.isNetworkError ? 'offline' : 'error');

@@ -34,5 +34,28 @@ assert.ok(
   source.includes('if (!cancelled && syncOwnerGeneration.current.isCurrent(ownerToken)) setSyncReady(true)'),
   'stale startup reconciliation must not mark the next owner ready',
 );
-assert.equal((source.match(/catch \(refreshError\) \{\n            if \(!syncOwnerGeneration\.current\.isCurrent\(ownerToken\)\) return;/g) ?? []).length, 2, 'both 409 refresh failures are generation guarded');
+assert.equal(
+  (source.match(/catch \(refreshError\) \{\n\s+if \(!syncOwnerGeneration\.current\.isCurrent\(ownerToken\)\) return;/g) ?? []).length,
+  3,
+  'all 409 refresh failures, including conflict resolution, are generation guarded',
+);
+
+const conflictResolutionStart = source.indexOf("const resolveSyncConflict = useCallback(async (choice: 'local' | 'cloud') => {");
+const conflictResolutionEnd = source.indexOf('\n  const retrySync = useCallback', conflictResolutionStart);
+assert.ok(conflictResolutionStart >= 0 && conflictResolutionEnd > conflictResolutionStart, 'resolveSyncConflict source block must exist');
+const conflictResolutionSource = source.slice(conflictResolutionStart, conflictResolutionEnd);
+assert.ok(
+  conflictResolutionSource.includes(`catch (refreshError) {
+          if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;`),
+  'conflict resolution must guard a failed 409 refresh against stale owners',
+);
+assert.ok(
+  conflictResolutionSource.includes(`setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
+          setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');`),
+  'conflict resolution refresh failures must leave syncing and publish offline/error state',
+);
+assert.ok(
+  conflictResolutionSource.includes('throw refreshError;'),
+  'conflict resolution refresh failures must reject so the caller can keep its error Toast',
+);
 console.log('main sync owner-generation guards: ok');
