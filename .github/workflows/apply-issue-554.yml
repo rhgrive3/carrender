@@ -2,10 +2,13 @@ name: Apply issue 554 patch
 on:
   push:
     branches: [fix/issue-554-main-download-lifecycle]
+  pull_request:
+    branches: [main]
 permissions:
   contents: write
 jobs:
   apply:
+    if: github.event_name == 'push' || github.head_ref == 'fix/issue-554-main-download-lifecycle'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
