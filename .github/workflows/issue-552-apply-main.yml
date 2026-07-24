@@ -1,0 +1,39 @@
+name: Apply issue 552 branch patch
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/issue-552-apply-main.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-552-reset-scope-copy
+          fetch-depth: 0
+      - name: Apply copy fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/screens/SettingsSheet.tsx')
+          source = path.read_text()
+          source = source.replace(
+              "if (!window.confirm('すべてのデータを削除して初期状態に戻しますか?この操作は取り消せません。')) return;",
+              "if (!window.confirm('学習計画・教材・学習記録を初期状態に戻しますか？暗記カードと暗記履歴は削除されません。この操作は取り消せません。')) return;",
+              1,
+          )
+          source = source.replace(
+              '''      <button className="btn btn-danger btn-block mt-8" onClick={doReset} disabled={importBusy}>\n        すべてのデータを初期化\n      </button>''',
+              '''      <button className="btn btn-danger btn-block mt-8" onClick={doReset} disabled={importBusy}>\n        学習計画・記録を初期化\n      </button>\n      <p className="field-hint mt-8">暗記カードと暗記履歴はこの操作では削除されません。</p>''',
+              1,
+          )
+          path.write_text(source)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/screens/SettingsSheet.tsx
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "fix: clarify reset data scope"
+          git push origin HEAD:fix/issue-552-reset-scope-copy
