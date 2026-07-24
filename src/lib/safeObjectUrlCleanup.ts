@@ -1,8 +1,8 @@
 const INSTALL_FLAG = Symbol.for('studycommander.safeObjectUrlCleanup');
 
-interface SafeUrlConstructor extends typeof URL {
+type SafeUrlConstructor = typeof URL & {
   [INSTALL_FLAG]?: true;
-}
+};
 
 /**
  * WebKit may continue resolving a Blob URL after an anchor click returns.
