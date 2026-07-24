@@ -1,0 +1,72 @@
+name: Apply issue 573 fix
+
+on:
+  push:
+    branches:
+      - fix/issue-573-memory-set-refresh-warning
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-573-memory-set-refresh-warning
+      - name: Apply focused fix and regression contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          home = Path('src/features/memory/ui/MemoryHome.tsx')
+          source = home.read_text()
+          old = """      try {
+                await refresh();
+              } catch (caught) {
+                console.error('暗記セット作成後の一覧更新に失敗しました', caught);
+              }
+              if (!mountedRef.current || repositoryRef.current !== targetRepository || actionTokenRef.current !== actionToken) return;
+              void requestSync(true).catch(() => undefined);
+              onClose();
+          """
+          new = """      let refreshWarning = false;
+              try {
+                await refresh();
+              } catch (caught) {
+                if (!mountedRef.current || repositoryRef.current !== targetRepository || actionTokenRef.current !== actionToken) return;
+                refreshWarning = true;
+                console.error('暗記セットは作成済みですが一覧を更新できませんでした', caught);
+              }
+              if (!mountedRef.current || repositoryRef.current !== targetRepository || actionTokenRef.current !== actionToken) return;
+              void requestSync(true).catch(() => undefined);
+              if (refreshWarning) toast('暗記セットを作成しましたが、一覧を更新できませんでした。アプリを再読み込みしてください');
+              onClose();
+          """
+          if old not in source:
+              raise SystemExit('MemoryHome create-set refresh block not found')
+          home.write_text(source.replace(old, new, 1))
+
+          test = Path('scripts/memory-resilience-contract.test.mjs')
+          source = test.read_text()
+          anchor = "assert.match(homeSource, /createMemorySet[\\s\\S]*?catch \\(caught\\)[\\s\\S]*?暗記セットを作成できませんでした/, 'セット作成失敗を利用者へ通知する');\n"
+          addition = """assert.match(homeSource, /createMemorySet[\\s\\S]*?let refreshWarning = false;[\\s\\S]*?await refresh\\(\\);[\\s\\S]*?refreshWarning = true;/, 'セット作成後の一覧更新失敗を作成本体の失敗と分離する');
+          assert.match(homeSource, /refreshWarning[\\s\\S]*?requestSync\\(true\\)[\\s\\S]*?暗記セットを作成しましたが、一覧を更新できませんでした。アプリを再読み込みしてください[\\s\\S]*?onClose\\(\\)/, 'セット作成後の一覧更新失敗を通知して同期とcloseを継続する');
+          assert.match(homeSource, /catch \\(caught\\) \\{\\n\\s+if \\(!mountedRef\\.current \\|\\| repositoryRef\\.current !== targetRepository \\|\\| actionTokenRef\\.current !== actionToken\\) return;\\n\\s+refreshWarning = true;/, '旧repositoryや操作世代の一覧更新失敗を現在画面へ通知しない');
+          """
+          if addition.strip() not in source:
+              if anchor not in source:
+                  raise SystemExit('memory resilience create-set assertion anchor not found')
+              source = source.replace(anchor, anchor + addition, 1)
+          test.write_text(source)
+          PY
+          git diff --check
+          git rm .github/workflows/apply-issue-573.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/features/memory/ui/MemoryHome.tsx scripts/memory-resilience-contract.test.mjs
+          git commit -m "fix: report set refresh partial success"
+          git push origin HEAD:fix/issue-573-memory-set-refresh-warning
