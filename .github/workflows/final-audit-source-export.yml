@@ -1,0 +1,21 @@
+name: Final audit source export
+
+on:
+  push:
+    branches:
+      - audit/final-source-export-20260724
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carrender-final-audit-source
+          path: .
+          include-hidden-files: true
+          retention-days: 1
