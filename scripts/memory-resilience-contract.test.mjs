@@ -85,6 +85,21 @@ assert.match(
   /receiptCommitWarning[\s\S]*?skipped > 0[\s\S]*?既存の回答\$\{skipped\}件は再送を省略/,
   'receipt反映成功時の既存回答スキップ表示を維持する',
 );
+assert.match(
+  backupRestoreSource,
+  /let refreshWarning = false;[\s\S]*?await refresh\(\);[\s\S]*?catch \(caught\) \{[\s\S]*?if \(!isCurrentAction\(\)\) return;[\s\S]*?refreshWarning = true;/,
+  '全件置換後の一覧更新失敗を復元本体の失敗と分離する',
+);
+assert.match(
+  backupRestoreSource,
+  /refreshWarning[\s\S]*?画面を更新できませんでした。アプリを再読み込みしてください[\s\S]*?receiptCommitWarning/,
+  '一覧更新失敗を通常成功やreceipt警告より優先して通知する',
+);
+assert.match(
+  backupRestoreSource,
+  /refreshWarning[\s\S]*?requestSync\(true\)/,
+  '一覧更新失敗でも通常同期へ進む',
+);
 
 assert.match(materialsSource, /class MemoryFeatureBoundary extends Component/, '暗記機能だけを囲うErrorBoundaryを持つ');
 assert.match(materialsSource, /getDerivedStateFromError[\s\S]*componentDidCatch/, '暗記chunk・描画失敗を境界内で捕捉して診断する');
