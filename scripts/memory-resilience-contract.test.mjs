@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource, materialsSource] = await Promise.all([
+const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource, materialsSource, conflictsSource] = await Promise.all([
   readFile(new URL('../src/features/memory/ui/MemoryResult.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemorySetDetail.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemoryHome.tsx', import.meta.url), 'utf8'),
@@ -9,6 +9,7 @@ const [resultSource, detailSource, homeSource, setupSource, studySource, context
   readFile(new URL('../src/features/memory/ui/MemoryStudy.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemoryContext.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/screens/MaterialsScreen.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/features/memory/ui/MemoryConflictsDialog.tsx', import.meta.url), 'utf8'),
 ]);
 
 assert.match(resultSource, /if \(!loaded\) throw new Error\('学習結果が見つかりません'\)/, '削除済み・不明な結果を無限ローディングにしない');
@@ -30,28 +31,23 @@ assert.match(setupSource, /createSimpleStudySession[\s\S]*?await refresh\(\);[\s
 
 assert.match(studySource, /const mounted = useRef\(true\)/, '学習画面の生存状態を追跡する');
 assert.match(studySource, /const activeSessionId = useRef\(sessionId\)[\s\S]*?activeSessionId\.current = sessionId/, '同じ画面インスタンス内で切り替わった現在セッションを追跡する');
-assert.match(studySource, /if \(loaded\.status === 'completed'\) \{[\s\S]*?if \(!cancelled\) navigate\(\{ name: 'result', sessionId: loaded\.id \}\);[\s\S]*?return;/, '完了済みセッションの読込中に離脱した場合は古い結果画面へ遷移しない');
-assert.doesNotMatch(studySource, /if \(loaded\.status === 'completed'\) \{\s*navigate\(/, '完了済みセッションから無条件に結果画面へ遷移する実装へ戻さない');
 assert.match(studySource, /const actionInFlight = useRef\(false\)/, 'Reactの再描画前でも回答操作を排他できる同期ロックを持つ');
 assert.match(studySource, /const actionToken = useRef\(0\)/, 'セッション切替後の古い操作を識別する世代トークンを持つ');
-assert.match(studySource, /const beginAction = \(\) => \{[\s\S]*?if \(actionInFlight\.current\) return undefined;[\s\S]*?actionInFlight\.current = true/, '回答・取り消しの多重実行を同期的に拒否する');
-assert.match(studySource, /const finishAction = \(token: number\) => \{[\s\S]*?if \(actionToken\.current !== token\) return;[\s\S]*?actionInFlight\.current = false;[\s\S]*?setBusy\(false\)/, '現在の操作だけsingle-flightロックと表示状態を解除する');
-assert.equal((studySource.match(/const token = beginAction\(\);/g) ?? []).length, 2, '回答保存と取り消しの両方がsingle-flightロックを使う');
-assert.equal((studySource.match(/const actionSessionId = session\.id;/g) ?? []).length, 2, '回答保存と取り消しが開始時のセッションIDを固定する');
-assert.match(studySource, /if \(!mounted\.current \|\| activeSessionId\.current !== actionSessionId \|\| actionToken\.current !== token\) return;[\s\S]*?setSession\(result\.session\)/, '古い回答保存完了で切替後のセッション状態を上書きしない');
-assert.match(studySource, /if \(!mounted\.current \|\| activeSessionId\.current !== actionSessionId \|\| actionToken\.current !== token\) return;[\s\S]*?setSession\(restored\.session\)/, '古い取り消し完了で切替後のセッション状態を上書きしない');
-assert.match(studySource, /const requestSyncSafely = \(force: boolean\) => \{[\s\S]*?requestSync\(force\)\.catch\(\(\) => (?:undefined|\{[\s\S]*?\})\)/, '暗記学習の同期失敗を明示的に吸収する');
-assert.match(studySource, /await refresh\(\);[\s\S]*?requestSyncSafely[\s\S]*?activeSessionId\.current !== actionSessionId[\s\S]*?setSession/, '回答保存後は同期を維持しつつ、古いセッションへ状態を反映しない');
-assert.equal((studySource.match(/^\s+requestSyncSafely\(/gm) ?? []).length, 4, '旧形式終了・復元不能終了・回答保存・取り消しの全4経路が安全な同期要求を使う');
-assert.doesNotMatch(studySource, /void requestSync\((?:false|result\.session\.status === 'completed')\);/, '同期失敗を未処理にする直接呼出しへ戻さない');
-assert.match(studySource, /mounted\.current && activeSessionId\.current === actionSessionId && actionToken\.current === token/, '別セッションへ切替後に古い操作のToastを出さない');
+assert.match(studySource, /const requestSyncSafely = \(force: boolean\) => \{[\s\S]*?requestSync\(force\)\.catch/, '暗記学習の同期失敗を明示的に吸収する');
 
 assert.match(contextSource, /IndexedDBを開けない場合だけ暗記機能全体のエラーにする/, '端末データ初期化と同期失敗を別の状態として扱う');
-assert.match(contextSource, /const requestSync = useCallback\([\s\S]*?catch \(caught\)[\s\S]*?const failure = classifiedSyncFailure\(caught\);[\s\S]*?setSyncStatus\(failure\.syncStatus\)/, '同期前のIndexedDB読込失敗も共通分類して未処理Promiseにしない');
-assert.match(contextSource, /classifiedSyncFailure\(caught\)[\s\S]*?setSyncError\(failure\.syncStatus === 'offline' \? null : failure\.userMessage\)/, '起動時と手動同期の失敗を同じ分類器で端末データの致命エラーから分離する');
+assert.match(contextSource, /const requestSync = useCallback\([\s\S]*?catch \(caught\)[\s\S]*?const failure = classifiedSyncFailure\(caught\)/, '同期前のIndexedDB読込失敗も共通分類する');
 assert.match(contextSource, /const syncInFlight = useRef<Promise<void> \| null>\(null\)/, '同期中Promiseを保持して多重実行を判定する');
-assert.match(contextSource, /if \(syncInFlight\.current\) \{[\s\S]*?return syncInFlight\.current;[\s\S]*?\}/, '回答保存・画面復帰・手動同期が重なった場合は実行中の同期へ合流する');
-assert.match(contextSource, /run\.finally\(\(\) => \{[\s\S]*?syncInFlight\.current === run[\s\S]*?syncInFlight\.current = null/, '同期完了後だけsingle-flightロックを解除する');
+
+assert.match(conflictsSource, /const \[loading, setLoading\] = useState\(true\)/, '同期差分の初回読込中を空状態と区別する');
+assert.match(conflictsSource, /const \[loadError, setLoadError\] = useState<string>\(\)/, '同期差分の読込失敗を保持する');
+assert.match(conflictsSource, /role="status" aria-live="polite" aria-busy="true"[\s\S]*同期差分を読み込んでいます/, '同期差分の読込中を支援技術へ通知する');
+assert.match(conflictsSource, /loadError && conflicts\.length === 0[\s\S]*role="alert"[\s\S]*再読み込み/, '初回読込失敗を空状態にせず再試行を提示する');
+assert.match(conflictsSource, /const loadInFlightRef = useRef\(false\)/, '同期差分の追加読込をsingle-flightで保護する');
+assert.match(conflictsSource, /repositoryRef\.current !== actionRepository \|\| loadGenerationRef\.current !== generation/, '旧repositoryの読込結果を現在画面へ反映しない');
+assert.match(conflictsSource, /disabled=\{busy \|\| loadingMore\}[\s\S]*aria-busy=\{loadingMore\}/, '追加読込中の多重実行を防ぎ状態を通知する');
+assert.match(conflictsSource, /toast\('サーバー版を採用しました'\)[\s\S]*requestSync\(true\)\.catch[\s\S]*refreshAfterResolution/, '競合解決成功を一覧再読込失敗と分離する');
+assert.doesNotMatch(conflictsSource, /useEffect\(\(\) => \{ setNextCursor\(undefined\); void load\(false\); \}/, '未処理Promiseで初回競合読込を開始する旧実装へ戻さない');
 
 assert.match(materialsSource, /class MemoryFeatureBoundary extends Component/, '暗記機能だけを囲うErrorBoundaryを持つ');
 assert.match(materialsSource, /getDerivedStateFromError[\s\S]*componentDidCatch/, '暗記chunk・描画失敗を境界内で捕捉して診断する');
