@@ -179,13 +179,18 @@ export function MemorySetDetail({ setId }: { setId: string }) {
     if (!repository || !set || !window.confirm('このセットを削除しますか？カード本体と成績は残ります。')) return;
     await runAction(async (isCurrent) => {
       await deleteMemorySet(repository, set);
+      let refreshWarning = false;
       try {
         await refresh();
       } catch (caught) {
         console.error('暗記セット削除後の一覧更新に失敗しました', caught);
+        refreshWarning = true;
       }
       requestSyncSafely();
-      if (isCurrent()) navigate({ name: 'home' });
+      if (isCurrent()) {
+        if (refreshWarning) toast('セットは削除済みですが、一覧を更新できませんでした。アプリを再読み込みしてください');
+        navigate({ name: 'home' });
+      }
     }, '暗記セットを削除できませんでした');
   };
 
