@@ -512,7 +512,7 @@ export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean;
   };
 
   const doReset = () => {
-    if (!window.confirm('すべてのデータを削除して初期状態に戻しますか?この操作は取り消せません。')) return;
+    if (!window.confirm('学習計画・教材・学習記録を初期状態に戻しますか？暗記カードと暗記履歴は削除されません。この操作は取り消せません。')) return;
     dispatch({ type: 'RESET_ALL' });
     onClose();
   };
@@ -1246,8 +1246,9 @@ export function SettingsSheet({ open, onClose, onDirtyChange }: { open: boolean;
         {importBusy ? 'バックアップJSONを読み込んでいます。画面を閉じずにお待ちください。' : ''}
       </p>
       <button className="btn btn-danger btn-block mt-8" onClick={doReset} disabled={importBusy}>
-        すべてのデータを初期化
+        学習計画・記録を初期化
       </button>
+      <p className="field-hint mt-8">暗記カードと暗記履歴はこの操作では削除されません。</p>
       </Disclosure>
       )}
 
