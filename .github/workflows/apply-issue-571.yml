@@ -1,0 +1,103 @@
+name: Apply issue 571 fix
+
+on:
+  push:
+    branches:
+      - fix/issue-571-memory-restore-refresh-warning
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-571-memory-restore-refresh-warning
+      - name: Apply focused fix and regression contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('src/features/memory/ui/MemoryBackupRestore.tsx')
+          source = app.read_text()
+          old = """      try {
+        await refresh();
+      } catch (caught) {
+        console.error('暗記バックアップ復元後の一覧更新に失敗しました', caught);
+      }
+      if (!isCurrentAction()) return;
+      void requestSync(true).catch((caught) => {
+        console.error('暗記バックアップ復元後の同期要求に失敗しました', caught);
+      });
+      const skipped = confirmedAttemptIds.size;
+      toast(receiptCommitWarning
+        ? '完全バックアップを復元しました。回答履歴の同期状態を再確認しています'
+        : skipped > 0
+          ? `完全バックアップを復元しました（既存の回答${skipped}件は再送を省略）`
+          : '完全バックアップを復元しました');
+"""
+          new = """      let refreshWarning = false;
+      try {
+        await refresh();
+      } catch (caught) {
+        if (!isCurrentAction()) return;
+        refreshWarning = true;
+        console.error('暗記バックアップは復元済みですが一覧を更新できませんでした', caught);
+      }
+      if (!isCurrentAction()) return;
+      void requestSync(true).catch((caught) => {
+        console.error('暗記バックアップ復元後の同期要求に失敗しました', caught);
+      });
+      const skipped = confirmedAttemptIds.size;
+      toast(refreshWarning
+        ? '完全バックアップを復元しましたが、画面を更新できませんでした。アプリを再読み込みしてください'
+        : receiptCommitWarning
+          ? '完全バックアップを復元しました。回答履歴の同期状態を再確認しています'
+          : skipped > 0
+            ? `完全バックアップを復元しました（既存の回答${skipped}件は再送を省略）`
+            : '完全バックアップを復元しました');
+"""
+          if old not in source:
+              raise SystemExit('restore refresh block not found')
+          app.write_text(source.replace(old, new, 1))
+
+          test = Path('scripts/memory-resilience-contract.test.mjs')
+          source = test.read_text()
+          marker = """assert.match(
+  backupRestoreSource,
+  /receiptCommitWarning[\\s\\S]*?skipped > 0[\\s\\S]*?既存の回答\\$\\{skipped\\}件は再送を省略/,
+  'receipt反映成功時の既存回答スキップ表示を維持する',
+);
+"""
+          addition = marker + """assert.match(
+  backupRestoreSource,
+  /let refreshWarning = false;[\\s\\S]*?await refresh\\(\\);[\\s\\S]*?catch \\(caught\\) \\{[\\s\\S]*?if \\(!isCurrentAction\\(\\)\\) return;[\\s\\S]*?refreshWarning = true;/,
+  '全件置換後の一覧更新失敗を復元本体の失敗と分離する',
+);
+assert.match(
+  backupRestoreSource,
+  /refreshWarning[\\s\\S]*?画面を更新できませんでした。アプリを再読み込みしてください[\\s\\S]*?receiptCommitWarning/,
+  '一覧更新失敗を通常成功やreceipt警告より優先して通知する',
+);
+assert.match(
+  backupRestoreSource,
+  /refreshWarning[\\s\\S]*?requestSync\\(true\\)/,
+  '一覧更新失敗でも通常同期へ進む',
+);
+"""
+          if marker not in source:
+              raise SystemExit('test insertion marker not found')
+          test.write_text(source.replace(marker, addition, 1))
+          PY
+          git diff --check
+          node --import tsx scripts/memory-resilience-contract.test.mjs
+          git rm .github/workflows/apply-issue-571.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/features/memory/ui/MemoryBackupRestore.tsx scripts/memory-resilience-contract.test.mjs
+          git commit -m "fix: report restore refresh partial success"
+          git push origin HEAD:fix/issue-571-memory-restore-refresh-warning
