@@ -1,0 +1,94 @@
+name: Apply issue 563 fix
+
+on:
+  push:
+    branches:
+      - fix/issue-563-conflict-refresh-failure
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-563-conflict-refresh-failure
+      - name: Apply focused fix and regression contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('src/state/AppContextBase.tsx')
+          source = app.read_text()
+          old = """      if (error.status === 409) {
+                const latest = await apiGetData();
+                if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
+                const metadata = getMainSyncMetadata(owner);
+                if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
+              } else {
+          """
+          new = """      if (error.status === 409) {
+                try {
+                  const latest = await apiGetData();
+                  if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
+                  const metadata = getMainSyncMetadata(owner);
+                  if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
+                  else {
+                    setSyncErrorMessage(error.message);
+                    setSyncStatus('error');
+                  }
+                } catch (refreshError) {
+                  if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
+                  const refresh = refreshError as ApiError;
+                  setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
+                  setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');
+                  throw refreshError;
+                }
+              } else {
+          """
+          if old not in source:
+              raise SystemExit('resolveSyncConflict 409 block not found')
+          app.write_text(source.replace(old, new, 1))
+
+          test = Path('scripts/main-sync-owner-generation.test.ts')
+          source = test.read_text()
+          old_assert = "assert.equal((source.match(/catch \\(refreshError\\) \\{\\n            if \\(!syncOwnerGeneration\\.current\\.isCurrent\\(ownerToken\\)\\) return;/g) ?? []).length, 2, 'both 409 refresh failures are generation guarded');"
+          new_assert = """assert.equal(
+            (source.match(/catch \\(refreshError\\) \\{\\n\\s+if \\(!syncOwnerGeneration\\.current\\.isCurrent\\(ownerToken\\)\\) return;/g) ?? []).length,
+            3,
+            'all 409 refresh failures, including conflict resolution, are generation guarded',
+          );
+
+          const conflictResolutionStart = source.indexOf(\"const resolveSyncConflict = useCallback(async (choice: 'local' | 'cloud') => {\");
+          const conflictResolutionEnd = source.indexOf('\\n  const retrySync = useCallback', conflictResolutionStart);
+          assert.ok(conflictResolutionStart >= 0 && conflictResolutionEnd > conflictResolutionStart, 'resolveSyncConflict source block must exist');
+          const conflictResolutionSource = source.slice(conflictResolutionStart, conflictResolutionEnd);
+          assert.ok(
+            conflictResolutionSource.includes(`catch (refreshError) {
+                    if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;`),
+            'conflict resolution must guard a failed 409 refresh against stale owners',
+          );
+          assert.ok(
+            conflictResolutionSource.includes(`setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
+                    setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');`),
+            'conflict resolution refresh failures must leave syncing and publish offline/error state',
+          );
+          assert.ok(
+            conflictResolutionSource.includes('throw refreshError;'),
+            'conflict resolution refresh failures must reject so the caller can keep its error Toast',
+          );"""
+          if old_assert not in source:
+              raise SystemExit('owner generation assertion not found')
+          test.write_text(source.replace(old_assert, new_assert, 1))
+          PY
+          git diff --check
+          git rm .github/workflows/apply-issue-563.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/state/AppContextBase.tsx scripts/main-sync-owner-generation.test.ts
+          git commit -m "fix: recover conflict refresh failures"
+          git push origin HEAD:fix/issue-563-conflict-refresh-failure
