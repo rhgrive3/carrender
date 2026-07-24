@@ -156,17 +156,24 @@ export function MemoryBackupRestore() {
       });
       if (!isCurrentAction()) return;
 
+      let receiptCommitWarning = false;
       if (confirmedAttemptIds.size > 0 && receiptServerTime) {
         const acceptedAttemptIds = [...confirmedAttemptIds];
-        await actionRepository.commitSyncResponse({
-          serverTime: receiptServerTime,
-          cursor: '0',
-          acceptedMutationIds: [],
-          acceptedAttemptIds,
-          sentAttemptIds: acceptedAttemptIds,
-          conflicts: [],
-          changes: {},
-        });
+        try {
+          await actionRepository.commitSyncResponse({
+            serverTime: receiptServerTime,
+            cursor: '0',
+            acceptedMutationIds: [],
+            acceptedAttemptIds,
+            sentAttemptIds: acceptedAttemptIds,
+            conflicts: [],
+            changes: {},
+          });
+        } catch (caught) {
+          if (!isCurrentAction()) return;
+          receiptCommitWarning = true;
+          console.warn('暗記バックアップは復元済みですが回答receiptを反映できないため同期で再確認します', caught);
+        }
       }
       if (!isCurrentAction()) return;
       try {
@@ -179,9 +186,11 @@ export function MemoryBackupRestore() {
         console.error('暗記バックアップ復元後の同期要求に失敗しました', caught);
       });
       const skipped = confirmedAttemptIds.size;
-      toast(skipped > 0
-        ? `完全バックアップを復元しました（既存の回答${skipped}件は再送を省略）`
-        : '完全バックアップを復元しました');
+      toast(receiptCommitWarning
+        ? '完全バックアップを復元しました。回答履歴の同期状態を再確認しています'
+        : skipped > 0
+          ? `完全バックアップを復元しました（既存の回答${skipped}件は再送を省略）`
+          : '完全バックアップを復元しました');
       navigate({ name: 'home' });
     } catch (caught) {
       if (isCurrentAction()) toast(caught instanceof Error ? caught.message : 'バックアップを復元できませんでした');
