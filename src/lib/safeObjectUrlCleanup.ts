@@ -21,3 +21,5 @@ export function installSafeObjectUrlCleanup(delayMs = 1_000): void {
   };
   target[INSTALL_FLAG] = true;
 }
+
+installSafeObjectUrlCleanup();
