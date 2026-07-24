@@ -40,7 +40,7 @@ assert.equal(
   'all 409 refresh failures, including conflict resolution, are generation guarded',
 );
 
-// Conflict resolution must publish a terminal failure state, not remain "syncing".
+// Conflict resolution must always publish a terminal failure state instead of remaining "syncing".
 const conflictResolutionStart = source.indexOf("const resolveSyncConflict = useCallback(async (choice: 'local' | 'cloud') => {");
 const conflictResolutionEnd = source.indexOf('\n  const retrySync = useCallback', conflictResolutionStart);
 assert.ok(conflictResolutionStart >= 0 && conflictResolutionEnd > conflictResolutionStart, 'resolveSyncConflict source block must exist');
