@@ -35,6 +35,16 @@ assert.match(
 );
 assert.match(
   dialog,
+  /let refreshWarning: string \| undefined;[\s\S]*await refresh\(\);[\s\S]*refreshWarning = '暗記セットは作成済みですが、一覧を更新できませんでした。アプリを再読み込みしてください';/u,
+  'セット保存後の一覧更新失敗を部分成功として保持する',
+);
+assert.match(
+  dialog,
+  /repositoryRef\.current !== targetRepository \|\| actionTokenRef\.current !== actionToken\) return;[\s\S]*requestSync\(true\)[\s\S]*if \(refreshWarning\) toast\(refreshWarning\);[\s\S]*onClose\(\)/u,
+  '現在の所有者だけへ部分成功を通知し、同期要求とcloseを維持する',
+);
+assert.match(
+  dialog,
   /catch \(caught\) \{[\s\S]*mountedRef\.current && repositoryRef\.current === targetRepository && actionTokenRef\.current === actionToken[\s\S]*toast/u,
   '離脱・所有者切替後に古い作成失敗を現在画面へ通知しない',
 );
