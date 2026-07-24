@@ -125,6 +125,7 @@ export function MemoryBackupRestore() {
           receipt.existingAttemptIds.forEach((attemptId) => confirmedAttemptIds.add(attemptId));
           receiptServerTime = receipt.serverTime;
         } catch (caught) {
+          if (!isCurrentAction()) return;
           // Do not block restoration when the server cannot be checked. Every
           // unconfirmed attempt is intentionally re-sent through normal sync.
           console.warn('暗記バックアップの回答receipt確認に失敗したため安全側で再送します', caught);
@@ -138,6 +139,7 @@ export function MemoryBackupRestore() {
         }
       }
 
+      if (!isCurrentAction()) return;
       await actionRepository.replaceFromBackup({
         snapshot: {
           sets: actionBackup.sets,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource, materialsSource, conflictsSource] = await Promise.all([
+const [resultSource, detailSource, homeSource, setupSource, studySource, contextSource, materialsSource, conflictsSource, backupRestoreSource] = await Promise.all([
   readFile(new URL('../src/features/memory/ui/MemoryResult.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemorySetDetail.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemoryHome.tsx', import.meta.url), 'utf8'),
@@ -10,6 +10,7 @@ const [resultSource, detailSource, homeSource, setupSource, studySource, context
   readFile(new URL('../src/features/memory/ui/MemoryContext.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/screens/MaterialsScreen.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/features/memory/ui/MemoryConflictsDialog.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/features/memory/ui/MemoryBackupRestore.tsx', import.meta.url), 'utf8'),
 ]);
 
 assert.match(resultSource, /if \(!loaded\) throw new Error\('学習結果が見つかりません'\)/, '削除済み・不明な結果を無限ローディングにしない');
@@ -48,6 +49,22 @@ assert.match(conflictsSource, /repositoryRef\.current !== actionRepository \|\| 
 assert.match(conflictsSource, /disabled=\{busy \|\| loadingMore\}[\s\S]*aria-busy=\{loadingMore\}/, '追加読込中の多重実行を防ぎ状態を通知する');
 assert.match(conflictsSource, /toast\('サーバー版を採用しました'\)[\s\S]*requestSync\(true\)\.catch[\s\S]*refreshAfterResolution/, '競合解決成功を一覧再読込失敗と分離する');
 assert.doesNotMatch(conflictsSource, /useEffect\(\(\) => \{ setNextCursor\(undefined\); void load\(false\); \}/, '未処理Promiseで初回競合読込を開始する旧実装へ戻さない');
+
+assert.match(
+  backupRestoreSource,
+  /catch \(caught\) \{\n\s+if \(!isCurrentAction\(\)\) return;[\s\S]*?安全側で再送します/,
+  'receipt確認失敗時も旧repositoryの復元操作を即時中止する',
+);
+assert.match(
+  backupRestoreSource,
+  /if \(!isCurrentAction\(\)\) return;\n\s+await actionRepository\.replaceFromBackup/,
+  '破壊的な完全置換の直前にrepositoryとtokenを再確認する',
+);
+assert.match(
+  backupRestoreSource,
+  /catch \(caught\) \{\n\s+if \(!isCurrentAction\(\)\) return;[\s\S]*?console\.warn[\s\S]*?break;/,
+  '同一ownerのreceipt失敗では安全側再送として復元を継続する',
+);
 
 assert.match(materialsSource, /class MemoryFeatureBoundary extends Component/, '暗記機能だけを囲うErrorBoundaryを持つ');
 assert.match(materialsSource, /getDerivedStateFromError[\s\S]*componentDidCatch/, '暗記chunk・描画失敗を境界内で捕捉して診断する');
