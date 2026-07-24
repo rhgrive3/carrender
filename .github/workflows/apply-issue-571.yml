@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/issue-571-memory-restore-refresh-warning
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
