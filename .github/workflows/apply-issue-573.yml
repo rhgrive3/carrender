@@ -21,19 +21,20 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           home = Path('src/features/memory/ui/MemoryHome.tsx')
           source = home.read_text()
-          old = """      try {
-                await refresh();
-              } catch (caught) {
-                console.error('暗記セット作成後の一覧更新に失敗しました', caught);
-              }
-              if (!mountedRef.current || repositoryRef.current !== targetRepository || actionTokenRef.current !== actionToken) return;
-              void requestSync(true).catch(() => undefined);
-              onClose();
-          """
-          new = """      let refreshWarning = false;
+          pattern = re.compile(r"""      try \{
+                await refresh\(\);
+              \} catch \(caught\) \{
+                console\.error\('暗記セット作成後の一覧更新に失敗しました', caught\);
+              \}
+              if \(!mountedRef\.current \|\| repositoryRef\.current !== targetRepository \|\| actionTokenRef\.current !== actionToken\) return;
+              void requestSync\(true\)\.catch\(\(\) => undefined\);
+              onClose\(\);
+          """)
+          replacement = """      let refreshWarning = false;
               try {
                 await refresh();
               } catch (caught) {
@@ -46,9 +47,10 @@ jobs:
               if (refreshWarning) toast('暗記セットを作成しましたが、一覧を更新できませんでした。アプリを再読み込みしてください');
               onClose();
           """
-          if old not in source:
-              raise SystemExit('MemoryHome create-set refresh block not found')
-          home.write_text(source.replace(old, new, 1))
+          source, count = pattern.subn(replacement, source, count=1)
+          if count != 1:
+              raise SystemExit(f'MemoryHome create-set refresh block replacement count: {count}')
+          home.write_text(source)
 
           test = Path('scripts/memory-resilience-contract.test.mjs')
           source = test.read_text()
