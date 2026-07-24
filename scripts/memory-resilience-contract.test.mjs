@@ -72,8 +72,13 @@ assert.match(
 );
 assert.match(
   backupRestoreSource,
-  /receiptCommitWarning[\s\S]*?回答履歴の同期状態を再確認しています[\s\S]*?requestSync\(true\)/,
-  'receipt反映失敗でも部分成功を通知し通常同期へ進む',
+  /receiptCommitWarning[\s\S]*?requestSync\(true\)/,
+  'receipt反映失敗でも通常同期へ進む',
+);
+assert.match(
+  backupRestoreSource,
+  /receiptCommitWarning[\s\S]*?回答履歴の同期状態を再確認しています/,
+  'receipt反映失敗を部分成功として通知する',
 );
 assert.match(
   backupRestoreSource,
