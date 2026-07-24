@@ -65,6 +65,21 @@ assert.match(
   /catch \(caught\) \{\n\s+if \(!isCurrentAction\(\)\) return;[\s\S]*?console\.warn[\s\S]*?break;/,
   '同一ownerのreceipt失敗では安全側再送として復元を継続する',
 );
+assert.match(
+  backupRestoreSource,
+  /let receiptCommitWarning = false;[\s\S]*?commitSyncResponse[\s\S]*?catch \(caught\) \{[\s\S]*?if \(!isCurrentAction\(\)\) return;[\s\S]*?receiptCommitWarning = true;/,
+  '全件置換後のreceipt反映失敗を復元本体の失敗と分離する',
+);
+assert.match(
+  backupRestoreSource,
+  /receiptCommitWarning[\s\S]*?回答履歴の同期状態を再確認しています[\s\S]*?requestSync\(true\)/,
+  'receipt反映失敗でも部分成功を通知し通常同期へ進む',
+);
+assert.match(
+  backupRestoreSource,
+  /receiptCommitWarning[\s\S]*?skipped > 0[\s\S]*?既存の回答\$\{skipped\}件は再送を省略/,
+  'receipt反映成功時の既存回答スキップ表示を維持する',
+);
 
 assert.match(materialsSource, /class MemoryFeatureBoundary extends Component/, '暗記機能だけを囲うErrorBoundaryを持つ');
 assert.match(materialsSource, /getDerivedStateFromError[\s\S]*componentDidCatch/, '暗記chunk・描画失敗を境界内で捕捉して診断する');
