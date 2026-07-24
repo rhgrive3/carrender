@@ -7,12 +7,14 @@ const feature = await readFile(new URL('../src/features/memory/ui/MemoryFeature.
 assert.match(source, /useRef\(false\)[\s\S]*saveInFlightRef/u, '取込保存は同期ロックで多重実行を防ぐ');
 assert.match(source, /const refreshAfterSave = async[\s\S]*try \{[\s\S]*await refresh\(\);[\s\S]*catch/u, '保存成功後の一覧更新失敗を取込失敗から分離する');
 assert.match(source, /requestSync\(true\)\.catch/u, '同期要求の失敗を未処理にしない');
-assert.match(source, /if \(!mountedRef\.current\) return;[\s\S]*navigate/u, '離脱後の古い保存完了で画面遷移しない');
+assert.match(source, /if \(!isCurrentRepository\(actionRepository\)\) return;[\s\S]*navigate/u, '離脱・owner切替後の古い保存完了で画面遷移しない');
 assert.match(source, /const busy = saving \|\| exporting \|\| aiInspecting/u, '保存・出力・AI差分確認の共通処理中状態を持つ');
 assert.match(source, /<section className="memory-import" aria-busy=\{busy\}>/u, '取込画面全体の処理中状態を支援技術へ伝える');
 assert.match(source, /<fieldset disabled=\{saving\}/u, '保存中は取込内容と保存先を変更できない');
 assert.match(source, /aria-label="戻る" disabled=\{busy\}/u, '保存・出力・AI差分確認中の画面離脱を防ぐ');
 assert.doesNotMatch(source, /await refresh\(\);\s*void requestSync\(true\);/u, '保存後処理を旧構造へ戻さない');
+assert.match(source, /const saveImport = async[\s\S]*const actionRepository = repository;[\s\S]*repository: actionRepository[\s\S]*if \(!isCurrentRepository\(actionRepository\)\) return;[\s\S]*await refreshAfterSave\(\);[\s\S]*if \(!isCurrentRepository\(actionRepository\)\) return;[\s\S]*requestSyncSafely\(\)/u, '通常取込は旧repository完了後の副作用を止める');
+assert.match(source, /const saveSelectedSetImport = async[\s\S]*const actionRepository = repository;[\s\S]*repository: actionRepository[\s\S]*if \(!isCurrentRepository\(actionRepository\)\) return;[\s\S]*await refreshAfterSave\(\);[\s\S]*if \(!isCurrentRepository\(actionRepository\)\) return;[\s\S]*requestSyncSafely\(\)/u, '選択セット取込も旧repository完了後の副作用を止める');
 assert.match(source, /fileReadGenerationRef = useRef<Record<TextFileTarget, number>>/u, '取込ファイル読込は対象別の世代を持つ');
 assert.match(source, /const generation = fileReadGenerationRef\.current\[target\] \+ 1;[\s\S]*fileReadGenerationRef\.current\[target\] !== generation/u, '古いファイル読込結果を現在入力へ反映しない');
 assert.match(source, /invalidateTextFileRead\('import'\); setText/u, '手入力後に古い取込ファイルで上書きしない');
