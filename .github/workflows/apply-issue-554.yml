@@ -1,0 +1,110 @@
+name: Apply issue 554 patch
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.head_ref == 'fix/issue-554-main-download-lifecycle'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-554-main-download-lifecycle
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/screens/SettingsSheet.tsx')
+          text = path.read_text()
+          marker = "const SETTINGS_PAGES = new Set<SettingsPage>(['home', 'goals', 'schedule', 'timer', 'subjects', 'appearance', 'data']);\n"
+          helper = """const SETTINGS_PAGES = new Set<SettingsPage>(['home', 'goals', 'schedule', 'timer', 'subjects', 'appearance', 'data']);
+
+export function downloadBlob(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+"""
+          if marker not in text:
+              raise SystemExit('settings marker missing')
+          text = text.replace(marker, helper, 1)
+          old_conflict = """    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `studycommander-sync-conflict-${today()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+"""
+          new_conflict = """    downloadBlob(`studycommander-sync-conflict-${today()}.json`, blob);
+"""
+          old_csv = """    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `studycommander-log-${today()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+"""
+          new_csv = """    downloadBlob(`studycommander-log-${today()}.csv`, blob);
+"""
+          old_export = """    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `studycommander-backup-${today()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+"""
+          new_export = """    downloadBlob(`studycommander-backup-${today()}.json`, blob);
+"""
+          for old, new, label in [(old_conflict, new_conflict, 'conflict'), (old_csv, new_csv, 'csv'), (old_export, new_export, 'backup')]:
+              if old not in text:
+                  raise SystemExit(f'{label} download block missing')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          test = Path('scripts/main-download-lifecycle.test.mjs')
+          test.write_text("""import fs from 'node:fs';
+
+const source = fs.readFileSync(new URL('../src/screens/SettingsSheet.tsx', import.meta.url), 'utf8');
+const required = [
+  "document.body.append(anchor)",
+  "anchor.click()",
+  "anchor.remove()",
+  "window.setTimeout(() => URL.revokeObjectURL(url), 1_000)",
+  "downloadBlob(`studycommander-sync-conflict-${today()}.json`, blob)",
+  "downloadBlob(`studycommander-log-${today()}.csv`, blob)",
+  "downloadBlob(`studycommander-backup-${today()}.json`, blob)",
+];
+for (const token of required) {
+  if (!source.includes(token)) throw new Error(`download lifecycle contract missing: ${token}`);
+}
+const immediateRevokes = source.match(/^\s*URL\.revokeObjectURL\(url\);\s*$/gm) ?? [];
+if (immediateRevokes.length > 0) throw new Error('main export still revokes an object URL immediately');
+console.log('main download lifecycle contract: ok');
+""")
+
+          package = Path('package.json')
+          package_text = package.read_text()
+          needle = 'node scripts/share-card-download-lifecycle.test.mjs && '
+          replacement = needle + 'node scripts/main-download-lifecycle.test.mjs && '
+          if needle not in package_text:
+              raise SystemExit('package regression insertion point missing')
+          package.write_text(package_text.replace(needle, replacement, 1))
+          PY
+          node scripts/main-download-lifecycle.test.mjs
+          git rm .github/workflows/apply-issue-554.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/screens/SettingsSheet.tsx scripts/main-download-lifecycle.test.mjs package.json
+          git commit -m "fix: delay main backup object URL cleanup"
+          git push origin HEAD:fix/issue-554-main-download-lifecycle
