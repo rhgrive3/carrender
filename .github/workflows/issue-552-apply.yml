@@ -3,10 +3,14 @@ on:
   push:
     branches:
       - fix/issue-552-reset-scope-copy
+  pull_request:
+    branches:
+      - main
 permissions:
   contents: write
 jobs:
   apply:
+    if: github.head_ref == 'fix/issue-552-reset-scope-copy' || github.ref_name == 'fix/issue-552-reset-scope-copy'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
