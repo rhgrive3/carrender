@@ -87,3 +87,5 @@ assert.ok(
           git add src/features/memory/ui/MemoryHome.tsx scripts/memory-resilience-contract.test.mjs
           git commit -m "fix: surface memory set refresh failures"
           git push origin HEAD:fix/issue-573-memory-set-refresh-warning
+
+# trigger
