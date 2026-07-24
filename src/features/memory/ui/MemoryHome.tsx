@@ -93,13 +93,16 @@ function CreateSetDialog({ onClose }: { onClose: () => void }) {
     try {
       await createMemorySet(targetRepository, { name: name.trim() });
       if (!mountedRef.current || repositoryRef.current !== targetRepository || actionTokenRef.current !== actionToken) return;
+      let refreshWarning: string | undefined;
       try {
         await refresh();
       } catch (caught) {
         console.error('暗記セット作成後の一覧更新に失敗しました', caught);
+        refreshWarning = '暗記セットは作成済みですが、一覧を更新できませんでした。アプリを再読み込みしてください';
       }
       if (!mountedRef.current || repositoryRef.current !== targetRepository || actionTokenRef.current !== actionToken) return;
       void requestSync(true).catch(() => undefined);
+      if (refreshWarning) toast(refreshWarning);
       onClose();
     } catch (caught) {
       if (mountedRef.current && repositoryRef.current === targetRepository && actionTokenRef.current === actionToken) {
