@@ -22,72 +22,9 @@ jobs:
       - name: Apply focused fix and regression contract
         shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          app = Path('src/state/AppContextBase.tsx')
-          source = app.read_text()
-          old = """      if (error.status === 409) {
-                const latest = await apiGetData();
-                if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
-                const metadata = getMainSyncMetadata(owner);
-                if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
-              } else {
-          """
-          new = """      if (error.status === 409) {
-                try {
-                  const latest = await apiGetData();
-                  if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
-                  const metadata = getMainSyncMetadata(owner);
-                  if (latest.appState) establishConflict(latest.appState, latest.updatedAt, metadata?.baseUpdatedAt ?? null);
-                  else {
-                    setSyncErrorMessage(error.message);
-                    setSyncStatus('error');
-                  }
-                } catch (refreshError) {
-                  if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;
-                  const refresh = refreshError as ApiError;
-                  setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
-                  setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');
-                  throw refreshError;
-                }
-              } else {
-          """
-          if old not in source:
-              raise SystemExit('resolveSyncConflict 409 block not found')
-          app.write_text(source.replace(old, new, 1))
-
-          test = Path('scripts/main-sync-owner-generation.test.ts')
-          source = test.read_text()
-          old_assert = "assert.equal((source.match(/catch \\(refreshError\\) \\{\\n            if \\(!syncOwnerGeneration\\.current\\.isCurrent\\(ownerToken\\)\\) return;/g) ?? []).length, 2, 'both 409 refresh failures are generation guarded');"
-          new_assert = """assert.equal(
-            (source.match(/catch \\(refreshError\\) \\{\\n\\s+if \\(!syncOwnerGeneration\\.current\\.isCurrent\\(ownerToken\\)\\) return;/g) ?? []).length,
-            3,
-            'all 409 refresh failures, including conflict resolution, are generation guarded',
-          );
-
-          const conflictResolutionStart = source.indexOf(\"const resolveSyncConflict = useCallback(async (choice: 'local' | 'cloud') => {\");
-          const conflictResolutionEnd = source.indexOf('\\n  const retrySync = useCallback', conflictResolutionStart);
-          assert.ok(conflictResolutionStart >= 0 && conflictResolutionEnd > conflictResolutionStart, 'resolveSyncConflict source block must exist');
-          const conflictResolutionSource = source.slice(conflictResolutionStart, conflictResolutionEnd);
-          assert.ok(
-            conflictResolutionSource.includes(`catch (refreshError) {
-                    if (!syncOwnerGeneration.current.isCurrent(ownerToken)) return;`),
-            'conflict resolution must guard a failed 409 refresh against stale owners',
-          );
-          assert.ok(
-            conflictResolutionSource.includes(`setSyncErrorMessage(refresh.isNetworkError ? null : refresh.message);
-                    setSyncStatus(refresh.isNetworkError ? 'offline' : 'error');`),
-            'conflict resolution refresh failures must leave syncing and publish offline/error state',
-          );
-          assert.ok(
-            conflictResolutionSource.includes('throw refreshError;'),
-            'conflict resolution refresh failures must reject so the caller can keep its error Toast',
-          );"""
-          if old_assert not in source:
-              raise SystemExit('owner generation assertion not found')
-          test.write_text(source.replace(old_assert, new_assert, 1))
-          PY
+          echo 'H4sICP8hY2oAA2lzc3VlNTYzLnBhdGNoAM1WTXPbNhC961dscgjJkUhJtpOm9shO6mZyctKJ01PVmUDgkmIFESwA+mNc//cuQNIiZdG1O06nOlD8AHb37b59izhLEgjDNDPAxpqrrDB6vGZZHurrnIfyMkcVpkhXZjKZRwa1iYyGxRMWD7I8xiuYJHHyA59G0QHj07csgelk8ubgYBCG4ZN8D4bD4dP8v3sH4f7B6DUM6br3FuiZaY3KRHLlDwBAy1JxjLKcizJG7XtZAv4LznKOQmAMr16B9fDZOvi4sc9LpTA3UaZPqzvfhfBVrjAPAtBozmnXF2TxtW9UiYEXjKw7TxsmEOiqTFmAQi5znonMWYV1qQ3k0sCaqRWYJUKOVwacaVpLxjyyEhwNwhoE/lky4fs1iDUzfOmPuf2Dua8wUaiXH5SSah7A/GaeQ+tHQOf+ix3g5g26+QbevIVvHpA1haZU+dE4DeDkBH77PYgE5qlZjmBvBN5CmiUcTH6EOgZIWCZKugOmEDZ1grRkKsbYI0zDDqbBEODxuOZ6+J3g2Dj23dVjQuzENIKKPVmeApUzERk3tEhLUVr/oz7MZNXCHgxpE9W92frlbue5ZQnMNhylXvqc+C+r9c7DBVqenTZeZ1BqPKVAF4yvfGazAT5fyozjIXhCciY8+As8LmRJSYfZMdy8tEH0hfAhj+8H4FkiNUEYdW1D6Lr2Rn1wWoWmDuzDfDyDiW293QEd9xkn5u3KShU+LAj/quoxvMq08R4Cfl7tucOu6TP2xbsLLQXaxWo51Odnoz/fKpZ3SB7Ajd3catydRP8nUao5/i2o6LyDqlVyHD+BOX6TArYpz1KSXFpSqZizrhsePxlpLZIO4hlqzVJsYBOET2gupVq5r3ACeUndd9gEEq2r9dbvJjG1QSqJKXW/KU8mFFqOHtnz0L4kJjyUlXsi5tIkkF2gGw628RnxsigXIqN1tf2xs21zZfDfJskzSyUvoc2GI+/JoSr8A10fuJlCIiBontCMgxViARkN9SrUr5JRW1ShugaXAiMhU9+zo9Zhhe1RW9FFH4Jc2YaKO6cKxccO/vh9UVA7GppmPzGNNJmv7Bx/4HN9ctjnyRs+iaPo9STe4zFunRweMlCfFR5aYk8H0+lkfzSdwNDd7O3ZIwJeFZJUKClz7iDS1l+UvMhiVP4N8GUmYmovuD2EzdMh0LTn5pOkIG9txz5PtzZmKp2qyjSj2pXpkjKsKbSsYkXbn1sWadcHMJvNbA/bkELoWBPMHpPIHLtktl5F9hHNz8ww3x4xnklutp2u0bCYfJDbFM0Z8cr27Fn9tjKx7b4KNGJFYXsbA6An5nqt0fjtJaMaXFQWZBbj96TRjeeTaEEE+LX5YAe+VZe2ltBQ62ruIxL2fAp93/Ejk7YVwn+eNgAUGruZu5Pljs5XDN2p4ts6fifR7UW3m4db+O4j835BGp2ddaS525D3J9P/Y9S17ewYL63MNppy29T1ETXtg7Nd8R4oPUZ2A/kbPISAxcMOAAA=' | base64 -d | gunzip > /tmp/issue563.patch
+          git apply --check /tmp/issue563.patch
+          git apply /tmp/issue563.patch
           git diff --check
           git rm .github/workflows/apply-issue-563.yml
           git config user.name github-actions[bot]
