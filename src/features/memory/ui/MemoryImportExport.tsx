@@ -277,23 +277,25 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
 
   const saveImport = async () => {
     if (!repository || rows.length === 0 || !beginSave()) return;
+    const actionRepository = repository;
     const actionSetId = targetSetId;
     try {
       const result = await importParsedRows({
-        repository,
+        repository: actionRepository,
         rows,
         resolutions,
         setId: actionSetId || undefined,
         requireExplicitDuplicateResolution: true,
         reviewedDuplicates: duplicates,
       });
+      if (!isCurrentRepository(actionRepository)) return;
       await refreshAfterSave();
+      if (!isCurrentRepository(actionRepository)) return;
       requestSyncSafely();
-      if (!mountedRef.current) return;
       toast(`${result.imported}件を保存しました${result.skipped ? `（${result.skipped}件スキップ）` : ''}`);
       navigate(actionSetId ? { name: 'set', setId: actionSetId } : { name: 'home' });
     } catch (caught) {
-      if (mountedRef.current) toast(caught instanceof Error ? caught.message : '取込に失敗しました');
+      if (isCurrentRepository(actionRepository)) toast(caught instanceof Error ? caught.message : '取込に失敗しました');
     } finally {
       finishSave();
     }
@@ -309,21 +311,23 @@ export function MemoryImportExport({ setId }: { setId?: string }) {
       return;
     }
     if (!beginSave()) return;
+    const actionRepository = repository;
     const actionDocument = selectedSetDocument;
     const actionIncludeStats = includeSelectedSetStats;
     try {
       const result = await importSelectedSetExport({
-        repository,
+        repository: actionRepository,
         document: actionDocument,
         includeStats: actionIncludeStats,
       });
+      if (!isCurrentRepository(actionRepository)) return;
       await refreshAfterSave();
+      if (!isCurrentRepository(actionRepository)) return;
       requestSyncSafely();
-      if (!mountedRef.current) return;
       toast(`${result.imported}件を取り込みました${result.skippedIdentical ? `（同一ID ${result.skippedIdentical}件は保持）` : ''}${result.importedStats ? `・統計 ${result.importedStats}件` : ''}`);
       navigate({ name: 'home' });
     } catch (caught) {
-      if (mountedRef.current) toast(caught instanceof Error ? caught.message : '選択セットJSONを取り込めませんでした');
+      if (isCurrentRepository(actionRepository)) toast(caught instanceof Error ? caught.message : '選択セットJSONを取り込めませんでした');
     } finally {
       finishSave();
     }
